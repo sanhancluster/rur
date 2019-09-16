@@ -2,7 +2,7 @@ import os
 from numpy.core.records import fromarrays
 import numpy as np
 from rur.utool import Timer, get_vector, type_of_script, dump, load, pairing, get_distance, rss, ss, set_vector, discrete_hist2d
-from readhtm import readhtm as readh
+from rur.readhtm import readhtm as readh
 from rur import uri
 from scipy.stats import mode
 from numpy.lib.recfunctions import append_fields, drop_fields
@@ -536,7 +536,7 @@ class PhantomTree:
         uri.timer.verbose = 0
         uri.verbose = 0
 
-        psnap = uri.RamsesSnapshot(repo, iouts[0]-1, mode=mode)
+        psnap = uri.RamsesSnapshot(repo, iouts[0] - 1, mode=mode)
         for iout in tqdm(iouts): # never reorder this!
             nsnap = uri.RamsesSnapshot(repo, iout, mode=mode)
             ptree = PhantomTree.load(repo, path_in_repo=path_in_repo, ptree_format=ptree_format, iout=iout,
@@ -1048,7 +1048,7 @@ class Rockstar:
         for iout in iterator:
             #print('Linking snapshot %d - %d...' % (snap.iout, snap.iout-1))
             try:
-                snap_former = uri.RamsesSnapshot(snap.snap_path, iout-1, snap.mode, full_path=True)
+                snap_former = uri.RamsesSnapshot(snap.snap_path, iout - 1, snap.mode, full_path=True)
                 snap_former.repo = snap.repo
                 prog_part, prog_np_list = Rockstar.load_parts(snap_former, path_in_repo, filefmt=fileini + '_%d.bin')
 

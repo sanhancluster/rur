@@ -1,7 +1,8 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from skimage.transform import rescale, resize, warp, EuclideanTransform, AffineTransform
-from rur import uri, drawer as dr, utool
+from rur import drawer as dr, utool
+from rur import uri
 from rur.utool import Timer, get_vector, bin_centers, rss
 from matplotlib.patches import RegularPolygon, Rectangle
 from scipy.ndimage.filters import gaussian_filter1d
@@ -616,7 +617,7 @@ def draw_mergertree_space(tree, box=None, proj=[0, 1], mass_range=None, alpha=0.
 
     a_start, a_end = 0.2, 1.0
 
-    start = np.median(uri.get_vector(tree[tree['scale']==a_start]), axis=0)
+    start = np.median(uri.get_vector(tree[tree['scale'] == a_start]), axis=0)
     end = uri.get_vector(main_brch[-1])
 
     center = lambda a: start+(end-start)*(a-a_start)/(a_end-a_start)-end

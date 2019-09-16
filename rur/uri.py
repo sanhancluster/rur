@@ -6,8 +6,8 @@ from numpy.core.records import fromarrays as fromarrays
 from scipy.integrate import cumtrapz
 
 from rur.fortranfile import FortranFile
-from hilbert3d import hilbert3d
-from readr import readr
+from rur.hilbert3d import hilbert3d
+from rur.readr import readr
 from rur.config import *
 import numpy as np
 
@@ -339,7 +339,7 @@ class RamsesSnapshot(object):
     ----------
     To read data from ramses raw binary data:
 
-    >>> from rur import uri
+    >>> from rur.rur import uri
     >>> repo = "path/to/your/ramses/outputs"
     >>> snap = uri.RamsesSnapshot(repo, iout=1, path_in_repo='')
     >>> snap.box = np.array([[0, 1], [0, 1], [0, 1]])

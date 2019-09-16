@@ -1,13 +1,32 @@
+[1]: https://www.anaconda.com/
+[2]: https://docs.conda.io/projects/conda-build/en/latest/resources/commands/conda-develop.html
 
 # RAMSES Universal Reader
 
 A package for reading and computing various versions of RAMSES hydro and particle data.
-
 ## Setup
+### Dependencies
+See [requrements](requrements.txt). Packages can be installed by following following commands.
+#### Using Anaconda environment
+```bash
+conda install -c conda-forge --file requirements.txt
+```
+#### Using pip
+```bash
+pip install -r requirements.txt
+```
+### Installing
+Use following command to install the package on current python environment.
 ```bash
 python3 setup.py install
 ```
-If you want to continuously change the code while using, use conda develop.
+In [Anaconda environment][1], if you want to continuously change the source code while using, 
+use [included bash script](f2py.sh) and [conda develop][2].
+```bash
+cd rur
+./f2py.sh
+conda develop .
+```
 
 ## Usage
 
@@ -53,7 +72,7 @@ or you will get an error.
 
 ### Drawing gas / particle map
 
-Cell and particle data can be drawn directly from innate module [rur.painter](painter.py), which is written based on 
+Cell and particle data can be drawn directly from innate module [rur.painter](rur/painter.py), which is written based on 
 matplotlib.pyplot module.
 ```python
 from rur import uri, painter
