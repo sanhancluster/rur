@@ -12,7 +12,7 @@ import matplotlib.collections as mcoll
 from os.path import dirname, join, abspath
 
 def colorline(
-    x, y, z=None, cmap=plt.get_cmap('copper'), norm=plt.Normalize(0.0, 1.0),
+        x, y, z=None, cmap=plt.get_cmap('copper'), norm=plt.Normalize(0.0, 1.0),
         linewidth=3, alpha=1.0, zorder=0):
     """
     http://nbviewer.ipython.org/github/dpsanders/matplotlib-examples/blob/master/colorline.ipynb
