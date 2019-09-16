@@ -15,15 +15,6 @@ import numpy as np
 def write_zoomparts_music(part_ini, cropped, filepath, reduce=None):
     """
     writes position table of particles in MUSIC format.
-
-    :param part_ini: table of particles at start of the simulation
-    :type part_ini: recarray or uri.RamsesSnapshot.Particle
-    :param cropped: list particles in desired zoom region at certain redshift.
-    :type cropped: recarray or uri.RamsesSnapshot.Particle
-    :type filepath: str
-    :param reduce: reduce the number of particles by this ratio by randomly sampling it.
-    :type reduce: int
-    :return: recarray or uri.RamsesSnapshot.Particle
     """
     cropped_ini = part_ini[np.isin(part_ini['id'], cropped['id'], True)]
     if reduce is not None:
@@ -34,10 +25,6 @@ def write_zoomparts_music(part_ini, cropped, filepath, reduce=None):
 def write_parts_rockstar(part, snap, filepath):
     """
     writes particle data in ASCII format that can be read by Rockstar
-
-    :param part:
-    :param snap:
-    :param filepath:
     """
     timer.start('Writing %d particles in %s... ' % (part.size, filepath), 1)
 
