@@ -384,7 +384,7 @@ contains
          read(unitfile) real_temp(1:nb_fathers) ! mass_fathers
 
          do i = 1, MIN(5, nb_fathers)
-            ! massive father first
+            ! father with higher contribution first
             max_ind = MAXLOC(real_temp, 1)
             integer_table(ihalo, 8+i) = integer_temp(max_ind)
             real_table(ihalo, 21+i) = real_temp(max_ind)

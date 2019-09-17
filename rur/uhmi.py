@@ -859,7 +859,7 @@ class TreeMaker:
             path = os.path.join(repo, path_in_repo)
         else:
             if(path_in_repo is None):
-                path_in_repo = 'halo/DM/Tree.dat'
+                path_in_repo = 'halo/DM/tree.dat'
             path = os.path.join(repo, path_in_repo)
         dtype = TreeMaker.dtype
         if(not os.path.exists(path)):

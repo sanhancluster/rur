@@ -1,12 +1,7 @@
 from numpy.distutils.core import Extension, setup
-from os.path import dirname, abspath, join
-from os import system
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
-
-#mypath = dirname(abspath(__file__))
-#system(join(mypath, 'f2py.sh'))
 
 readr = Extension(name='rur.readr', sources=['rur/readr.f90'], language='f90')
 readhtm = Extension(name='rur.readhtm', sources=['rur/readhtm.f90'], language='f90')
