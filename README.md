@@ -6,7 +6,7 @@
 A package for reading and computing various versions of RAMSES hydro and particle data.
 ## Setup
 ### Dependencies
-See [requrements](requrements.txt). Packages can be installed by following commands.
+See [requirements.txt](requirements.txt). All required packages can be installed by following commands.
 #### Using Anaconda environment
 ```bash
 $ conda install -c conda-forge --file requirements.txt
@@ -16,8 +16,13 @@ $ conda install -c conda-forge --file requirements.txt
 $ pip install -r requirements.txt
 ```
 ### Installing
+Download the code from bitbucket repository, or use clone it from the latest repository using git.
+```bash
+$ git clone git clone git@bitbucket.org:sanhancluster/rur.git
+```
 Use following command to install the package on current python environment.
 ```bash
+$ cd rur
 $ python3 setup.py install
 ```
 In [Anaconda environment][1], if you want to continuously change the source code while using, 
