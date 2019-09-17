@@ -146,11 +146,6 @@ def custom_units(snap):
 
 # some extra quantities that can be used as key of particle / cell data
 def custom_extra_fields(snap):
-    def age(part, snap):
-        table = snap.cosmo_table
-        ages = snap.params['age'] - np.interp(part['epoch'], table['u'], table['t'])
-        return ages * snap.unit['Gyr']
-
     common_extra = {
         'pos': lambda table: get_vector(table),  # position vector
         'vel': lambda table: get_vector(table, 'v'),  # velocity vector
@@ -168,7 +163,9 @@ def custom_extra_fields(snap):
 
     # particle extra keys
     snap.part_extra = {
-        'age': lambda table: age(table, snap), # stellar age
+        'age': lambda table: snap.age(table), # stellar age
+        'aform': lambda table: snap.age(table),  # formation epoch
+        'zform': lambda table: 1./table['aform']-1,  # formation epoch
     }
 
     snap.cell_extra.update(common_extra)

@@ -173,18 +173,6 @@ def find_smbh(part, verbose=None):
     timer.verbose = verbose
     return smbh
 
-def age(part, snap):
-    # particle to age
-    table = snap.cosmo_table
-    ages = snap.params['age'] - np.interp(part['epoch'], table['u'], table['t'])
-    return ages * snap.unit['Gyr']
-
-def aform(part, snap):
-    # particle to formation epoch (scale factor)
-    table = snap.cosmo_table
-    aexp = np.interp(part['epoch'], table['u'], table['aexp'])
-    return aexp
-
 def box_mask(coo, box, size=None, exclusive=False):
     # masking coordinates based on the box
     if size is not None:
@@ -426,6 +414,18 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         if(not code_unit):
             extent = extent/self['boxsize_physical']
         self.box = get_box(center, extent)
+
+    def age(self, part):
+        # particle to age
+        table = self.cosmo_table
+        ages = self.params['age'] - np.interp(part['epoch'], table['u'], table['t'])
+        return ages * self.unit['Gyr']
+
+    def aform(self, part):
+        # particle to formation epoch (scale factor)
+        table = self.cosmo_table
+        aexp = np.interp(part['epoch'], table['u'], table['aexp'])
+        return aexp
 
     def set_box_halo(self, halo, radius=1, code_unit=False, radius_name='rvir'):
         center = get_vector(halo)
