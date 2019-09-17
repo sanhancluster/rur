@@ -9,28 +9,28 @@ A package for reading and computing various versions of RAMSES hydro and particl
 See [requirements.txt](requirements.txt). All required packages can be installed by following commands.
 #### Using Anaconda environment
 ```bash
-$ conda install -c conda-forge --file requirements.txt
+conda install -c conda-forge --file requirements.txt
 ```
 #### Using pip
 ```bash
-$ pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 ### Installing
 Download the code from bitbucket repository, or use clone it from the latest repository using git.
 ```bash
-$ git clone git clone git@bitbucket.org:sanhancluster/rur.git
+git clone git clone git@bitbucket.org:sanhancluster/rur.git
 ```
 Use following command to install the package on current python environment.
 ```bash
-$ cd rur
-$ python3 setup.py install
+cd rur
+python3 setup.py install
 ```
 In [Anaconda environment][1], if you want to continuously change the source code while using, 
 use included bash script [f2py.sh](f2py.sh) and [conda develop][2].
 ```bash
-$ cd rur
-$ ./f2py.sh
-$ conda develop .
+cd rur
+./f2py.sh
+conda develop .
 ```
 
 ## Usage
@@ -76,7 +76,7 @@ also need to be changed, or you will get an error.
 
 ### Drawing gas / particle map
 
-Cell and particle data can be drawn directly from innate module [`rur.painter`](rur/painter.py), which is relies on 
+Cell and particle data can be drawn directly from built-in module [`rur.painter`](rur/painter.py), which relies on 
 `matplotlib.pyplot` module.
 ```python
 from rur import uri, painter
