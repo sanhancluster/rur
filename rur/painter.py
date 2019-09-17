@@ -3,7 +3,7 @@ from matplotlib import pyplot as plt
 from skimage.transform import rescale, resize, warp, EuclideanTransform, AffineTransform
 from rur import drawer as dr, utool
 from rur import uri
-from rur.utool import Timer, get_vector, bin_centers, rss
+from rur.utool import Timer, get_vector, bin_centers, rss, los
 from matplotlib.patches import RegularPolygon, Rectangle
 from scipy.ndimage.filters import gaussian_filter1d
 from collections.abc import Iterable
@@ -88,7 +88,7 @@ def set_bins(known_lvls, minlvl, maxlvl, box_proj, shape):
     return minlvl, maxlvl, basebin, edge
 
 
-def lvlmap(cell, box=None, proj=[0, 1], shape=None, minlvl=None, maxlvl=None, subpx_crop=True):
+def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, subpx_crop=True):
     if(box is None and isinstance(cell, uri.RamsesSnapshot.Cell)):
         box = cell.snap.box
 
@@ -156,41 +156,42 @@ def draw_lvlmap(cell, box=None, proj=[0, 1], shape=None, minlvl=None, maxlvl=Non
 
     draw_image(image, np.concatenate(box_proj), vmax=maxlvl, vmin=minlvl, normmode='linear', **kwargs)
 
-def set_weights(mode, cell, unit):
+def set_weights(mode, cell, unit, depth):
     quantity = None
-    if(mode=='v'):
+    if (mode == 'v'):
         # averge mass-weighted velocity along LOS
         weights = cell['rho']
-    elif(mode=='T'):
+    elif (mode == 'T'):
         # averge mass-weighted temperature along LOS
         weights = cell['rho']
-    elif(mode=='metal'):
+    elif (mode == 'metal'):
         # averge mass-weighted metallicity along LOS
         weights = cell['rho']
-    elif(mode=='mach'):
+    elif (mode == 'mach'):
         # averge mass-weighted mach number along LOS
         weights = cell['rho']
     elif (mode == 'vel'):
         # averge mass-weighted velocity along LOS
         weights = cell['rho']
         quantity = rss(cell[mode, unit])
-    elif(mode=='zoom'):
+    elif (mode == 'zoom'):
         # cumulative refinement paramster along LOS
         weights = np.full(cell.size, 1)
-    elif(mode=='rho'):
+    elif (mode == 'rho'):
         # average density along LOS
         weights = np.full(cell.size, 1)
+    elif (mode == 'crho'):
+        # column density along LOS
+        weights = np.full(cell.size, 1)
+        quantity = cell['rho', unit] * depth
     else:
         raise ValueError('Unknown gasmap mode.')
     if(quantity is None):
-        if(unit is None):
-            quantity = cell[mode]
-        else:
-            quantity = cell[mode, unit]
+        quantity = cell[mode, unit]
 
     return quantity, weights
 
-def gasmap(cell, box=None, proj=[0, 1], shape=None, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, anti_aliasing=False):
+def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, anti_aliasing=False):
     if(box is None and isinstance(cell, uri.RamsesSnapshot.Cell)):
         box = cell.snap.box
 
@@ -218,12 +219,15 @@ def gasmap(cell, box=None, proj=[0, 1], shape=None, mode='rho', unit=None, minlv
 
     image = np.zeros(basebin)
     depth_map = np.zeros(basebin)
+    depth = np.diff(box[los(proj)])
+
     for ilvl in known_lvls:
         mask = lvl==ilvl
         cell_lvl = cell[mask]
 
+        qm, wm = set_weights(mode, cell_lvl, unit, depth)
+
         xm = get_vector(cell_lvl)
-        qm, wm = set_weights(mode, cell_lvl, unit)
 
         binlvl = np.min([ilvl, maxlvl])
         binsize = basebin * 2**(binlvl-minlvl)
@@ -232,6 +236,7 @@ def gasmap(cell, box=None, proj=[0, 1], shape=None, mode='rho', unit=None, minlv
         hist_weight = np.histogram2d(xm[:, proj[0]], xm[:, proj[1]], bins=binsize, range=edge, weights=wm)[0]
         hist_map = np.histogram2d(xm[:, proj[0]], xm[:, proj[1]],
                                   bins=binsize, range=edge, weights=qm*wm)[0]
+        # weighted average map of quantities
         hist_map = np.divide(hist_map, hist_weight, where=hist_weight!=0)
 
         if (ilvl < maxlvl):
@@ -239,17 +244,20 @@ def gasmap(cell, box=None, proj=[0, 1], shape=None, mode='rho', unit=None, minlv
         else:
             ibin = ilvl*3 - maxlvl*2
 
-        depth_map_new = depth_map + hist_weight * 0.5 ** ibin
+        # additional depth
+        add_depth = hist_weight * 0.5 ** ibin
+
+        # new depth
+        depth_map_new = depth_map + add_depth
         mask_active = (hist_weight > 0) & (depth_map_new > 0)
 
-        image[mask_active] = (np.divide(image * depth_map + hist_map * hist_weight * 0.5 ** ibin, depth_map_new,
+        image[mask_active] = (np.divide(image * depth_map + hist_map * add_depth, depth_map_new,
                                         where=mask_active))[mask_active]
         depth_map = depth_map_new
 
         if(ilvl < maxlvl):
             image = rescale(image, 2, mode='constant', order=0, multichannel=False, anti_aliasing=anti_aliasing)
             depth_map = rescale(depth_map, 2, mode='constant', order=0, multichannel=False, anti_aliasing=anti_aliasing)
-
 
     crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
     if(subpx_crop):
@@ -275,7 +283,7 @@ def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho',
 
     draw_image(image, extent=extent, **kwargs)
 
-def tracermap(tracer_part, box=None, proj=[0, 1], shape=None, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, anti_aliasing=False):
+def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, anti_aliasing=False):
     if(box is None and isinstance(tracer_part, uri.RamsesSnapshot.Particle)):
         box = tracer_part.snap.box
 
@@ -302,26 +310,25 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=None, mode='rho', unit=N
 
     image = np.zeros(basebin)
 
-    dims = np.arange(3)
-    los = dims[np.isin(dims, proj, invert=True, assume_unique=True)][0]
-    depth = np.diff(box[los])
+    depth = np.diff(box[los(proj)])
 
     for ilvl in known_lvls:
         mask = lvl==ilvl
         cell_lvl = tracer_part[mask]
 
-        xm = get_vector(cell_lvl)
-        qm = cell_lvl['m'] / cell_lvl['dx']**2
-
         binlvl = np.min([ilvl, maxlvl])
         binsize = basebin * 2**(binlvl-minlvl)
+
+        xm = get_vector(cell_lvl)
+        qm = cell_lvl['m', unit] / 0.5**(binlvl*2)
+        if(mode == 'crho'):
+            qm *= depth
 
         # convert coordinates to map
         hist_map = np.histogram2d(xm[:, proj[0]], xm[:, proj[1]], bins=binsize, range=edge, weights=qm)[0]
 
         ibin = ilvl - binlvl
-
-        image += hist_map * 0.5**ibin
+        image += hist_map * 0.5 ** ibin
 
         if(ilvl < maxlvl):
             image = rescale(image, 2, mode='constant', order=0, multichannel=False, anti_aliasing=anti_aliasing)
@@ -339,7 +346,7 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=None, mode='rho', unit=N
     return image.T
 
 
-def partmap(part, box=None, proj=[0, 1], shape=500, weights=None, unit=None, method='hist', x=None, smooth=16):
+def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, method='hist', x=None, smooth=16):
     if(box is None and isinstance(part, uri.RamsesSnapshot.Particle)):
         box = part.snap.box
 
@@ -418,7 +425,6 @@ def draw_image(image, extent=None, vmin=None, vmax=None, qmin=None, qmax=None, q
     return ims
 
 
-
 def save_image(image, fname, cmap=plt.cm.viridis, vmin=None, vmax=None, qmin=None, qmax=None, qscale=3., normmode='log', nanzero=False):
     if(len(image.shape)>2):
         plt.imsave(fname, image, origin='lower')
@@ -427,6 +433,7 @@ def save_image(image, fname, cmap=plt.cm.viridis, vmin=None, vmax=None, qmin=Non
 
         plt.imsave(fname, image_norm, origin='lower')
 
+
 def draw_contour(image, extent, vmin=None, vmax=None, qmin=None, qmax=None, qscale=None, normmode='log', nlevel=3, **kwargs):
     image = norm(image, vmin, vmax, qmin, qmax, qscale=qscale, mode=normmode)
 
@@ -434,7 +441,6 @@ def draw_contour(image, extent, vmin=None, vmax=None, qmin=None, qmax=None, qsca
     yarr = bin_centers(extent[2], extent[3], image.shape[1])
 
     return plt.contour(xarr, yarr, image, **kwargs)
-
 
 
 def draw_points(points, box=None, proj=[0, 1], **kwargs):
@@ -565,7 +571,6 @@ def draw_grid(cell, box=None, ax=None, proj=[0, 1], minlvl=None, maxlvl=None, co
         for xy in coords:
             ax.add_patch(Rectangle(xy, size, size, edgecolor=color, facecolor='None', linewidth=linewidth, alpha=alpha, zorder=100, **kwargs))
 
-
     if(box is not None):
         ax.set_xlim(box_proj[0])
         ax.set_ylim(box_proj[1])
@@ -586,8 +591,6 @@ def draw_vector(pos, vec, box=None, ax=None, proj=[0, 1], length=None, **kwargs)
     if(box is not None):
         ax.set_xlim(box[proj[0]])
         ax.set_ylim(box[proj[1]])
-
-
 
 
 def draw_mergertree(tree, root):
@@ -646,8 +649,11 @@ def draw_mergertree_space(tree, box=None, proj=[0, 1], mass_range=None, alpha=0.
         pos = uri.get_vector(halos)
         for i in np.arange(halos.size):
             pos[i] = pos[i]-center(halos[i]['scale'])
-        dr.colorline(gaussian_filter1d(pos[:, proj[0]], 1), gaussian_filter1d(pos[:, proj[1]], 1), np.log10(halos['mvir']), cmap=plt.cm.rainbow, linewidth=((maxmass-10)/2)**1.5, norm=plt.Normalize(*mass_range), alpha=alpha, zorder=10)
-
+        dr.colorline(gaussian_filter1d(pos[:, proj[0]], 1),
+                     gaussian_filter1d(pos[:, proj[1]], 1),
+                     np.log10(halos['mvir']),
+                     cmap=plt.cm.rainbow, linewidth=((maxmass-10)/2)**1.5,
+                     norm=plt.Normalize(*mass_range), alpha=alpha, zorder=10)
 
     plt.xlim(box[proj[0]])
     plt.ylim(box[proj[1]])
@@ -691,84 +697,9 @@ def composite_image(images, cmaps, weights=None, vmins=None, vmaxs=None, qmins=N
     for image, cmap, vmin, vmax, qmin, qmax, qscale, normmode in zip(images, cmaps, vmins, vmaxs, qmins, qmaxs, qscales, normmodes):
         rgbs.append(cmap(norm(image, vmin, vmax, qmin, qmax, qscale=qscale, mode=normmode)))
     rgbs = np.array(rgbs)
-    if(mode == 'average'):
-        image = np.average(rgbs, axis=0, weights=weights)
-    elif(mode == 'multiply'):
-        image = np.product(rgbs, axis=0)
-    elif(mode == 'max'):
-        image = np.max(rgbs, axis=0)
-    elif(mode == 'screen'):
-        image = 1.-np.prod(1.-rgbs, axis=0)
+
+    image = combine_image(rgbs, mode, weights)
     return image
-
-
-def draw_multicomponent(part, cell, snap, proj=[0, 1], maxlvl=14):
-    fig = plt.figure(figsize=(18, 10))
-    box = snap.box
-
-    cfied = uri.part_classifier(part, snap.params['star'])
-
-    dm = cfied['dm']
-    star = cfied['star']
-
-    gas_rho = gasmap(cell, maxlvl=maxlvl, box=box, proj=proj)
-    part_dm = partmap(dm, bins=gas_rho.shape[::-1], box=box, proj=proj, adaptive=True)
-    part_star = partmap(star, bins=gas_rho.shape[::-1], box=box, proj=proj, adaptive=False)
-
-    gas_T = gasmap(cell, maxlvl=maxlvl, box=box, proj=proj, mode='T')
-    gas_v = gasmap(cell, maxlvl=maxlvl, box=box, proj=proj, mode='v')
-    gas_metal = gasmap(cell, maxlvl=maxlvl, box=box, proj=proj, mode='metal')
-    #gas_ref = gasmap(cell, maxlvl=maxlvl, box=box, proj=proj, mode='ref')
-
-    cim = composite_image([gas_rho, part_dm, part_star, gas_T], [dr.ccm.forest, dr.ccm.darkmatter, dr.ccm.DarkYellow, dr.ccm.DarkRed], weights=[1., 1., 1, 0.5], mode='product',
-                                  qmaxs=[0.999, 0.999, 0.99, 0.999], qmins=[0.04, 0.04, 0.04, 0.04], normmodes=['log', 'log', 'log', 'linear'])
-
-    grid = dr.gridplot(2, 4, wspace=0.07, hspace=0.07, labpanel=[
-        'left', 'top',
-        ['z=%.3f\nM=%.3e\nM/M*=%.2f' % (1 / snap.params['aexp'] - 1, np.sum(dm['m']) / uri.Msol, np.sum(dm['m']) / np.sum(star['m'])),
-         'Gas', 'DM', 'Star', 'Gas-Temperature', 'Gas-Velocity', 'Gas-Metal', 'Refinement']],
-                       xlims=[box[proj[0]], box[proj[0]], box[proj[0]], box[proj[0]]], ylims=[box[proj[1]], box[proj[1]]], panlabcolor='w', panlabsize=10)
-    plt.subplot(grid[0])
-    plt.imshow(cim, extent=np.concatenate([box[proj[0]], box[proj[1]]]), origin='lower')
-    plt.xlim(box[proj[0]])
-    plt.ylim(box[proj[1]])
-
-    plt.subplot(grid[1])
-    draw_image(gas_rho, extent=np.concatenate([box[proj[0]], box[proj[1]]]), cmap=plt.cm.viridis)
-    plt.xlim(box[proj[0]])
-    plt.ylim(box[proj[1]])
-
-    plt.subplot(grid[2])
-    draw_image(part_dm, extent=np.concatenate([box[proj[0]], box[proj[1]]]), cmap=dr.ccm.darkmatter)
-    plt.xlim(box[proj[0]])
-    plt.ylim(box[proj[1]])
-
-    plt.subplot(grid[3])
-    draw_image(part_star, extent=np.concatenate([box[proj[0]], box[proj[1]]]), cmap=plt.cm.afmhot, qmax=0.99)
-    plt.xlim(box[proj[0]])
-    plt.ylim(box[proj[1]])
-
-    plt.subplot(grid[4])
-    draw_image(gas_T, extent=np.concatenate([box[proj[0]], box[proj[1]]]), cmap=plt.cm.inferno)
-    plt.xlim(box[proj[0]])
-    plt.ylim(box[proj[1]])
-
-    plt.subplot(grid[5])
-    draw_image(gas_v, extent=np.concatenate([box[proj[0]], box[proj[1]]]), cmap=dr.ccm.forest)
-    plt.xlim(box[proj[0]])
-    plt.ylim(box[proj[1]])
-
-    plt.subplot(grid[6])
-    draw_image(gas_metal, extent=np.concatenate([box[proj[0]], box[proj[1]]]), cmap=plt.cm.winter)
-    plt.xlim(box[proj[0]])
-    plt.ylim(box[proj[1]])
-
-    plt.subplot(grid[7])
-    #draw_image(gas_ref, extent=np.concatenate([box[proj[0]], box[proj[1]]]), cmap=plt.cm.jet)
-    plt.xlim(box[proj[0]])
-    plt.ylim(box[proj[1]])
-
-    fig.show()
 
 
 def norm(v, vmin=None, vmax=None, qmin=None, qmax=None, qscale=3., mode='log', nanzero=False):

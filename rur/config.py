@@ -127,10 +127,13 @@ def custom_units(snap):
         'cm/s': t / l,
 
         # Temperature
-        'K'   : t**2 / l**2 * k_B / m_H,
+        'K'   : t ** 2 / l ** 2 * k_B / m_H,
 
         # Column density
-        'Msol/Mpc2': Msol / Mpc ** 2 / m * l**2,
+        'Msol/Mpc2': Msol / Mpc ** 2 / m * l ** 2,
+        'Msol/kpc2': Msol / kpc ** 2 / m * l ** 2,
+        'Msol/pc2': Msol / pc ** 2 / m * l ** 2,
+        'H/cm2': m_H / m * l ** 2,
 
         # Pressure
         'Ba'  : t**2 * l / m,

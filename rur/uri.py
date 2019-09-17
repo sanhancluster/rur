@@ -683,106 +683,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         else:
             return part_file.read_longs()
 
-    def _read_amr_cpu(self, icpu):
-
-        ncpu = self.params['ncpu']
-        ndim = self.params['ndim']
-        levelmax = self.params['levelmax']
-
-        params = {}
-        # opening amr file
-        print(self.get_path('amr', icpu))
-        amr_file = FortranFile(self.get_path('amr', icpu))
-
-        amr_file.skip_records(2)  # skip ncpu, ndim
-        amr_file.skip_records(1)  # skip nx, xy, nz
-        amr_file.skip_records(2)  # skip nlevelmax, ngridmax
-
-        nboundary = amr_file.read_ints()[0]
-
-        amr_file.skip_records(1)
-        # params['boxlen'] = file.read_reals()[0]  # known
-        amr_file.skip_records(1)  # skip boxlen
-        amr_file.skip_records(13)
-
-        ngridlevel = np.reshape(amr_file.read_ints(), (levelmax, ncpu))
-
-        amr_file.skip_records(1)
-
-        if nboundary > 0:
-            amr_file.skip_records(2)
-            params['ngridbound'] = amr_file.read_ints()[0]
-            # TODO something with boundary?
-
-        amr_file.skip_records(2)
-
-        if self.params['ordering'] == 'bisection':
-            amr_file.skip_records(5)
-        else:
-            amr_file.skip_records(1)
-
-        amr_file.skip_records(3)
-
-        # opening hydro file
-        hydro_file = FortranFile(self.get_path('hydro', icpu))
-        hydro_file.skip_records(1)
-        params['nvarh'] = hydro_file.read_ints()[0]
-        hydro_file.skip_records(4)
-
-        gridmap = ngridlevel > 0
-        skip_block_size = 3 * (2 ** ndim + ndim) + 1
-
-        xg_cpu = []
-        ref_cpu = []
-        var_cpu = []
-        lmap_cpu = []
-
-        for ilevel, jcpu in np.argwhere(gridmap) + 1:
-            amr_file.skip_records(3)
-
-            if (jcpu == icpu):
-                xg = amr_file.read_arrays(ndim, dtype='f8').T
-                xg_cpu.append(xg)
-
-                amr_file.skip_records(1)
-                amr_file.skip_records(2 * ndim)
-
-                son = amr_file.read_arrays(2 ** ndim, dtype='i4').T
-                ref_cpu.append(son>0)
-
-                amr_file.skip_records(2 * 2 ** ndim)
-
-                lmap_cpu.append(np.full(xg.shape[0], ilevel))
-
-            else:
-                amr_file.skip_records(skip_block_size)
-
-        for ilevel in np.arange(1, levelmax + 1):
-            for jcpu in np.arange(1, ncpu + 1):
-                hydro_file.skip_records(2)
-
-                if gridmap[ilevel - 1, jcpu - 1]:
-                    if jcpu == icpu:
-                        var = []
-                        for _ in np.arange(2 ** ndim):
-                            array = hydro_file.read_arrays(params['nvarh'], dtype='f8')
-                            var.append(array)
-                        var = np.array(var).T
-                        var_cpu.append(var)
-
-                    else:
-                        hydro_file.skip_records(2 ** ndim * params['nvarh'])
-        amr_file.close()
-        hydro_file.close()
-
-        xg_cpu = np.concatenate(xg_cpu)
-        ref_cpu = np.concatenate(ref_cpu)
-        var_cpu = np.concatenate(var_cpu)
-        lmap_cpu = np.concatenate(lmap_cpu)
-
-        return xg_cpu, ref_cpu, var_cpu, lmap_cpu
-
     def read_hydro_ng(self):
+        # not used
+
         hydro_uolds = []
         for icpu in np.arange(1, self.params['ncpu'] + 1):
             path = self.get_path(type='hydro', icpu=icpu)
@@ -993,8 +896,6 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
         if(self.cell is not None and self.part is not None):
             print('Baryonic fraction: %.3f' % ((gas_tot+star_tot+smbh_tot) / (dm_tot+gas_tot+star_tot+smbh_tot)))
-
-########### functions ###########
 
 
 def ckey2idx(amr_keys, nocts, levelmin, ndim=3):

@@ -77,6 +77,13 @@ def load(path, msg=True):
 # Some RAMSES-related stuff
 dim_keys = ['x', 'y', 'z']
 
+def los(proj, ndim=3):
+    # return line-of-sight dimension from given projection
+    if(len(proj) != ndim-1):
+        raise ValueError('Invalid projection')
+    dims = np.arange(ndim)
+    return dims[np.isin(dims, proj, invert=True)][0]
+
 def get_vector(table, prefix='', ndim=3):
     return np.stack([table[prefix + key] for key in dim_keys[:ndim]], axis=-1)
 
