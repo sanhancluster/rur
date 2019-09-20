@@ -643,7 +643,7 @@ class PhantomTree:
                     r90 = np.quantile(dists, 0.9)
 
                 r50 = np.quantile(dists, 0.5)
-                sfr = np.sum(gal_star[gal_star['age', 'Myr']<sfr_measure_Myr]['m', 'Msol']) / 1E6
+                sfr = np.sum(gal_star[gal_star['age', 'Myr']<sfr_measure_Myr]['m', 'Msol']) / (sfr_measure_Myr*1E6)
 
                 ptree['sfr'][gal['idx']] = sfr
                 ptree['r90'][gal['idx']] = r90
