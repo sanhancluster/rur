@@ -7,6 +7,7 @@ from rur.utool import Timer, get_vector, bin_centers, rss, los
 from matplotlib.patches import RegularPolygon, Rectangle
 from scipy.ndimage.filters import gaussian_filter1d
 from collections.abc import Iterable
+import os
 
 if(__name__=='__main__'):
     verbose = 1
@@ -425,7 +426,11 @@ def draw_image(image, extent=None, vmin=None, vmax=None, qmin=None, qmax=None, q
     return ims
 
 
-def save_image(image, fname, cmap=plt.cm.viridis, vmin=None, vmax=None, qmin=None, qmax=None, qscale=3., normmode='log', nanzero=False):
+def save_image(image, fname, cmap=plt.cm.viridis, vmin=None, vmax=None, qmin=None, qmax=None, qscale=3., normmode='log', nanzero=False, make_dir=False):
+    fname = os.path.expanduser(fname)
+    if(make_dir):
+        os.makedirs(os.path.dirname(fname), exist_ok=True)
+
     if(len(image.shape)>2):
         plt.imsave(fname, image, origin='lower')
     else:
