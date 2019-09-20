@@ -613,6 +613,6 @@ class ccm:
 
     cmap_dir = pkg_resources.resource_filename('rur', 'colormaps/data/')
     hesperia = load_cmap(join(cmap_dir, 'hesperia.csv'))
-    lagunaa = load_cmap(join(cmap_dir, 'laguna.csv'))
+    laguna = load_cmap(join(cmap_dir, 'laguna.csv'))
     lacerta = load_cmap(join(cmap_dir, 'lacerta.csv'))
     mod_plasma = load_cmap(join(cmap_dir, 'mod_plasma.csv'))
