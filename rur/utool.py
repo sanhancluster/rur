@@ -99,7 +99,8 @@ def set_vector(table, vector, prefix='', ndim=3, where=None):
 
 def get_box(center, extent):
     center = np.array(center)
-    extent = np.array(extent)
+    if(not np.isscalar(extent)):
+        extent = np.array(extent)
     return np.stack([center-extent/2, center+extent/2], axis=-1)
 
 def get_distance(a, b, prefix='', ndim=3):
