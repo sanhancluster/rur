@@ -346,6 +346,17 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
     timer.record()
     return image.T
 
+def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, anti_aliasing=False, **kwargs):
+    if(box is None and isinstance(tracer_part, uri.RamsesSnapshot.Particle)):
+        box = tracer_part.snap.box
+
+    image = tracermap(tracer_part, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl, subpx_crop=subpx_crop, anti_aliasing=anti_aliasing)
+
+    box_proj = get_box_proj(box, proj)
+    if extent is None:
+        extent = np.concatenate(box_proj)
+
+    draw_image(image, extent=extent, **kwargs)
 
 def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, method='hist', x=None, smooth=16):
     if(box is None and isinstance(part, uri.RamsesSnapshot.Particle)):
@@ -772,8 +783,12 @@ def set_ticks_unit(snap, proj=[0, 1], unit='kpc', nticks=4):
     plt.xticks(xticks*snap.unit[unit]+xc, labels=xticks)
     plt.yticks(yticks*snap.unit[unit]+yc, labels=yticks)
 
-    plt.xlabel('X (%s)' % unit)
-    plt.ylabel('Y (%s)' % unit)
+    chars = ['X', 'Y', 'Z']
+    xchar = chars[proj[0]]
+    ychar = chars[proj[1]]
+
+    plt.xlabel('%s (%s)' % (xchar, unit))
+    plt.ylabel('%s (%s)' % (ychar, unit))
 
 
 def get_tickvalues(range, nticks=4):
