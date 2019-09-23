@@ -3,6 +3,8 @@
 
 # RAMSES Universal Reader
 
+By San Han
+
 A package for reading and computing various versions of RAMSES hydro and particle data.
 ## Setup
 ### Dependencies
