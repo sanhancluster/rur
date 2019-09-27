@@ -980,6 +980,7 @@ class Rockstar:
                     lines.append(ln)
         return "".join(lines[2:])
 
+
     @staticmethod
     def load_parts(snap, path_in_repo='rst', filefmt='halos_%d.bin'):
         repo = snap.repo
@@ -998,7 +999,7 @@ class Rockstar:
             for ihalo in np.arange(nhalo):
                 fb.seek(256 + Rockstar.bin_nfields * 8 * ihalo)
                 halo_id = np.fromfile(fb, '<i8', 1).astype('i4')[0] # should be same with ihalo, but just for insurance.
-                fb.seek(256 + Rockstar.bin_nfields*8*ihalo + Rockstar.bin_offset_npart*8)  # skip all the way to nparts
+                fb.seek(256 + Rockstar.bin_nfields * 8 * ihalo + Rockstar.bin_offset_npart*8)  # skip all the way to nparts
                 nparts = np.fromfile(fb, '<i8', 1).astype('i4')[0]
                 halo_ids[now:now+nparts] = halo_id
                 now+=nparts
