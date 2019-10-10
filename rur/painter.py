@@ -416,7 +416,7 @@ def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=No
     draw_image(image, extent=extent, **kwargs)
 
 
-def rgb_image(image,  vmin=None, vmax=None, qmin=None, qmax=None, qscale=3., normmode='log', nanzero=False, imfilter=None, cmap=plt.cm.viridis):
+def rgb_image(image,  vmin=None, vmax=None, qmin=None, qmax=None, qscale=3., normmode='log', nanzero=False, imfilter=None, cmap=dr.ccm.laguna):
     if(not len(image.shape)>2):
         image = norm(image, vmin, vmax, qmin, qmax, qscale=qscale, mode=normmode, nanzero=nanzero)
 
@@ -426,18 +426,18 @@ def rgb_image(image,  vmin=None, vmax=None, qmin=None, qmax=None, qscale=3., nor
     return cmap(image)
 
 
-def draw_image(image, extent=None, vmin=None, vmax=None, qmin=None, qmax=None, qscale=3., normmode='log', nanzero=False, imfilter=None, **kwargs):
+def draw_image(image, extent=None, vmin=None, vmax=None, qmin=None, qmax=None, qscale=3., normmode='log', nanzero=False, imfilter=None, cmap=dr.ccm.laguna, **kwargs):
     if(not len(image.shape)>2):
         image = norm(image, vmin, vmax, qmin, qmax, qscale=qscale, mode=normmode, nanzero=nanzero)
 
     if(imfilter is not None):
         image = imfilter(image)
 
-    ims = plt.imshow(image, extent=extent, vmin=0, vmax=1, origin='lower', zorder=1, **kwargs)
+    ims = plt.imshow(image, extent=extent, vmin=0, vmax=1, origin='lower', zorder=1, cmap=cmap, **kwargs)
     return ims
 
 
-def save_image(image, fname, cmap=plt.cm.viridis, vmin=None, vmax=None, qmin=None, qmax=None, qscale=3., normmode='log', nanzero=False, make_dir=False):
+def save_image(image, fname, cmap=dr.ccm.laguna, vmin=None, vmax=None, qmin=None, qmax=None, qscale=3., normmode='log', nanzero=False, make_dir=False):
     fname = os.path.expanduser(fname)
     if(make_dir):
         os.makedirs(os.path.dirname(fname), exist_ok=True)
