@@ -10,6 +10,7 @@ from rur.hilbert3d import hilbert3d
 from rur.readr import readr
 from rur.config import *
 import numpy as np
+import warnings
 
 
 def write_zoomparts_music(part_ini, cropped, filepath, reduce=None):
@@ -96,12 +97,12 @@ def cut_spherical(table, center, radius, prefix='', ndim=3, inverse=False):
         mask = distances <= radius
     return table[mask]
 
-def cut_halo(table, halo, radius=1, code_unit=False, inverse=False, radius_name='rvir'):
+def cut_halo(table, halo, radius=1, use_halo_radius=True, inverse=False, radius_name='rvir'):
     center = get_vector(halo)
-    if(code_unit):
-        radius = radius
-    else:
+    if(use_halo_radius):
         radius = halo[radius_name] * radius
+    else:
+        radius = radius
     return cut_spherical(table, center, radius, inverse=inverse)
 
 def classify_part(part, pname):
@@ -428,6 +429,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         return aexp
 
     def set_box_halo(self, halo, radius=1, code_unit=False, radius_name='rvir'):
+        if(isinstance(halo, np.ndarray)):
+            warnings.warn("numpy.ndarray is passed instead of np.void in halo parameter. Assuming first row as input halo...", UserWarning)
+            halo = halo[0]
         center = get_vector(halo)
         if(not code_unit):
             extent = halo[radius_name] * radius * 2
@@ -620,9 +624,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             arr = [*readr.real_table.T, *readr.integer_table.T]
 
             if(len(arr) != len(names)):
-                raise Warning(
+                raise ValueError(
                     "Number of fields and size of the hydro array does not match\n"
-                    "This is likely due to wrong selection of RAMSES version.")
+                    "Consider change the content of RamsesSnapshot.hydro_names")
 
             if target_fields is not None:
                 target_idx = np.where(np.isin(names, target_fields))[0]
