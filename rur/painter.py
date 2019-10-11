@@ -175,6 +175,9 @@ def set_weights(mode, cell, unit, depth):
         # averge mass-weighted velocity along LOS
         weights = cell['rho']
         quantity = rss(cell[mode, unit])
+    elif (mode == 'dust'):
+        # average dust density along LOS
+        weights = cell['rho']
     elif (mode == 'zoom'):
         # cumulative refinement paramster along LOS
         weights = np.full(cell.size, 1)
