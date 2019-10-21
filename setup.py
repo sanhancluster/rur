@@ -18,4 +18,12 @@ if __name__ == "__main__":
         ext_modules=[readr, readhtm, hilbert3d],
         long_description=long_description,
         package_data={'rur': ['colormaps/data/*.csv']},
+        install_requires=[
+            'numpy',
+            'matplotlib',
+            'scipy',
+            'parse',
+            'tqdm',
+            'scikit-image',
+        ]
     )
