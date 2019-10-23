@@ -860,12 +860,15 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         smbh_tot = 0
         if(self.box is not None):
             volume = np.prod(self.box[:, 1]-self.box[:, 0]) / (self.unit['Mpc']/self.params['h'])**3 / self.params['aexp']**3
-            print('Redshift (z) = %.5f' % (self.z))
+            print('=============================================')
+            print('Description of the snapshot %05d (%s)' % (self.iout, self.repo))
+            print('---------------------------------------------')
+            print('Redshift (z) = %.5f, Age of the Universe = %.4f Gyr' % (self.z, self.params['age']))
             print('Comoving volume of the box: %.3e (Mpc/h)^3' % (volume))
         if(self.part is not None):
             part = self.part
             part = part[box_mask(get_vector(part), self.box)]
-            print('---------------------------------')
+            print('---------------------------------------------')
             print('Total  number of particles: %d' % part.size)
             dm = part['dm']
             tracer = part['tracer']
@@ -905,6 +908,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             print('Total number of cells: %d' % cell.size)
             gas_tot = np.sum(cell['rho'] * (cell['dx'])**3) / self.unit['Msol']
             print('Total gas mass: %.3e Msol' % gas_tot)
+            print('')
 
 
         if(self.cell is not None and self.part is not None):
