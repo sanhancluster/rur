@@ -5,6 +5,7 @@ from rur import drawer as dr, utool
 from rur import uri
 from rur.utool import Timer, get_vector, bin_centers, rss, los
 from matplotlib.patches import RegularPolygon, Rectangle
+import matplotlib.colors
 from scipy.ndimage.filters import gaussian_filter1d
 from collections.abc import Iterable
 import os
@@ -361,7 +362,7 @@ def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, m
 
     draw_image(image, extent=extent, **kwargs)
 
-def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, method='hist', x=None, smooth=16):
+def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, method='hist', x=None, smooth=16, crho=False):
     if(box is None and isinstance(part, uri.RamsesSnapshot.Particle)):
         box = part.snap.box
 
@@ -396,7 +397,9 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
     else:
         raise ValueError('Unknown estimator.')
 
-    image /= depth
+    if(not crho):
+        image /= depth
+
     if(unit is not None):
         image /= part.snap.unit[unit]
 
@@ -405,7 +408,7 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
     return image.T
 
 
-def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=None, unit=None, method='hist', smooth=16, **kwargs):
+def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=None, unit=None, method='hist', smooth=16, crho=False, **kwargs):
     if(box is None and isinstance(part, uri.RamsesSnapshot.Particle)):
         box = part.snap.box
 
@@ -419,9 +422,9 @@ def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=No
     draw_image(image, extent=extent, **kwargs)
 
 
-def rgb_image(image,  vmin=None, vmax=None, qmin=None, qmax=None, qscale=3., normmode='log', nanzero=False, imfilter=None, cmap=dr.ccm.laguna):
+def rgb_image(image,  vmin=None, vmax=None, qscale=3., normmode='log', nanzero=False, imfilter=None, cmap=dr.ccm.laguna):
     if(not len(image.shape)>2):
-        image = norm(image, vmin, vmax, qmin, qmax, qscale=qscale, mode=normmode, nanzero=nanzero)
+        image = norm(image, vmin, vmax, qscale=qscale, mode=normmode, nanzero=nanzero)
 
     if(imfilter is not None):
         image = imfilter(image)
@@ -429,9 +432,9 @@ def rgb_image(image,  vmin=None, vmax=None, qmin=None, qmax=None, qscale=3., nor
     return cmap(image)
 
 
-def draw_image(image, extent=None, vmin=None, vmax=None, qmin=None, qmax=None, qscale=3., normmode='log', nanzero=False, imfilter=None, cmap=dr.ccm.laguna, **kwargs):
+def draw_image(image, extent=None, vmin=None, vmax=None, qscale=3., normmode='log', nanzero=False, imfilter=None, cmap=dr.ccm.laguna, **kwargs):
     if(not len(image.shape)>2):
-        image = norm(image, vmin, vmax, qmin, qmax, qscale=qscale, mode=normmode, nanzero=nanzero)
+        image = norm(image, vmin, vmax, qscale=qscale, mode=normmode, nanzero=nanzero)
 
     if(imfilter is not None):
         image = imfilter(image)
@@ -440,7 +443,7 @@ def draw_image(image, extent=None, vmin=None, vmax=None, qmin=None, qmax=None, q
     return ims
 
 
-def save_image(image, fname, cmap=dr.ccm.laguna, vmin=None, vmax=None, qmin=None, qmax=None, qscale=3., normmode='log', nanzero=False, make_dir=False):
+def save_image(image, fname, cmap=dr.ccm.laguna, vmin=None, vmax=None, qscale=3., normmode='log', nanzero=False, make_dir=False):
     fname = os.path.expanduser(fname)
     if(make_dir):
         os.makedirs(os.path.dirname(fname), exist_ok=True)
@@ -448,13 +451,18 @@ def save_image(image, fname, cmap=dr.ccm.laguna, vmin=None, vmax=None, qmin=None
     if(len(image.shape)>2):
         plt.imsave(fname, image, origin='lower')
     else:
-        image_norm = cmap(norm(image, vmin, vmax, qmin, qmax, qscale, mode=normmode, nanzero=nanzero))
+        image_norm = cmap(norm(image, vmin, vmax, qscale, mode=normmode, nanzero=nanzero))
 
         plt.imsave(fname, image_norm, origin='lower')
 
+def save_figure(fname, make_dir=True, **kwargs):
+    fname = os.path.expanduser(fname)
+    if(make_dir):
+        os.makedirs(os.path.dirname(fname), exist_ok=True)
+    plt.savefig(fname, **kwargs)
 
-def draw_contour(image, extent, vmin=None, vmax=None, qmin=None, qmax=None, qscale=None, normmode='log', nlevel=3, **kwargs):
-    image = norm(image, vmin, vmax, qmin, qmax, qscale=qscale, mode=normmode)
+def draw_contour(image, extent, vmin=None, vmax=None, qscale=None, normmode='log', nlevel=3, **kwargs):
+    image = norm(image, vmin, vmax, qscale=qscale, mode=normmode)
 
     xarr = bin_centers(extent[0], extent[1], image.shape[0])
     yarr = bin_centers(extent[2], extent[3], image.shape[1])
@@ -691,7 +699,7 @@ def combine_image(rgbs, mode='screen', weights=None):
     return image
 
 
-def composite_image(images, cmaps, weights=None, vmins=None, vmaxs=None, qmins=None, qmaxs=None, qscales=3., mode='average', normmodes=None):
+def composite_image(images, cmaps, weights=None, vmins=None, vmaxs=None, qscales=3., mode='average', normmodes=None):
     rgbs = []
 
     nimg = len(images)
@@ -700,10 +708,6 @@ def composite_image(images, cmaps, weights=None, vmins=None, vmaxs=None, qmins=N
         vmins = np.full(nimg, None)
     if(vmaxs is None):
         vmaxs = np.full(nimg, None)
-    if(qmins is None):
-        qmins = np.full(nimg, None)
-    if(qmaxs is None):
-        qmaxs = np.full(nimg, None)
     if(isinstance(qscales, float)):
         qscales = np.full(nimg, qscales)
     if(normmodes is None):
@@ -713,43 +717,49 @@ def composite_image(images, cmaps, weights=None, vmins=None, vmaxs=None, qmins=N
         print('vmins:', vmins)
         print('vmaxs:', vmaxs)
 
-    for image, cmap, vmin, vmax, qmin, qmax, qscale, normmode in zip(images, cmaps, vmins, vmaxs, qmins, qmaxs, qscales, normmodes):
-        rgbs.append(cmap(norm(image, vmin, vmax, qmin, qmax, qscale=qscale, mode=normmode)))
+    for image, cmap, vmin, vmax, qscale, normmode in zip(images, cmaps, vmins, vmaxs, qscales, normmodes):
+        rgbs.append(cmap(norm(image, vmin, vmax, qscale=qscale, mode=normmode)))
     rgbs = np.array(rgbs)
 
     image = combine_image(rgbs, mode, weights)
     return image
 
 
-def norm(v, vmin=None, vmax=None, qmin=None, qmax=None, qscale=3., mode='log', nanzero=False):
+def norm(v, vmin=None, vmax=None, qscale=3., mode='log', nanzero=False):
     v = v.copy()
-    if(mode == 'log'):
-        if(vmax is None):
-            vmax = np.nanmax(v)
-        if(qscale is None):
-            if(vmin is not None):
-                qscale = np.log10(vmax-vmin)
-            else:
-                qscale = np.log10(vmax)-np.log10(np.nanmin(v[v>0]))
-        if(vmin is None):
-            vmin = 10. ** (np.log10(vmax)-qscale)
-        if(qmax is not None):
-            vmax = 10. ** (np.log10(qmax)-qscale*(1-qmax))
-        if(qmin is not None):
-            vmin = 10. ** (np.log10(qmin) + qscale * qmin)
+    if (vmax is None):
+        vmax = np.nanmax(v)
+    if (qscale is None):
+        if (vmin is not None):
+            qscale = np.log10(vmax - vmin)
+        else:
+            qscale = np.log10(vmax) - np.log10(np.nanmin(v[v > 0]))
+    if (vmin is None):
+        vmin = 10. ** (np.log10(vmax) - qscale)
 
+    if(mode == 'log'):
         v[v<vmin] = vmin
         v = np.log10(v/vmin) / np.log10(vmax/vmin)
     elif(mode == 'linear'):
-        if(vmax is None):
-            vmax = np.max(v)
-        if(vmin is None):
-            vmin = np.min(v)
-        if(qmax is not None):
-            vmax += (vmax-vmin)*qmax
-        if(qmin is not None):
-            vmin += (vmax-vmin)*qmin
         v = (v - vmin) / (vmax - vmin)
+
+    elif(mode == 'asinh'):
+        asinh = lambda x: np.arcsinh(10*x)/3
+        v = asinh((v - vmin) / (vmax - vmin))
+
+    elif(mode == 'sinh'):
+        sinh = lambda x: np.sinh(3*x)/10
+        v = sinh((v - vmin) / (vmax - vmin))
+
+    elif(mode == 'sqrt'):
+        sqrt = lambda x: np.sqrt(x)
+        v = sqrt((v - vmin) / (vmax - vmin))
+
+    elif(mode == 'pow'):
+        a = 1000
+        pow = lambda x: (a**x-1)/a
+        v = pow((v - vmin) / (vmax - vmin))
+
 
     if(verbose>=2):
         print('vmin: %f' % vmin)
@@ -811,6 +821,6 @@ def get_tickvalues(range, nticks=4):
 
     ticks = (np.arange(range[0]//ticksize, range[1]//ticksize, 1) + 1) * ticksize
     ticks = np.round(ticks, -order_int)
-    if(order>=0):
+    if(order_int>=0):
         ticks = ticks.astype(int)
     return ticks

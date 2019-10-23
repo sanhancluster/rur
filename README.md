@@ -12,12 +12,15 @@ Download the code from bitbucket repository, or use clone it from the latest rep
 git clone git clone git@bitbucket.org:sanhancluster/rur.git
 ```
 ### Installing
-#### Using Conda environment
-See [requirements.txt](requirements.txt) for dependencies. All required packages can be installed by following commands.
+#### Using pip
+Use the following command to install the package using pip.
 ```bash
-conda install -c conda-forge --file requirements.txt
+cd rur
+pip install .
 ```
-Use following command to install the package on current python environment.
+This requires numpy to be already installed.
+#### Using Conda environment
+Use the following command to install the package on current python environment.
 ```bash
 cd rur
 python3 setup.py install
@@ -28,12 +31,6 @@ use included bash script [f2py.sh](f2py.sh) and [conda develop][2] instead.
 cd rur
 ./f2py.sh
 conda develop .
-```
-#### Using pip
-Use following command to install the package using pip.
-```bash
-cd rur
-pip install .
 ```
 ## Usage
 ### Reading a full volume data
