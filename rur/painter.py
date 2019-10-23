@@ -480,7 +480,7 @@ def draw_points(points, box=None, proj=[0, 1], **kwargs):
     plt.scatter(x[:, proj[0]], x[:, proj[1]], zorder=100, **kwargs)
 
 
-def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_range=None, **kwargs):
+def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_range=None, zorder=100, labels=None, fontsize=10, fontcolor='lightyellow', **kwargs):
     if(box is None and isinstance(smbh, uri.RamsesSnapshot.Particle)):
         box = smbh.snap.box
     box_proj = get_box_proj(box, proj)
@@ -497,15 +497,21 @@ def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_ran
 
     mass_scale = norm(mass, m_min, m_max)
 
-    s =  (mass_scale)**2 * s + 1
+    ss =  (mass_scale)**2 * s + 1
 
     if(cmap is not None):
-        color = cmap(mass_scale)
-
-    plt.scatter(poss[:, proj[0]], poss[:, proj[1]], s=s, color=color, **kwargs)
+        colors = cmap(mass_scale)
+        color = colors
+    plt.scatter(poss[:, proj[0]], poss[:, proj[1]], s=ss, color=color, zorder=zorder, **kwargs)
 
     plt.xlim(box_proj[0])
     plt.ylim(box_proj[1])
+
+    if(labels is not None):
+        ax = plt.gca()
+        for i, pos, label, s in zip(np.arange(smbh.size), poss, labels, ss):
+            #ax.text(pos[proj[0]], pos[proj[1]], label, color='white', ha='center', va='top', fontsize=fontsize, zorder=zorder, transform=ax.transAxes)
+            ax.annotate(label, (pos[proj[0]], pos[proj[1]]), xytext=(5, 5), textcoords='offset points', color=fontcolor, fontsize=fontsize, zorder=zorder)
 
 
 
