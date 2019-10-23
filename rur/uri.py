@@ -652,6 +652,14 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if(timer.verbose>=1):
                 print('CPU list already satisfied.')
 
+    def read_sink(self, path_in_repo='', iprop=None, drag_part=True):
+        if(iprop is not None):
+            path = join(self.repo, path_in_repo)
+            readr.read_sinkprop(path, iprop, drag_part)
+            print(readr.real_table)
+        return readr
+
+
     def clear(self, part=True, cell=True):
         """Clear exsisting cache from snapshot data.
 
@@ -836,6 +844,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 return self.__getitem__(letter) / self.snap.unit[unit]
             else:
                 return RamsesSnapshot.Particle(self.table[item], self.snap)
+
 
     def get_halos_cpulist(self, halos, radius=3., radius_name='rvir', n_divide=4):
         cpulist = []

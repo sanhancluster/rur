@@ -4,10 +4,13 @@ module readr
     ! Tables, used for communication with Pyhton
     ! cell: x(3), varh(5~7)
     ! part: x(3), v(3), m, (age, metal)
+    ! sink: m, x(3), v(3), j(3), dMBHoverdt, dMEdoverdt, dMsmbh, d_avgptr, c_avgptr, v_avgptr, Esave,
+    ! bhspin, spinmag, eps_sink, rho_star, rho_dm, low_star, low_dm, fast_star, fast_dm
     real(kind=8),    dimension(:,:),   allocatable::real_table
 
     ! cell: level, cpu
     ! part: id, level, cpu
+    ! sink: id
     integer(kind=4), dimension(:,:),   allocatable::integer_table
 
     ! part: long id
@@ -406,6 +409,47 @@ contains
     end subroutine read_part
 
 !#####################################################################
+    subroutine read_sinkprop(repo, iprop, drag_part)
+!#####################################################################
+        implicit none
+
+        integer :: nsink, ndim, i
+        integer :: sink_n, nreal, nint
+        real :: aexp
+
+        character(len=128),    intent(in) :: repo
+        integer,               intent(in) :: iprop
+        logical,               intent(in) :: drag_part
+
+        sink_n = 40
+        call close()
+
+        open(unit=sink_n, file=sinkprop_filename(repo, iprop), status='old', form='unformatted')
+        read(sink_n) nsink
+        read(sink_n) ndim
+        read(sink_n) aexp
+        call skip_read(sink_n, 3)
+
+        nint=1
+        if(drag_part) then
+            nreal = 26
+        else
+            nreal = 20
+        end if
+        allocate(real_table(1:nsink, 1:nreal))
+        allocate(integer_table(1:nsink, 1:nint))
+
+        read(sink_n) integer_table(:,1)
+        do i=1,nreal
+            read(sink_n) real_table(:, i)
+        end do
+
+        close(sink_n)
+
+    end subroutine read_sinkprop
+
+
+!#####################################################################
     subroutine close()
 !#####################################################################
         ! Clean old data table is used more then once
@@ -483,6 +527,16 @@ contains
             part_filename = TRIM(repo)//'/output_'//charind(iout)//'/part_'//charind(iout)//'.out'//charind(icpu)
         end if
     end function part_filename
+
+!#####################################################################
+    character(len=128) function sinkprop_filename(repo, iout)
+!#####################################################################
+        implicit none
+        character(len=128), intent(in)  :: repo
+        integer,            intent(in)  :: iout
+
+        sinkprop_filename = TRIM(repo)//'/sink_'//charind(iout)//'.dat'
+    end function sinkprop_filename
 
 !#####################################################################
     subroutine progress_bar(iteration, maximum)

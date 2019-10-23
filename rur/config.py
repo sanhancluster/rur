@@ -1,4 +1,4 @@
-from rur.utool import get_vector, rss, ss, Timer, get_box, expand_shape, Table
+from rur.utool import get_vector, rotate_vector, rss, ss, Timer, get_box, expand_shape, Table
 import numpy as np
 
 # avaiable modes: none, ng, nh
@@ -12,6 +12,9 @@ info_format.update(dict.fromkeys(['nh', 'nh_dm_only', 'none', 'yzics', 'yzics_dm
 data_format = {
     'ng': '{{type}}.out{{icpu:05d}}',
 }
+
+sinkprop_format = {}
+
 data_format.update(dict.fromkeys(['nh', 'nh_dm_only', 'none', 'yzics', 'yzics_dm_only', 'iap', 'gem'], '{{type}}_{snap.iout:05d}.out{{icpu:05d}}'))
 
 default = [('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
