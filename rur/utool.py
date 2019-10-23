@@ -90,6 +90,7 @@ def get_vector(table, prefix='', ndim=3):
 def set_vector(table, vector, prefix='', ndim=3, where=None):
     if(isinstance(table, Table)):
         table = table.table
+    table = table.copy()
     for idim in np.arange(ndim):
         if(where is None):
             table[prefix+dim_keys[idim]] = vector[..., idim]

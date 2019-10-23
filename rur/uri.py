@@ -9,6 +9,7 @@ from rur.fortranfile import FortranFile
 from rur.hilbert3d import hilbert3d
 from rur.readr import readr
 from rur.config import *
+from rur import utool
 import numpy as np
 import warnings
 
@@ -987,3 +988,23 @@ def bulk_sort(array):
 def compute_boundary(cpumap, cpulist):
     bound = np.searchsorted(cpumap, cpulist)
     return np.concatenate([bound, [cpumap.size]])
+
+
+def align_axis(part, gal):
+    coo = get_vector(part)
+    j = get_vector(gal, prefix='L')
+    coo_gal =  get_vector(gal)
+    coo = utool.rotate_vector(coo - coo_gal, j)
+    table = utool.set_vector(part.table, coo + coo_gal)
+    part = RamsesSnapshot.Particle(table, part.snap)
+    return part
+
+def align_axis_cell(part, gal):
+    # Experimental
+    coo = get_vector(part)
+    j = get_vector(gal, prefix='L')
+    coo_gal =  get_vector(gal)
+    coo = utool.rotate_vector(coo - coo_gal, j)
+    table = utool.set_vector(part.table, coo + coo_gal)
+    part = RamsesSnapshot.Cell(table, part.snap)
+    return part
