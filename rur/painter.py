@@ -196,7 +196,7 @@ def set_weights(mode, cell, unit, depth):
 
     return quantity, weights
 
-def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, anti_aliasing=False):
+def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, anti_aliasing=False, interp_order=0):
     if(box is None and isinstance(cell, uri.RamsesSnapshot.Cell)):
         box = cell.snap.box
 
@@ -261,8 +261,8 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
         depth_map = depth_map_new
 
         if(ilvl < maxlvl):
-            image = rescale(image, 2, mode='constant', order=0, multichannel=False, anti_aliasing=anti_aliasing)
-            depth_map = rescale(depth_map, 2, mode='constant', order=0, multichannel=False, anti_aliasing=anti_aliasing)
+            image = rescale(image, 2, mode='constant', order=interp_order, multichannel=False, anti_aliasing=anti_aliasing)
+            depth_map = rescale(depth_map, 2, mode='constant', order=interp_order, multichannel=False, anti_aliasing=anti_aliasing)
 
     crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
     if(subpx_crop):
@@ -276,11 +276,11 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
     return image.T
 
 
-def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, anti_aliasing=False, **kwargs):
+def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, anti_aliasing=False, interp_order=0, **kwargs):
     if(box is None and isinstance(cell, uri.RamsesSnapshot.Cell)):
         box = cell.snap.box
 
-    image = gasmap(cell, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl, subpx_crop=subpx_crop, anti_aliasing=anti_aliasing)
+    image = gasmap(cell, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl, subpx_crop=subpx_crop, anti_aliasing=anti_aliasing, interp_order=interp_order)
 
     box_proj = get_box_proj(box, proj)
     if extent is None:
