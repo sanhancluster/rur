@@ -9,7 +9,7 @@ A package for reading and computing various versions of RAMSES hydro and particl
 ## Setup
 Download the code from bitbucket repository, or use clone it from the latest repository using git.
 ```bash
-git clone git clone git@bitbucket.org:sanhancluster/rur.git
+git clone git@bitbucket.org:sanhancluster/rur.git
 ```
 ### Installing
 #### Using pip
