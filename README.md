@@ -84,14 +84,19 @@ iout = 136
 snap = uri.RamsesSnapshot('my_RAMSES_repo', iout, mode='none', path_in_repo='path_to_files_in_repo')
 
 snap.set_box(center=[0.5, 0.5, 0.5], extent=[0.1, 0.2, 0.1]) # bounding box of the region to draw
+proj = [0, 2]
 
 plt.figure()
 snap.get_part()
 plt.subplot(121)
-painter.draw_partmap(snap.part['star'], proj=[0, 2])
+plt.title('Stars')
+painter.draw_partmap(snap.part['star'], proj=proj, shape=1000)
+painter.set_ticks_unit(snap, proj, 'kpc')
 
 snap.get_cell()
 plt.subplot(122)
-painter.draw_gasmap(snap.cell, proj=[0, 2], mode='rho', shap=1000)
+plt.title('Gas')
+painter.draw_gasmap(snap.cell, proj=proj, mode='rho', shape=1000)
 plt.show()
 ```
+![Tutorial](rur_tutorial.png)
