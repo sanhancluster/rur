@@ -35,7 +35,15 @@ part_dtype = {
     'ng': default + [('id', 'i4'), ('level', 'u1'), ('cpu', 'i4')],
 }
 
-sink_table_format = [('id', 'i8'), ('m', 'f8'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8')]
+sink_prop_dtype = [
+    ('id', 'i4'), ('m', 'f8'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'),
+    ('jx', 'f8'), ('jy', 'f8'), ('jz', 'f8'), ('Mdot', 'f8'), ('Medd', 'f8'), ('dM', 'f8'),
+    ('d_avgptr', 'f8'), ('c_avgptr', 'f8'), ('v_avgptr', 'f8'), ('Esave', 'f8'),
+    ('spin', 'f8'), ('spinmag', 'f8'), ('eps_sink', 'f8'),
+    ('rho_star', 'f8'), ('rho_dm', 'f8'), ('low_star', 'f8'), ('low_dm', 'f8'), ('fast_star', 'f8'), ('fast_dm', 'f8')
+]
+
+sink_table_dtype = [('id', 'i8'), ('m', 'f8'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8')]
 
 # columns for hydro quantity table, all float64, see readr.f90
 hydro_names = {
