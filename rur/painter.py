@@ -484,7 +484,7 @@ def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_ran
     if(box is None and isinstance(smbh, uri.RamsesSnapshot.Particle)):
         box = smbh.snap.box
     box_proj = get_box_proj(box, proj)
-    smbh = smbh[uri.box_mask(uri.get_vector(smbh), box)]
+    #smbh = smbh[uri.box_mask(uri.get_vector(smbh), box)]
 
     poss = uri.get_vector(smbh)
     mass = smbh['m', 'Msol']
@@ -786,13 +786,17 @@ def draw_partmap_polar(part, pos=[0.5, 0.5, 0.5], radius=0.5, qscale=3):
     #image = np.histogram2d(x[:, proj[0]], x[:, proj[1]], bins=shape, range=box_proj, weights=weights)[0]
     dr.hist_imshow(x, y, lims=[[-1, 1], [-1, 1]], reso=1000, weights=None)
 
-def set_ticks_unit(snap, proj=[0, 1], unit='kpc', nticks=4):
+def set_ticks_unit(snap, proj=[0, 1], unit='kpc', nticks=4, centered=True):
     box_proj = get_box_proj(snap.box, proj)
     xr = np.array(box_proj[0])
     yr = np.array(box_proj[1])
 
-    xc = np.mean(xr)
-    yc = np.mean(yr)
+    if(centered):
+        xc = np.mean(xr)
+        yc = np.mean(yr)
+    else:
+        xc = 0.
+        yc = 0.
 
     lunit = snap.unit[unit]
 
