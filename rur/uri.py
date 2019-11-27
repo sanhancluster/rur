@@ -412,9 +412,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
     def set_unit(self):
         custom_units(self)
 
-    def set_box(self, center, extent, code_unit=True):
+    def set_box(self, center, extent, code_unit=True, unit='Mpc'):
         if(not code_unit):
-            extent = extent/self['boxsize_physical']
+            extent = extent/self.unit[unit]
         self.box = get_box(center, extent)
 
     def age(self, part):
