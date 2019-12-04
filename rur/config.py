@@ -174,8 +174,8 @@ def custom_extra_fields(snap):
 
     # particle extra keys
     snap.part_extra = {
-        'age': lambda table: snap.age(table), # stellar age
-        'aform': lambda table: snap.aform(table),  # formation epoch
+        'age': lambda table: snap.epoch_to_age(table['epoch']), # stellar age
+        'aform': lambda table: snap.epoch_to_aexp(table['epoch']),  # formation epoch
         'zform': lambda table: 1./table['aform']-1,  # formation epoch
     }
 

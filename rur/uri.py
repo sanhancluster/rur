@@ -402,9 +402,16 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.cosmo_table = snap.cosmo_table
 
         self.params['age'] = np.interp(params['aexp'], self.cosmo_table['aexp'], self.cosmo_table['t'])
+        self.params['lookback_time'] = self.cosmo_table['t'][-1] - self.params['age']
 
         if(timer.verbose>=1):
             print('Age of the universe (now/z=0): %.3f / %.3f Gyr, z = %.5f' % (self.params['age'], self.cosmo_table['t'][-1], params['z']))
+
+    def aexp_to_age(self, aexp):
+        return np.interp(aexp, self.cosmo_table['aexp'], self.cosmo_table['t'])
+
+    def age_to_aexp(self, age):
+        return np.interp(age, self.cosmo_table['t'], self.cosmo_table['aexp'])
 
     def set_extra_fields(self, params=None):
         custom_extra_fields(self)
@@ -417,16 +424,14 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             extent = extent/self.unit[unit]
         self.box = get_box(center, extent)
 
-    def age(self, part):
-        # particle to age
+    def epoch_to_age(self, epoch):
         table = self.cosmo_table
-        ages = self.params['age'] - np.interp(part['epoch'], table['u'], table['t'])
+        ages = self.params['age'] - np.interp(epoch, table['u'], table['t'])
         return ages * self.unit['Gyr']
 
-    def aform(self, part):
-        # particle to formation epoch (scale factor)
+    def epoch_to_aexp(self, epoch):
         table = self.cosmo_table
-        aexp = np.interp(part['epoch'], table['u'], table['aexp'])
+        aexp = np.interp(epoch, table['u'], table['aexp'])
         return aexp
 
     def set_box_halo(self, halo, radius=1, code_unit=False, radius_name='rvir'):
@@ -627,7 +632,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if(len(arr) != len(names)):
                 raise ValueError(
                     "Number of fields and size of the hydro array does not match\n"
-                    "Consider change the content of RamsesSnapshot.hydro_names")
+                    "Consider changing the content of RamsesSnapshot.hydro_names")
 
             if target_fields is not None:
                 target_idx = np.where(np.isin(names, target_fields))[0]

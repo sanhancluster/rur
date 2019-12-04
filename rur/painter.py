@@ -516,10 +516,15 @@ def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_ran
 
 
 def draw_halos(halos, box=None, ax=None, proj=[0, 1], mass_range=None, cmap=plt.cm.jet, color=None, labels=None, size_key='rvir', shape='circle', fontsize=10, extents=None, **kwargs):
-    mask = uri.box_mask(get_vector(halos), box=box)
     proj_keys = np.array(['x', 'y', 'z'])[proj]
+
     if ax is None:
         ax = plt.gca()
+
+    if(not isinstance(halos, Iterable)):
+        halos = np.array([halos], dtype=halos.dtype)
+    mask = uri.box_mask(get_vector(halos), box=box)
+
     if(labels is None):
         labels = np.full(halos.size, None)
     if(not isinstance(extents, Iterable)):
@@ -531,7 +536,7 @@ def draw_halos(halos, box=None, ax=None, proj=[0, 1], mass_range=None, cmap=plt.
     labels = np.array(labels)[mask]
     extents = np.array(extents)[mask]
 
-    print('Drawing %d halos...' % halos.size)
+    timer.start('Drawing %d halos...' % halos.size, 1)
 
     if mass_range is None:
         mass_range = np.log10(np.array([np.min(halos['mvir']), np.max(halos['mvir'])]))
@@ -552,6 +557,8 @@ def draw_halos(halos, box=None, ax=None, proj=[0, 1], mass_range=None, cmap=plt.
             ax.add_artist(Rectangle([x-r, y-r], r*2, r*2, linewidth=0.5, edgecolor=color_cmp, facecolor='none', zorder=10, **kwargs))
         if(label is not None):
             ax.text(x, y-r*1.1, label, color=color_cmp, ha='center', va='top', fontsize=fontsize)
+
+    timer.record()
 
     if(box is not None):
         ax.set_xlim(box[proj[0]])

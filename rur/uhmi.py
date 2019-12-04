@@ -215,7 +215,7 @@ class PhantomTree:
     @staticmethod
     def from_halomaker(snap, lookup, rankup=1, path_in_repo=path_in_repo, max_part_size=None,
                        desc_format=desc_format, pass_format=pass_format, ptree_format=ptree_format, nparts_min=None,
-                       part_array_offset=1.1, skip_jumps=False, start_on_middle=False, **kwargs):
+                       part_array_buffer=1.1, skip_jumps=False, start_on_middle=False, **kwargs):
         print('Building PhantomTree from HaloMaker data in %s' % snap.repo)
         max_iout = snap.iout
         uri.timer.verbose = 0
@@ -223,7 +223,7 @@ class PhantomTree:
 
         if (max_part_size is None):
             halo, part_ids = HaloMaker.load(snap, load_parts=True, **kwargs)
-            max_part_size = int(np.max(part_ids) * part_array_offset)
+            max_part_size = int(np.max(part_ids) * part_array_buffer)
 
         part_pool = np.full((lookup, max_part_size), -1, dtype='i4')
         sizes = np.zeros(lookup, dtype='i4')
@@ -497,6 +497,8 @@ class PhantomTree:
 
     @staticmethod
     def load(repo, path_in_repo=path_in_repo, ptree_file=ptree_file, ptree_format=ptree_format, iout=None, msg=True):
+        if(isinstance(repo, uri.RamsesSnapshot)):
+            repo = repo.repo
         if(iout is None):
             filename = ptree_file
         else:
@@ -986,6 +988,32 @@ class Rockstar:
         repo = snap.repo
         iout = snap.iout
         with open(os.path.join(repo, path_in_repo, filefmt % iout), mode='rb') as fb:
+            fb.seek(8*8) # skip some headers
+            nhalo = np.fromfile(fb, '<i8', 1)[0]
+
+            fb.seek(256 + Rockstar.bin_nfields*8*nhalo)
+            part_ids = np.fromfile(fb, '<i8')
+            part_ids = np.array(part_ids, dtype='i4')
+            halo_ids = np.empty(part_ids.shape, dtype='i4')
+            nparts_list = []
+
+            now = 0
+            for ihalo in np.arange(nhalo):
+                fb.seek(256 + Rockstar.bin_nfields * 8 * ihalo)
+                halo_id = np.fromfile(fb, '<i8', 1).astype('i4')[0] # should be same with ihalo, but just for insurance.
+                fb.seek(256 + Rockstar.bin_nfields * 8 * ihalo + Rockstar.bin_offset_npart*8)  # skip all the way to nparts
+                nparts = np.fromfile(fb, '<i8', 1).astype('i4')[0]
+                halo_ids[now:now+nparts] = halo_id
+                now+=nparts
+                nparts_list.append(nparts)
+
+            output = np.rec.fromarrays([part_ids, halo_ids], names=['pid', 'hid'])
+            return output, np.array(nparts_list)
+
+
+    @staticmethod
+    def load_binary(file):
+        with open(file, mode='rb') as fb:
             fb.seek(8*8) # skip some headers
             nhalo = np.fromfile(fb, '<i8', 1)[0]
 
