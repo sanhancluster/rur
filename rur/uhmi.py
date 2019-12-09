@@ -1,7 +1,8 @@
 import os
 from numpy.core.records import fromarrays
 import numpy as np
-from rur.utool import Timer, get_vector, type_of_script, dump, load, pairing, get_distance, rss, ss, set_vector, discrete_hist2d
+from rur.utool import Timer, get_vector, type_of_script, dump, load, pairing, get_distance, rss, ss,\
+    set_vector, discrete_hist2d, weighted_quantile
 from rur.readhtm import readhtm as readh
 from rur import uri
 from scipy.stats import mode
@@ -582,17 +583,20 @@ class PhantomTree:
 
 
     @staticmethod
-    def measure_star_prop(repo, path_in_repo=path_in_repo, halomaker_repo='GalaxyMaker/gal', ptree_file=ptree_file, mode='none', overwrite=True, backup_freq=30, sfr_measure_Myr=50.):
+    def measure_star_prop(repo, path_in_repo=path_in_repo, halomaker_repo='GalaxyMaker/gal', ptree_file=ptree_file, mode='none',
+                          overwrite=True, backup_freq=30, sfr_measure_Myr=50., mass_cut_refine=2.4E-11, backup_file='ptree_SFR.pkl.backup'):
         # repo should be specified here since we use particle data.
         print("Starting properties measure for %s" % repo)
         ptree_path = os.path.join(repo, path_in_repo)
         ptree = PhantomTree.load(repo, ptree_path, ptree_file=ptree_file)
         if(overwrite):
-            ptree = drop_fields(ptree, ['idx', 'sfr', 'r90', 'r50'], usemask=False)
+            ptree = drop_fields(ptree, ['idx', 'sfr', 'r90', 'r50', 'age', 'metal', 'contam'], usemask=False)
         zero_double = np.zeros(ptree.size, dtype='f8')
-        ptree = append_fields(ptree, ['idx', 'sfr', 'r90', 'r50'], [np.arange(ptree.size), zero_double, zero_double, zero_double], usemask=False)
+        ptree = append_fields(ptree, ['idx', 'sfr', 'r90', 'r50', 'age', 'metal', 'contam'], [np.arange(ptree.size), zero_double, zero_double, zero_double], usemask=False)
 
         iouts = np.unique(ptree['timestep'])
+        iouts = np.sort(iouts)
+        min_iout = np.min(iouts)
         max_iout = np.max(iouts)
 
         snap = uri.RamsesSnapshot(repo, max_iout, mode=mode)
@@ -603,6 +607,7 @@ class PhantomTree:
         uri.timer.verbose = 0
         uri.verbose = 0
 
+        psnap = uri.RamsesSnapshot(repo, min_iout-1, mode=mode)
         for iout in tqdm(iouts):
             nsnap = uri.RamsesSnapshot(repo, iout, mode=mode)
 
@@ -613,6 +618,7 @@ class PhantomTree:
 
             halomaker, part_ids = HaloMaker.load(nsnap, halomaker_repo, galaxy=True, load_parts=True)
 
+            # find missing galaxies (temporal SF clumps that was previously removed by PhantomTree)
             gal_missing = halomaker[np.isin(halomaker['id'], gals['hmid'], assume_unique=True, invert=True)]
             #halomaker, part_ids = HaloMaker.cut_table(halomaker, part_ids, mask2)
 
@@ -627,44 +633,64 @@ class PhantomTree:
 
             for gal in tqdm(gals):
                 nsnap.set_box_halo(gal, radius=1., radius_name='r')
-                star = nsnap.get_part(exact_box=False)['star']
+                nsnap.get_part(exact_box=False)
+                dm = nsnap.part['dm']
+                star = nsnap.part['star']
                 gal_mask = part_pool[np.abs(star['id'])] == idxs[halomaker['id'] == gal['hmid']]
                 if(np.sum(gal_mask)==0):
                     continue
                 gal_star = star[gal_mask]
                 dists = get_distance(gal, gal_star)
-                r90 = np.quantile(dists, 0.9)
+
+                # first calculate r90 (may be updated if there's a subgalaxy
+                r90 = weighted_quantile(dists, 0.9, sample_weight=gal_star['m'])
 
                 subgals = gal_missing[get_distance(gal, gal_missing)<r90]
 
                 if(subgals.size>0):
+                    # get mask for both main galaxy and subgalaxies
                     subgal_mask = np.isin(halomaker['id'], np.concatenate([[gal['hmid']], subgals['id']]), assume_unique=True)
                     gal_mask = np.isin(part_pool[np.abs(star['id'])], idxs[subgal_mask], assume_unique=True)
                     gal_star = star[gal_mask]
                     dists = get_distance(gal, gal_star)
-                    r90 = np.quantile(dists, 0.9)
+                    r90 = weighted_quantile(dists, 0.9, sample_weight=gal_star['m'])
 
-                r50 = np.quantile(dists, 0.5)
+                r50 = weighted_quantile(dists, 0.5, sample_weight=gal_star['m'])
                 sfr = np.sum(gal_star[gal_star['age', 'Myr']<sfr_measure_Myr]['m', 'Msol']) / (sfr_measure_Myr*1E6)
+                msf = np.sum(gal_star[(psnap['time'] < gal_star['epoch']) & (nsnap['time'] >= gal_star['epoch'])]['m', 'Msol'])
+
+                dm_r90 = uri.cut_halo(dm, gal, r90, True)
+
+                age = np.average(gal_star['age', 'Gyr'], weights=gal_star['m'])
+                metal = np.average(gal_star['metal'], weights=gal_star['m'])
+                contam = np.sum(dm_r90[dm_r90['m']>mass_cut_refine]['m'])/np.sum(dm_r90['m'])
 
                 ptree['sfr'][gal['idx']] = sfr
+                ptree['msf'][gal['idx']] = msf
                 ptree['r90'][gal['idx']] = r90
                 ptree['r50'][gal['idx']] = r50
                 ptree['m'][gal['idx']] = np.sum(gal_star['m', 'Msol'])
-                ptree['vx'][gal['idx']] = np.mean(gal_star['vx', 'km/s'])
-                ptree['vy'][gal['idx']] = np.mean(gal_star['vy', 'km/s'])
-                ptree['vz'][gal['idx']] = np.mean(gal_star['vz', 'km/s'])
+
+                ptree['vx'][gal['idx']] = np.average(gal_star['vx', 'km/s'], weights=gal_star['m'])
+                ptree['vy'][gal['idx']] = np.average(gal_star['vy', 'km/s'], weights=gal_star['m'])
+                ptree['vz'][gal['idx']] = np.average(gal_star['vz', 'km/s'], weights=gal_star['m'])
+
                 ptree['nparts'][gal['idx']] = gal_star.size
+                ptree['contam'][gal['idx']] = contam
+                ptree['age'][gal['idx']] = age
+                ptree['metal'][gal['idx']] = metal
 
             if(iout % backup_freq == 0):
-                PhantomTree.save(ptree, repo, ptree_path, ptree_file='ptree_SFR.pkl')
+                PhantomTree.save(ptree, repo, ptree_path, ptree_file=backup_file)
 
+            psnap.clear()
+            psnap = nsnap
             gc.collect()
 
         uri.timer.verbose = 1
         uri.verbose = 1
         ptree = drop_fields(ptree, 'idx', usemask=False)
-        PhantomTree.save(ptree, repo, ptree_path, ptree_file='ptree_SFR.pkl')
+        PhantomTree.save(ptree, repo, ptree_path, ptree_file=ptree_file)
 
     @staticmethod
     def measure_gas_prop(repo, path_in_repo=path_in_repo, ptree_file=ptree_file, mode='none', overwrite=True, backup_freq=50, min_radius=1., max_radius=5., radius_name='r90', iout_start=0):
