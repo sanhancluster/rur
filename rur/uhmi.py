@@ -584,15 +584,19 @@ class PhantomTree:
 
     @staticmethod
     def measure_star_prop(repo, path_in_repo=path_in_repo, halomaker_repo='GalaxyMaker/gal', ptree_file=ptree_file, mode='none',
-                          overwrite=True, backup_freq=30, sfr_measure_Myr=50., mass_cut_refine=2.4E-11, backup_file='ptree_SFR.pkl.backup'):
+                          overwrite=True, backup_freq=30, sfr_measure_Myr=50., mass_cut_refine=2.4E-11,
+                          output_file='ptree_SFR.pkl', backup_file='ptree_SFR.pkl.backup'):
         # repo should be specified here since we use particle data.
         print("Starting properties measure for %s" % repo)
         ptree_path = os.path.join(repo, path_in_repo)
         ptree = PhantomTree.load(repo, ptree_path, ptree_file=ptree_file)
+
+        fields = ['sfr', 'sfr2', 'sfr4', 'msf', 'r90', 'r50', 'age', 'metal', 'contam']
         if(overwrite):
-            ptree = drop_fields(ptree, ['idx', 'sfr', 'r90', 'r50', 'age', 'metal', 'contam'], usemask=False)
+            ptree = drop_fields(ptree, ['idx', *fields], usemask=False)
         zero_double = np.zeros(ptree.size, dtype='f8')
-        ptree = append_fields(ptree, ['idx', 'sfr', 'r90', 'r50', 'age', 'metal', 'contam'], [np.arange(ptree.size), zero_double, zero_double, zero_double], usemask=False)
+        ptree = append_fields(ptree, ['idx', *fields],
+                              [np.arange(ptree.size), *(zero_double,)*len(fields)], usemask=False)
 
         iouts = np.unique(ptree['timestep'])
         iouts = np.sort(iouts)
@@ -657,15 +661,19 @@ class PhantomTree:
 
                 r50 = weighted_quantile(dists, 0.5, sample_weight=gal_star['m'])
                 sfr = np.sum(gal_star[gal_star['age', 'Myr']<sfr_measure_Myr]['m', 'Msol']) / (sfr_measure_Myr*1E6)
+                sfr2 = np.sum(gal_star[gal_star['age', 'Myr']<sfr_measure_Myr*2]['m', 'Msol']) / (sfr_measure_Myr*2E6)
+                sfr4 = np.sum(gal_star[gal_star['age', 'Myr']<sfr_measure_Myr*4]['m', 'Msol']) / (sfr_measure_Myr*4E6)
                 msf = np.sum(gal_star[(psnap['time'] < gal_star['epoch']) & (nsnap['time'] >= gal_star['epoch'])]['m', 'Msol'])
-
-                dm_r90 = uri.cut_halo(dm, gal, r90, True)
 
                 age = np.average(gal_star['age', 'Gyr'], weights=gal_star['m'])
                 metal = np.average(gal_star['metal'], weights=gal_star['m'])
+
+                dm_r90 = uri.cut_halo(dm, gal, r90, use_halo_radius=False)
                 contam = np.sum(dm_r90[dm_r90['m']>mass_cut_refine]['m'])/np.sum(dm_r90['m'])
 
                 ptree['sfr'][gal['idx']] = sfr
+                ptree['sfr2'][gal['idx']] = sfr2
+                ptree['sfr4'][gal['idx']] = sfr4
                 ptree['msf'][gal['idx']] = msf
                 ptree['r90'][gal['idx']] = r90
                 ptree['r50'][gal['idx']] = r50
@@ -690,10 +698,10 @@ class PhantomTree:
         uri.timer.verbose = 1
         uri.verbose = 1
         ptree = drop_fields(ptree, 'idx', usemask=False)
-        PhantomTree.save(ptree, repo, ptree_path, ptree_file=ptree_file)
+        PhantomTree.save(ptree, repo, ptree_path, ptree_file=output_file)
 
     @staticmethod
-    def measure_gas_prop(repo, path_in_repo=path_in_repo, ptree_file=ptree_file, mode='none', overwrite=True, backup_freq=50, min_radius=1., max_radius=5., radius_name='r90', iout_start=0):
+    def measure_gas_prop(repo, path_in_repo=path_in_repo, ptree_file=ptree_file, mode='none', overwrite=True, backup_freq=30, min_radius=1., max_radius=4., radius_name='r90', iout_start=0):
         def wgas_mask(cell):
             # Torrey et al. 2012
             return np.log10(cell['T', 'K']) < 6 + 0.25 * np.log10(cell['rho', 'Msol/kpc3'] * snap['h'] ** 2 / 10 ** 10)
@@ -704,7 +712,7 @@ class PhantomTree:
         def load_cell_snap(iout):
             gals = ptree[ptree['timestep'] == iout]
             snap = uri.RamsesSnapshot(repo, iout, mode=mode)
-            cpulist = snap.get_halos_cpulist(gals, radius=max_radius, radius_name=radius_name)
+            cpulist = snap.get_halos_cpulist(gals, radius=max_radius*1.25, radius_name=radius_name)
             snap.get_cell(cpulist=cpulist)
             return gals, snap
 
@@ -753,6 +761,57 @@ class PhantomTree:
             hgas = uri.cut_halo(hgas, gal, rgas, code_unit=True)
             return cgas, wgas, hgas, rgas
 
+        def measure_rgas_v2(gas, gal, rgal):
+            # Adds outer gas
+            mask = wgas_mask(gas)
+            wgas = gas[mask] # includes cg also
+            hgas = gas[~mask] # includes og also
+
+            wgas_dist = get_distance(gal, wgas)
+            key = np.argsort(wgas_dist)
+            wgas = wgas[key]
+            wgas_dist = wgas_dist[key]
+            wgas_cum = np.cumsum(wgas['vol'])
+            min_idx = np.searchsorted(wgas_dist, min_radius * rgal)
+            wgas_dist = wgas_dist[min_idx:]
+            wgas_cum = wgas_cum[min_idx:]
+
+            hgas_dist = get_distance(gal, hgas)
+            hgas = hgas[hgas_dist < min_radius * rgal]
+            ogas = hgas[hgas_dist >= min_radius * rgal]
+
+            ogas_dist = get_distance(gal, ogas)
+            key = np.argsort(ogas_dist)
+            ogas = ogas[key]
+            ogas_dist = ogas_dist[key]
+            ogas_cum = np.cumsum(ogas['vol'])
+            min_idx = np.searchsorted(ogas_dist, min_radius * rgal)
+            ogas_dist = ogas_dist[min_idx:]
+            ogas_cum = ogas_cum[min_idx:]
+
+            if (ogas_dist.size == 0):  # no hot gas
+                rgas = max_radius * rgal
+            elif (wgas_dist.size == 0):  # no cold gas
+                rgas = min_radius * rgal
+            else:  # both exists
+                res = np.interp(ogas_dist, wgas_dist, wgas_cum) - ogas_cum
+                res_mask = res < 0
+
+                if (np.all(res_mask)):  # if inverted at the first place
+                    rgas = min_radius * rgal
+                elif (np.any(res_mask)):  # if inversion happens
+                    rgas = ogas_dist[res_mask][0]
+                else:  # no inversion
+                    rgas = max_radius * rgal
+
+            wgas = uri.cut_halo(wgas, gal, rgas, code_unit=True)
+            mask = cgas_mask(wgas)
+            cgas = wgas[mask]
+            wgas = wgas[~mask]
+            ogas = uri.cut_halo(ogas, gal, rgas*1.25, code_unit=True)
+
+            return cgas, wgas, hgas, ogas, rgas
+
         def set_gas_properties(gal, gas, abbr):
             vgal = get_vector(gal, 'v') * snap.unit['km/s']
             pgal = get_vector(gal)
@@ -765,17 +824,30 @@ class PhantomTree:
             pos = (gas['pos'] - pgal)
             vrad = np.sum(vel * pos, axis=-1) / rss(pos)
             gal['flux_%s' % abbr] = np.sum(vrad * gas['rho'] * gas['dx']**2)
-            set_vector(gal, np.average(vel, axis=0, weights=gas['m']), abbr)
+            set_vector(gal, np.average(vel, axis=0, weights=gas['m']), abbr+'v')
 
+        def fin_gas_propertiles(gals, abbr):
+            gals['m%s' % abbr] /= snap.unit['Msol']
+            gals['rho_%s' % abbr] /= snap.unit['H/cc']
+
+            gals['%sx' % abbr] /= snap.unit['km/s']
+            gals['%sy' % abbr] /= snap.unit['km/s']
+            gals['%sz' % abbr] /= snap.unit['km/s']
+
+            gals['flux_%s' % abbr] /= snap.unit['Msol/yr']
 
         ptree = PhantomTree.load(repo, path_in_repo=path_in_repo, ptree_file=ptree_file)
 
-        names = ['idx', 'cgx', 'cgy', 'cgz', 'wgx', 'wgy', 'wgz', 'hgx', 'hgy', 'hgz', 'mcg', 'mwg', 'mhg', 'rho_cg', 'rho_wg', 'rho_hg', 'metal_cg', 'metal_wg', 'metal_hg', 'flux_cg', 'flux_wg', 'flux_hg', 'ramp', 'rgas']
-        empty_float = np.zeros(ptree.size, dtype='f8')
+        gas_phases = ['cg', 'wg', 'hg', 'og']
+        gas_names = ['m%s', '%svx', '%svy', '%svz', 'rho_%s', 'metal_%s']
+        full_names = [name % abbr for abbr in gas_phases for name in gas_names]
+        names = ['idx', *full_names, 'ramp', 'rgas']
+
+        empty_double = np.zeros(ptree.size, dtype='f8')
         if(overwrite):
             ptree = drop_fields(ptree, names, usemask=True)
         if(iout_start==0):
-            ptree = append_fields(ptree, names=names, data=[np.arange(ptree.size), *(empty_float.copy(),) * (len(names)-1)], usemask=False)
+            ptree = append_fields(ptree, names=names, data=[np.arange(ptree.size), *(empty_double.copy(),) * (len(names)-1)], usemask=False)
 
         leafs_id = np.unique(ptree['leaf'])
         ptree = ptree[np.isin(ptree['leaf'], leafs_id)]
@@ -800,7 +872,7 @@ class PhantomTree:
                 if(cell.size == 0):
                     continue
 
-                cgas, wgas, hgas, radius = measure_rgas(cell, gal[radius_name])
+                cgas, wgas, hgas, ogas, radius = measure_rgas(cell, gal[radius_name])
 
                 gal['rgas'] = radius
 
@@ -810,33 +882,16 @@ class PhantomTree:
                     set_gas_properties(gal, wgas, 'wg')
                 if(hgas.size>0):
                     set_gas_properties(gal, hgas, 'hg')
+                if(ogas.size > 0):
+                    set_gas_properties(gal, ogas, 'og')
 
-                    gal['ramp'] = ss(get_vector(gal, 'hg')) * gal['rho_hg']
+                    gal['ramp'] = ss(get_vector(gal, 'ogv')) * gal['rho_og']
             iterator.close()
 
-            gals['mcg'] /= snap.unit['Msol']
-            gals['mwg'] /= snap.unit['Msol']
-            gals['mhg'] /= snap.unit['Msol']
-
-            gals['rho_cg'] /= snap.unit['H/cc']
-            gals['rho_wg'] /= snap.unit['H/cc']
-            gals['rho_hg'] /= snap.unit['H/cc']
-
-            gals['cgx'] /= snap.unit['km/s']
-            gals['cgy'] /= snap.unit['km/s']
-            gals['cgz'] /= snap.unit['km/s']
-
-            gals['wgx'] /= snap.unit['km/s']
-            gals['wgy'] /= snap.unit['km/s']
-            gals['wgz'] /= snap.unit['km/s']
-
-            gals['hgx'] /= snap.unit['km/s']
-            gals['hgy'] /= snap.unit['km/s']
-            gals['hgz'] /= snap.unit['km/s']
-
-            gals['flux_cg'] /= snap.unit['Msol/yr']
-            gals['flux_wg'] /= snap.unit['Msol/yr']
-            gals['flux_hg'] /= snap.unit['Msol/yr']
+            fin_gas_propertiles(gals, 'cg')
+            fin_gas_propertiles(gals, 'wg')
+            fin_gas_propertiles(gals, 'hg')
+            fin_gas_propertiles(gals, 'og')
 
             gals['ramp'] /= snap.unit['Ba']
 

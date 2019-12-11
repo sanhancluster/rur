@@ -419,9 +419,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
     def set_unit(self):
         custom_units(self)
 
-    def set_box(self, center, extent, code_unit=True, unit='Mpc'):
-        if(not code_unit):
-            extent = extent/self.unit[unit]
+    def set_box(self, center, extent, unit=None):
+        # set center and extent of the current target bounding box of the simulation.
+        # if unit is None, it is recognized as code unit
+        if(unit is not None):
+            extent = extent / self.unit[unit]
+            center = center / self.unit[unit]
         self.box = get_box(center, extent)
 
     def epoch_to_age(self, epoch):
@@ -434,12 +437,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         aexp = np.interp(epoch, table['u'], table['aexp'])
         return aexp
 
-    def set_box_halo(self, halo, radius=1, code_unit=False, radius_name='rvir'):
+    def set_box_halo(self, halo, radius=1, use_halo_radius=True, radius_name='rvir'):
         if(isinstance(halo, np.ndarray)):
             warnings.warn("numpy.ndarray is passed instead of np.void in halo parameter. Assuming first row as input halo...", UserWarning)
             halo = halo[0]
         center = get_vector(halo)
-        if(not code_unit):
+        if(use_halo_radius):
             extent = halo[radius_name] * radius * 2
         else:
             extent = radius * 2
@@ -884,16 +887,19 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             print('---------------------------------------------')
             print('Total  number of particles: %d' % part.size)
             dm = part['dm']
-            tracer = part['tracer']
 
             dm_tot = np.sum(dm['m', 'Msol'])
             dm_min = np.min(dm['m', 'Msol'])
 
-            tracer_tot = np.sum(tracer['m', 'Msol'])
-            tracer_min = np.min(tracer['m', 'Msol'])
-
             print('Number of     DM particles: %d with total mass of %.3e Msol, Min. particle mass: %.3e Msol' % (dm.size, dm_tot, dm_min))
-            print('Number of tracer particles: %d with total mass of %.3e Msol, Min. particle mass: %.3e Msol' % (tracer.size, tracer_tot, tracer_min))
+
+            tracer = part['tracer']
+
+            if(tracer.size>0):
+                tracer_tot = np.sum(tracer['m', 'Msol'])
+                tracer_min = np.min(tracer['m', 'Msol'])
+
+                print('Number of tracer particles: %d with total mass of %.3e Msol, Min. particle mass: %.3e Msol' % (tracer.size, tracer_tot, tracer_min))
 
             if(self.params['star']):
                 star = part['star']

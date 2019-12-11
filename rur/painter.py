@@ -8,13 +8,10 @@ from matplotlib.patches import RegularPolygon, Rectangle
 import matplotlib.colors
 from scipy.ndimage.filters import gaussian_filter1d
 from collections.abc import Iterable
+from itertools import repeat
 import os
 
-if(__name__=='__main__'):
-    verbose = 1
-else:
-    verbose = 1
-
+verbose = 1
 timer = Timer(verbose=verbose)
 
 default_box = np.array([[0, 1], [0, 1], [0, 1]])
@@ -515,7 +512,7 @@ def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_ran
 
 
 
-def draw_halos(halos, box=None, ax=None, proj=[0, 1], mass_range=None, cmap=plt.cm.jet, color=None, labels=None, size_key='rvir', shape='circle', fontsize=10, extents=None, **kwargs):
+def draw_halos(halos, box=None, ax=None, proj=[0, 1], mass_range=None, cmap=plt.cm.jet, colors=None, labels=None, size_key='rvir', shape='circle', fontsize=10, extents=None, **kwargs):
     proj_keys = np.array(['x', 'y', 'z'])[proj]
 
     if ax is None:
@@ -532,6 +529,9 @@ def draw_halos(halos, box=None, ax=None, proj=[0, 1], mass_range=None, cmap=plt.
     else:
         extents = extents
 
+    if(colors is None):
+        colors = repeat(None)
+
     halos = np.array(halos)[mask]
     labels = np.array(labels)[mask]
     extents = np.array(extents)[mask]
@@ -541,7 +541,7 @@ def draw_halos(halos, box=None, ax=None, proj=[0, 1], mass_range=None, cmap=plt.
     if mass_range is None:
         mass_range = np.log10(np.array([np.min(halos['mvir']), np.max(halos['mvir'])]))
 
-    for halo, label, extent in zip(halos, labels, extents):
+    for halo, label, extent, color in zip(halos, labels, extents, colors):
         if(color is not None):
             color_cmp = color
         else:
