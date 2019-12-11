@@ -29,6 +29,8 @@ if you want to continuously change the source code while using,
 use included bash script [f2py.sh](f2py.sh) and [conda develop][2] instead.
 ```bash
 cd rur
+conda install -c conda-forge --file=requirements.txt 
+chmod 755 f2py.sh
 ./f2py.sh
 conda develop .
 ```
