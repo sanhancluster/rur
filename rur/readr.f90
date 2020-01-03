@@ -430,20 +430,31 @@ contains
         read(sink_n) aexp
         call skip_read(sink_n, 3)
 
-        nint=1
         if(drag_part) then
-            nreal = 26
+            nreal = 34
+            nint=3
         else
-            nreal = 20
+            nreal = 22
+            nint=1
         end if
         allocate(real_table(1:nsink, 1:nreal))
         allocate(integer_table(1:nsink, 1:nint))
 
         read(sink_n) integer_table(:,1)
-        do i=1,nreal
+        do i=1,22
             read(sink_n) real_table(:, i)
         end do
-
+        if(drag_part) then
+            do i=23,30
+                read(sink_n) real_table(:, i)
+            end do
+            do i=2,3
+                read(sink_n) integer_table(:, i)
+            end do
+            do i=31,34
+                read(sink_n) real_table(:, i)
+            end do
+        end if
         close(sink_n)
 
     end subroutine read_sinkprop

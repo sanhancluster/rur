@@ -661,7 +661,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if(timer.verbose>=1):
                 print('CPU list already satisfied.')
 
-    def read_sinkprop(self, path_in_repo='', icoarse=None, drag_part=True):
+    def read_sinkprop(self, path_in_repo='', icoarse=None, drag_part=True, raw_data=False):
         if(icoarse is None):
             icoarse = self.nstep_coarse
         path = join(self.repo, path_in_repo)
@@ -669,7 +669,13 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         arr = [*readr.integer_table.T, *readr.real_table.T]
 
         timer.start('Building table for %d smbhs... ' % readr.integer_table.shape[0], 1)
-        sink = fromarrays(arr, dtype=sink_prop_dtype)
+        if(raw_data):
+            return arr
+        if(drag_part):
+            dtype = sink_prop_dtype_drag
+        else:
+            dtype = sink_prop_dtype
+        sink = fromarrays(arr, dtype=dtype)
         timer.record()
         readr.close()
 
