@@ -770,6 +770,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.cpu = np.concatenate(amr_cpus)
 
     def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None):
+        if(not exists(self.get_path('hydro'))):
+            raise FileNotFoundError("Hydro file not found.")
         if(box is not None):
             self.box = box
         if(self.box is None or np.array_equal(self.box, default_box)):
@@ -893,6 +895,10 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
             print('Number of     DM particles: %d with total mass of %.3e Msol, Min. particle mass: %.3e Msol' % (dm.size, dm_tot, dm_min))
 
+            contam = np.sum(dm[dm['m'] > np.min(dm['m'])]['m'] * 1.01) / np.sum(dm['m'])
+            if(contam>0.0):
+                print('DM Contamination fraction within the box: %.3f %%' % (contam*100))
+
             tracer = part['tracer']
 
             if(tracer.size>0):
@@ -913,6 +919,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 print('---------------------------------------------')
 
                 print('Number of       star particles: %d with total mass of %.3e Msol, Min. particle mass: %.3e Msol' % (star.size, star_tot, star_min))
+                if(star.size>0):
+                    sfr = np.sum(star[star['age', 'Myr']<100]['m', 'Msol'])/1E8
+                    print('SFR within the box (last 100Myr): %.3e Msol/yr' % sfr)
                 print('Number of       SMBH particles: %d with total mass of %.3e Msol, Max. SMBH mass: %.3e Msol' % (smbh.size, smbh_tot, smbh_max))
                 print('DM/Stellar mass ratio is %.3f' % (dm_tot / star_tot))
 
@@ -923,10 +932,13 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             cell = self.cell
             cell = cell[box_mask(get_vector(cell), self.box, size=cell['dx'])]
             print('---------------------------------------------')
-            print('Min. spatial resolution = %.4f pc (%.4f pc/h in comoving)' % (np.min(self.cell['dx', 'pc']), self.boxsize_comoving*1E3*0.5**np.min(self.cell['level'])))
+            print('Min. spatial resolution = %.4f pc (%.4f pc/h in comoving)' % (np.min(self.cell['dx', 'pc']), self.boxsize*1E6*0.5**np.max(self.cell['level'])))
             print('Total number of cells: %d' % cell.size)
             gas_tot = np.sum(cell['rho'] * (cell['dx'])**3) / self.unit['Msol']
             print('Total gas mass: %.3e Msol' % gas_tot)
+            if('refmask' in cell.dtype.names):
+                contam = 1.-np.sum(cell[cell['refmask']>0.01]['m'])/np.sum(cell['m'])
+                print('Cell Contamination fraction within the box: %.3f %%' % (contam*100))
             print('')
 
 
