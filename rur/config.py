@@ -47,13 +47,13 @@ sink_table_dtype = [('id', 'i8'), ('m', 'f8'), ('x', 'f8'), ('y', 'f8'), ('z', '
 
 # columns for hydro quantity table, all float64, see readr.f90
 hydro_names = {
-    'nh': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'zoom'],
-    'nh_dm_only': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'zoom'],
+    'nh': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],
+    'nh_dm_only': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],
     'yzics': ['rho', 'vx', 'vy', 'vz', 'P', 'metal'],
     'yzics_dm_only': ['rho', 'vx', 'vy', 'vz', 'P', 'metal'],
     'none': ['rho', 'vx', 'vy', 'vz', 'P'],
-    'iap': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'zoom'],
-    'gem': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'zoom'],
+    'iap': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],
+    'gem': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],
     'ng': ['rho', 'vx', 'vy', 'vz', 'P'],
 }
 
