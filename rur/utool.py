@@ -4,6 +4,10 @@ from scipy.spatial.distance import cdist
 import numpy as np
 from scipy.linalg import expm
 from scipy.stats import norm
+from scipy.spatial import Delaunay
+from scipy.interpolate import LinearNDInterpolator
+from numpy.linalg import det
+
 import warnings
 
 import pickle as pkl
@@ -341,6 +345,52 @@ def rotate_vector(r, J):
     R = (rotate*r.T).T
 
     return np.array(R)
+
+class dtfe(object):
+
+    def __init__(self, dataset, weights=None, smooth=0):
+        self.dataset = np.atleast_2d(dataset).T
+        if not self.dataset.size > 1:
+            raise ValueError("`dataset` input should have multiple elements.")
+        self.n, self.d = self.dataset.shape
+        #center = np.median(self.dataset, axis=0)
+        center=0
+
+        self.tri=Delaunay(self.dataset-center, qhull_options='')
+
+        simplices = self.tri.simplices
+        vertices = self.dataset[simplices]
+
+        matrices = np.insert(vertices, 2, 1., axis=-1)
+        matrices = np.swapaxes(matrices, -1, -2)
+        tri_areas = np.abs(det(matrices)) / np.math.factorial(self.d+1)
+
+        hull_areas = np.zeros(self.n, dtype='f8')
+        np.add.at(hull_areas, simplices, np.expand_dims(tri_areas, -1))
+
+        if (weights is not None):
+            hull_areas /= weights
+
+        if (smooth > 0):
+            indptr, neighbor_indices = self.tri.vertex_neighbor_vertices
+            neighbor_nums = np.full(self.n, 0, dtype='i8')
+            center_indices = np.repeat(np.arange(neighbor_nums.size), np.diff(indptr))
+            np.add.at(neighbor_nums, center_indices, 1)
+
+            for _ in np.arange(smooth):
+                hull_areas_new = np.zeros(hull_areas.shape, dtype='f8')
+                np.add.at(hull_areas_new, center_indices, hull_areas[neighbor_indices])
+                hull_areas = hull_areas_new / neighbor_nums
+
+        densities = 1 / hull_areas
+
+        self.lip = LinearNDInterpolator(self.tri, densities, fill_value=0)
+
+    def evaluate(self, points):
+        return self.lip(*points)
+
+    __call__ = evaluate
+
 
 class gaussian_kde(object):
     """Representation of a kernel-density estimate using Gaussian kernels.
