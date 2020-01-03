@@ -169,7 +169,7 @@ class HaloMaker:
         array = HaloMaker.unit_conversion(array, snap)
 
         if(array.size==0):
-            print("No tree_brick found in %s" % path)
+            print("No tree_brick file found, or no halo found in %s" % path)
 
         if(load_parts):
             return array, readh.part_ids
@@ -345,11 +345,14 @@ class PhantomTree:
             path = os.path.join(dirpath, ptree_format % iout)
             if(not os.path.exists(path)):
                 if(skip_jumps):
-                    iout -= 1
-                    continue
+                    if(iout == 1):
+                        break
+                    else:
+                        iout -= 1
+                        continue
                 else:
                     break
-            tree = load(path, msg=False)
+            tree = load(path, msg=True)
             ptree.append(tree)
             iout -= 1
         if(len(ptree) == 0):
@@ -591,7 +594,7 @@ class PhantomTree:
         ptree_path = os.path.join(repo, path_in_repo)
         ptree = PhantomTree.load(repo, ptree_path, ptree_file=ptree_file)
 
-        fields = ['sfr', 'sfr2', 'sfr4', 'msf', 'r90', 'r50', 'age', 'metal', 'contam']
+        fields = ['sfr', 'sfr2', 'sfr4', 'msf', 'r90', 'r50', 'age', 'metal', 'contam', 'mbh', 'bh_offset']
         if(overwrite):
             ptree = drop_fields(ptree, ['idx', *fields], usemask=False)
         zero_double = np.zeros(ptree.size, dtype='f8')
@@ -640,6 +643,8 @@ class PhantomTree:
                 nsnap.get_part(exact_box=False)
                 dm = nsnap.part['dm']
                 star = nsnap.part['star']
+                smbh = nsnap.part['smbh']
+
                 gal_mask = part_pool[np.abs(star['id'])] == idxs[halomaker['id'] == gal['hmid']]
                 if(np.sum(gal_mask)==0):
                     continue
@@ -671,6 +676,11 @@ class PhantomTree:
                 dm_r90 = uri.cut_halo(dm, gal, r90, use_halo_radius=False)
                 contam = np.sum(dm_r90[dm_r90['m']>mass_cut_refine]['m'])/np.sum(dm_r90['m'])
 
+                bh_r50 = uri.cut_halo(smbh, gal, r50, use_halo_radius=False)
+                bh_max = bh_r50[np.argmax(bh_r50['m'])]
+                mbh = bh_max['m']
+                bh_offset = get_distance(gal, bh_max)
+
                 ptree['sfr'][gal['idx']] = sfr
                 ptree['sfr2'][gal['idx']] = sfr2
                 ptree['sfr4'][gal['idx']] = sfr4
@@ -687,6 +697,9 @@ class PhantomTree:
                 ptree['contam'][gal['idx']] = contam
                 ptree['age'][gal['idx']] = age
                 ptree['metal'][gal['idx']] = metal
+
+                ptree['mbh'][gal['idx']] = mbh
+                ptree['bh_offset'][gal['idx']] = bh_offset
 
             if(iout % backup_freq == 0):
                 PhantomTree.save(ptree, repo, ptree_path, ptree_file=backup_file)
