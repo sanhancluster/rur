@@ -111,6 +111,7 @@ def hist_imshow(x, y, lims=None, reso=100, weights=None, filter_sigma=None, norm
         mask = np.isfinite(x) & np.isfinite(y)
         x = x[mask]
         y = y[mask]
+        weights = weights[mask]
         lims = [[np.nanquantile(x, 0.00001), np.nanquantile(x, 0.99999)],
                 [np.nanquantile(y, 0.00001), np.nanquantile(y, 0.99999)]]
         print('Automatically setting lims as ', lims)
@@ -318,6 +319,7 @@ def dtfe_img(x, y, lims, reso=100, weights=None, smooth=0):
         reso = np.repeat(reso, 2)
 
     points = np.stack([x, y], axis=-1)
+    center = np.median(points, axis=0)
     n_points = points.shape[0]
 
     if(smooth is None):
@@ -325,7 +327,7 @@ def dtfe_img(x, y, lims, reso=100, weights=None, smooth=0):
 
     # For some "Complex Geometrical Reasons", Qhull does not work properly without options???
     # Even with blank option, the result is different.
-    tri = Delaunay(points, qhull_options="")
+    tri = Delaunay(points-center, qhull_options='')
 
     simplices = tri.simplices
     vertices = points[simplices]
@@ -355,8 +357,8 @@ def dtfe_img(x, y, lims, reso=100, weights=None, smooth=0):
     if(weights is not None):
         densities *= weights
 
-    xarr = bin_centers(lims[0][0], lims[0][1], reso[0])
-    yarr = bin_centers(lims[1][0], lims[1][1], reso[1])
+    xarr = bin_centers(lims[0][0], lims[0][1], reso[0]) - center[0]
+    yarr = bin_centers(lims[1][0], lims[1][1], reso[1]) - center[1]
 
     xm, ym = np.meshgrid(xarr, yarr)
 

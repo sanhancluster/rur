@@ -1,12 +1,16 @@
 [1]: https://www.anaconda.com/
 [2]: https://docs.conda.io/projects/conda-build/en/latest/resources/commands/conda-develop.html
 
-# RAMSES Universal Reader
+RAMSES Universal Reader
+=============================
 
 By San Han
 
 A package for reading and computing various versions of RAMSES hydro and particle data.
-## Setup
+
+Setup
+-----------------------------
+
 Download the code from bitbucket repository, or use clone it from the latest repository using git.
 ```bash
 git clone git@bitbucket.org:sanhancluster/rur.git
@@ -34,7 +38,10 @@ chmod 755 f2py.sh
 ./f2py.sh
 conda develop .
 ```
-## Usage
+
+Usage
+-----------------------------
+
 ### Reading a full volume data
 ```python
 from rur import uri
