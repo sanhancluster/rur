@@ -409,7 +409,7 @@ def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=No
     if(box is None and isinstance(part, uri.RamsesSnapshot.Particle)):
         box = part.snap.box
 
-    image = partmap(part, box, proj, shape, weights, unit, method, smooth=smooth)
+    image = partmap(part, box, proj, shape, weights, unit, method, smooth=smooth, crho=crho)
 
     box_proj = get_box_proj(box, proj)
 
@@ -484,17 +484,6 @@ def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_ran
     #smbh = smbh[uri.box_mask(uri.get_vector(smbh), box)]
 
     poss = uri.get_vector(smbh)
-    mass = smbh['m', 'Msol']
-    if(mass_range is None):
-        m_max = np.max(mass)
-        m_min = np.min(mass)
-    else:
-        m_min = 10.**mass_range[0]
-        m_max = 10.**mass_range[1]
-
-    mass_scale = norm(mass, m_min, m_max)
-
-    ss =  (mass_scale)**2 * s + 1
 
     if(cmap is not None):
         colors = cmap(mass_scale)
