@@ -60,8 +60,6 @@ contains
 
         ordering='hilbert'
 
-
-
         file_path = amr_filename(repo, iout, cpu_list(1), mode)
 
         ! Step 1: Check if there is file
@@ -325,7 +323,7 @@ contains
             end if
             nint = 3
             nbyte = 0
-        elseif(mode == 'iap' .or. mode == 'gem' .or. mode == 'none') then ! New RAMSES version that includes family, tag
+        elseif(mode == 'iap' .or. mode == 'gem' .or. mode == 'fornax' .or. mode == 'none') then ! New RAMSES version that includes family, tag
             nreal = 2*ndim + 3
             nint = 3
             nbyte = 2
@@ -387,7 +385,7 @@ contains
                 ! Add CPU information
                 integer_table(npart_c:npart_c+npart-1, pint) = icpu
 
-            elseif(mode == 'iap' .or. mode == 'gem' .or. mode == 'none') then
+            elseif(mode == 'iap' .or. mode == 'gem' .or. mode == 'none' .or. mode == 'fornax') then
                 ! family, tag
                 read(part_n) byte_table(npart_c:npart_c+npart-1, 1)
                 read(part_n) byte_table(npart_c:npart_c+npart-1, 2)
@@ -409,17 +407,18 @@ contains
     end subroutine read_part
 
 !#####################################################################
-    subroutine read_sinkprop(repo, iprop, drag_part)
+    subroutine read_sinkprop(repo, iprop, drag_part, mode)
 !#####################################################################
         implicit none
 
-        integer :: nsink, ndim, i
+        integer :: nsink, ndim, i, ireal, iint
         integer :: sink_n, nreal, nint
         real :: aexp
 
         character(len=128),    intent(in) :: repo
         integer,               intent(in) :: iprop
         logical,               intent(in) :: drag_part
+        character(len=10),     intent(in) :: mode
 
         sink_n = 40
         call close()
@@ -432,33 +431,85 @@ contains
 
         if(drag_part) then
             nreal = 34
-            nint=3
+            nint = 3
         else
             nreal = 22
-            nint=1
+            nint = 1
         end if
+        if(mode == 'fornax') nreal = nreal + 1
         allocate(real_table(1:nsink, 1:nreal))
         allocate(integer_table(1:nsink, 1:nint))
 
-        read(sink_n) integer_table(:,1)
+        iint = 1
+        ireal = 1
+
+        read(sink_n) integer_table(:,iint)
+        iint = iint + 1
         do i=1,22
-            read(sink_n) real_table(:, i)
+            read(sink_n) real_table(:, ireal)
+            ireal = ireal + 1
         end do
+        if(mode == 'fornax') then
+            read(sink_n) real_table(:, ireal)
+            ireal = ireal + 1
+        end if
         if(drag_part) then
-            do i=23,30
-                read(sink_n) real_table(:, i)
+            do i=1,8
+                read(sink_n) real_table(:, ireal)
+                ireal = ireal + 1
             end do
-            do i=2,3
-                read(sink_n) integer_table(:, i)
+            do i=1,2
+                read(sink_n) integer_table(:, iint)
+                iint = iint + 1
             end do
-            do i=31,34
-                read(sink_n) real_table(:, i)
+            do i=1,4
+                read(sink_n) real_table(:, ireal)
+                ireal = ireal + 1
             end do
         end if
         close(sink_n)
 
     end subroutine read_sinkprop
 
+!#####################################################################
+    subroutine read_sink(repo, iout, icpu, levelmin, nlevelmax)
+!#####################################################################
+        implicit none
+
+        integer :: nsink, nindsink, ndim, i
+        integer :: sink_n, nreal, nint, nstat
+
+        character(len=128),    intent(in) :: repo
+        integer,               intent(in) :: iout, icpu, levelmin, nlevelmax
+
+        ndim = 3
+        sink_n = 50
+        call close()
+
+        open(unit=sink_n, file=sink_filename(repo, iout, icpu), form='unformatted')
+        rewind(sink_n)
+        read(sink_n) nsink
+        read(sink_n) nindsink
+
+        nstat = (ndim*2+1)*(nlevelmax-levelmin+1)
+        nreal = 20+nstat
+        nint = 1
+
+        allocate(real_table(1:nsink, 1:nreal))
+        allocate(integer_table(1:nsink, 1:nint))
+
+        if(nsink>0) then
+            read(sink_n) integer_table(1:nsink, 1) ! id
+            do i=1,20
+                read(sink_n) real_table(:, i) ! mass, pos*3, vel*3, t, dM*3, Esave, j*3, spin*3, spinmag, eps
+            end do
+            do i=21,21+nstat-1
+                read(sink_n) real_table(:, i) ! stats
+            end do
+        endif
+        close(sink_n)
+
+    end subroutine read_sink
 
 !#####################################################################
     subroutine close()
@@ -548,6 +599,16 @@ contains
 
         sinkprop_filename = TRIM(repo)//'/sink_'//charind(iout)//'.dat'
     end function sinkprop_filename
+
+!#####################################################################
+    character(len=128) function sink_filename(repo, iout, icpu)
+!#####################################################################
+        implicit none
+        character(len=128), intent(in)  :: repo
+        integer,            intent(in)  :: iout, icpu
+
+        sink_filename = TRIM(repo)//'/output_'//charind(iout)//'/sink_'//charind(iout)//'.out'//charind(icpu)
+    end function sink_filename
 
 !#####################################################################
     subroutine progress_bar(iteration, maximum)

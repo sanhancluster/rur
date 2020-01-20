@@ -7,7 +7,7 @@ output_format = 'output_{snap.iout:05d}'
 info_format = {
     'ng': 'info.txt',
 }
-info_format.update(dict.fromkeys(['nh', 'nh_dm_only', 'none', 'yzics', 'yzics_dm_only', 'iap', 'gem'], 'info_{snap.iout:05d}.txt'))
+info_format.update(dict.fromkeys(['nh', 'nh_dm_only', 'none', 'yzics', 'yzics_dm_only', 'iap', 'gem', 'fornax'], 'info_{snap.iout:05d}.txt'))
 
 data_format = {
     'ng': '{{type}}.out{{icpu:05d}}',
@@ -15,7 +15,7 @@ data_format = {
 
 sinkprop_format = {}
 
-data_format.update(dict.fromkeys(['nh', 'nh_dm_only', 'none', 'yzics', 'yzics_dm_only', 'iap', 'gem'], '{{type}}_{snap.iout:05d}.out{{icpu:05d}}'))
+data_format.update(dict.fromkeys(['nh', 'nh_dm_only', 'none', 'yzics', 'yzics_dm_only', 'iap', 'gem', 'fornax'], '{{type}}_{snap.iout:05d}.out{{icpu:05d}}'))
 
 default = [('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
 
@@ -30,6 +30,7 @@ part_dtype = {
     'none': default + [('epoch', 'f8'), ('id', 'i4'), ('level', 'u1'), ('cpu', 'i4'), ('family', 'i1'), ('tag', 'i1')],
     'iap': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'u1'), ('cpu', 'i4'), ('family', 'i1'), ('tag', 'i1')],
     'gem': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'u1'), ('cpu', 'i4'), ('family', 'i1'), ('tag', 'i1')],
+    'fornax': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'u1'), ('cpu', 'i4'), ('family', 'i1'), ('tag', 'i1')],
     'gem_longint': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i8'), ('level', 'u1'), ('cpu', 'i4'), ('family', 'i1'),('tag', 'i1')],
 
     'ng': default + [('id', 'i4'), ('level', 'u1'), ('cpu', 'i4')],
@@ -38,6 +39,15 @@ part_dtype = {
 sink_prop_dtype_drag = [
     ('id', 'i4'), ('n_star', 'i4'), ('n_dm', 'i4'), ('m', 'f8'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'),
     ('gas_jx', 'f8'), ('gas_jy', 'f8'), ('gas_jz', 'f8'), ('Mdot', 'f8'), ('Medd', 'f8'), ('dM', 'f8'),
+    ('d_avgptr', 'f8'), ('c_avgptr', 'f8'), ('v_avgptr', 'f8'), ('Esave', 'f8'),
+    ('jx', 'f8'), ('jy', 'f8'), ('jz', 'f8'), ('spinmag', 'f8'), ('eps_sink', 'f8'),
+    ('rho_star', 'f8'), ('rho_dm', 'f8'), ('star_vx', 'f8'), ('star_vy', 'f8'), ('star_vz', 'f8'), ('dm_vx', 'f8'), ('dm_vy', 'f8'), ('dm_vz', 'f8'),
+    ('low_star', 'f8'), ('low_dm', 'f8'), ('fast_star', 'f8'), ('fast_dm', 'f8')
+]
+
+sink_prop_dtype_drag_fornax = [
+    ('id', 'i4'), ('n_star', 'i4'), ('n_dm', 'i4'), ('m', 'f8'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'),
+    ('gas_jx', 'f8'), ('gas_jy', 'f8'), ('gas_jz', 'f8'), ('epoch', 'f8'), ('Mdot', 'f8'), ('Medd', 'f8'), ('dM', 'f8'),
     ('d_avgptr', 'f8'), ('c_avgptr', 'f8'), ('v_avgptr', 'f8'), ('Esave', 'f8'),
     ('jx', 'f8'), ('jy', 'f8'), ('jz', 'f8'), ('spinmag', 'f8'), ('eps_sink', 'f8'),
     ('rho_star', 'f8'), ('rho_dm', 'f8'), ('star_vx', 'f8'), ('star_vy', 'f8'), ('star_vz', 'f8'), ('dm_vx', 'f8'), ('dm_vy', 'f8'), ('dm_vz', 'f8'),
@@ -62,6 +72,7 @@ hydro_names = {
     'none': ['rho', 'vx', 'vy', 'vz', 'P'],
     'iap': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],
     'gem': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],
+    'fornax': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],
     'ng': ['rho', 'vx', 'vy', 'vz', 'P'],
 }
 

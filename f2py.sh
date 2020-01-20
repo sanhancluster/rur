@@ -11,6 +11,6 @@ do
     bn=$(basename "$f" .f90)
     $FORT -c $f
     $F2PY -c $f -m $bn --opt='-O3'
-    rm $bn.o $bn.mod
 done
+rm *.o *.mod
 

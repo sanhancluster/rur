@@ -502,7 +502,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 elif (self.mode == 'yzics'):
                     self.part_dtype = part_dtype['yzics_dm_only']
             if(self.longint):
-                if(self.mode == 'iap' or self.mode == 'gem'):
+                if(self.mode == 'iap' or self.mode == 'gem' or self.mode == 'fornax'):
                     self.part_dtype = part_dtype['gem_longint']
         else:
             self.params['star'] = True
@@ -665,7 +665,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         if(icoarse is None):
             icoarse = self.nstep_coarse
         path = join(self.repo, path_in_repo)
-        readr.read_sinkprop(path, icoarse, drag_part)
+        readr.read_sinkprop(path, icoarse, drag_part, self.mode)
         arr = [*readr.integer_table.T, *readr.real_table.T]
 
         timer.start('Building table for %d smbhs... ' % readr.integer_table.shape[0], 1)
