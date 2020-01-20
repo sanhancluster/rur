@@ -661,9 +661,17 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if(timer.verbose>=1):
                 print('CPU list already satisfied.')
 
+    def read_sink_raw(self, icpu, path_in_repo=''):
+        path = join(self.repo, path_in_repo)
+        readr.read_sink(path, self.iout, icpu, self.levelmin, self.levelmax)
+        arr = [*readr.integer_table.T, *readr.real_table.T]
+        readr.close()
+        return arr
+
+
     def read_sinkprop(self, path_in_repo='', icoarse=None, drag_part=True, raw_data=False):
         if(icoarse is None):
-            icoarse = self.nstep_coarse
+            icoarse = self.nstep_coarse-1
         path = join(self.repo, path_in_repo)
         readr.read_sinkprop(path, icoarse, drag_part, self.mode)
         arr = [*readr.integer_table.T, *readr.real_table.T]
@@ -920,15 +928,18 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 star_tot = np.sum(star['m', 'Msol'])
                 star_min = np.min(star['m', 'Msol'])
 
-                smbh_tot = np.sum(smbh['m', 'Msol'])
-                smbh_max = np.max(smbh['m', 'Msol'])
                 print('---------------------------------------------')
 
                 print('Number of       star particles: %d with total mass of %.3e Msol, Min. particle mass: %.3e Msol' % (star.size, star_tot, star_min))
                 if(star.size>0):
                     sfr = np.sum(star[star['age', 'Myr']<100]['m', 'Msol'])/1E8
                     print('SFR within the box (last 100Myr): %.3e Msol/yr' % sfr)
-                print('Number of       SMBH particles: %d with total mass of %.3e Msol, Max. SMBH mass: %.3e Msol' % (smbh.size, smbh_tot, smbh_max))
+
+                if(smbh.size>0):
+                    smbh_tot = np.sum(smbh['m', 'Msol'])
+                    smbh_max = np.max(smbh['m', 'Msol'])
+
+                    print('Number of       SMBH particles: %d with total mass of %.3e Msol, Max. SMBH mass: %.3e Msol' % (smbh.size, smbh_tot, smbh_max))
                 print('DM/Stellar mass ratio is %.3f' % (dm_tot / star_tot))
 
                 star_den = star_tot/volume
