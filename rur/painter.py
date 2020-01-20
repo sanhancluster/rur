@@ -480,10 +480,24 @@ def draw_points(points, box=None, proj=[0, 1], **kwargs):
 def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_range=None, zorder=100, labels=None, fontsize=10, fontcolor='lightyellow', **kwargs):
     if(box is None and isinstance(smbh, uri.RamsesSnapshot.Particle)):
         box = smbh.snap.box
+        mass = smbh['m', 'Msol']
+        if(mass_range is None):
+            m_max = np.max(mass)
+            m_min = np.min(mass)
+        else:
+            m_min = 10.**mass_range[0]
+            m_max = 10.**mass_range[1]
+
+        mass_scale = norm(mass, m_min, m_max)
+
+        ss = (mass_scale)**2 * s + 1
+    else:
+        ss = np.repeat(10, smbh.size)
     box_proj = get_box_proj(box, proj)
-    #smbh = smbh[uri.box_mask(uri.get_vector(smbh), box)]
 
     poss = uri.get_vector(smbh)
+    mask = uri.box_mask(poss, box)
+    smbh = smbh[mask]
 
     if(cmap is not None):
         colors = cmap(mass_scale)
@@ -494,6 +508,7 @@ def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_ran
     plt.ylim(box_proj[1])
 
     if(labels is not None):
+        labels = np.array(labels)[mask]
         ax = plt.gca()
         for i, pos, label, s in zip(np.arange(smbh.size), poss, labels, ss):
             #ax.text(pos[proj[0]], pos[proj[1]], label, color='white', ha='center', va='top', fontsize=fontsize, zorder=zorder, transform=ax.transAxes)

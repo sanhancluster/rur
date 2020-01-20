@@ -173,7 +173,6 @@ def find_smbh(part, verbose=None):
     timer.record()
     if(timer.verbose >=1):
         print('Found %d SMBHs.' % smbh.size)
-    timer.verbose = verbose
     return smbh
 
 def box_mask(coo, box, size=None, exclusive=False):
@@ -673,7 +672,10 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         if(icoarse is None):
             icoarse = self.nstep_coarse
         path = join(self.repo, path_in_repo)
-        readr.read_sinkprop(path, icoarse, drag_part)
+        check = join(path, sinkprop_format.format(icoarse=icoarse))
+        if(not exists(check)):
+            raise FileNotFoundError('Sinkprop file not found: %s' % check)
+        readr.read_sinkprop(path, icoarse, drag_part, self.mode)
         arr = [*readr.integer_table.T, *readr.real_table.T]
 
         timer.start('Building table for %d smbhs... ' % readr.integer_table.shape[0], 1)
@@ -952,7 +954,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             print('Total gas mass: %.3e Msol' % gas_tot)
             if('refmask' in cell.dtype.names):
                 contam = 1.-np.sum(cell[cell['refmask']>0.01]['m'])/np.sum(cell['m'])
-                print('Cell Contamination fraction within the box: %.3f %%' % (contam*100))
+                if(contam>0.):
+                    print('Cell Contamination fraction within the box: %.3f %%' % (contam*100))
             print('')
 
 

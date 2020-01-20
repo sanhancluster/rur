@@ -13,7 +13,7 @@ data_format = {
     'ng': '{{type}}.out{{icpu:05d}}',
 }
 
-sinkprop_format = {}
+sinkprop_format = 'sink_{icoarse:05d}.dat'
 
 data_format.update(dict.fromkeys(['nh', 'nh_dm_only', 'none', 'yzics', 'yzics_dm_only', 'iap', 'gem'], '{{type}}_{snap.iout:05d}.out{{icpu:05d}}'))
 
