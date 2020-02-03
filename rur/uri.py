@@ -147,6 +147,7 @@ def classify_part(part, pname):
 
 def find_smbh(part, verbose=None):
     # Find SMBHs by merging sink (cloud) particles
+    verbose_tmp = verbose
     if(verbose is not None):
         timer.verbose = verbose
     timer.start('Searching for SMBHs...', 1)
@@ -676,7 +677,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         return arr
 
 
-    def read_sinkprop(self, path_in_repo='', icoarse=None, drag_part=True, raw_data=False):
+    def read_sinkprop(self, path_in_repo='', icoarse=None, drag_part=True, raw_data=False, return_aexp=False):
         if(icoarse is None):
             icoarse = self.nstep_coarse-1
         path = join(self.repo, path_in_repo)
@@ -695,9 +696,13 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             dtype = sink_prop_dtype
         sink = fromarrays(arr, dtype=dtype)
         timer.record()
+        aexp = np.copy(readr.aexp)
         readr.close()
 
-        return sink
+        if(return_aexp):
+            return sink, aexp
+        else:
+            return sink
 
 
     def clear(self, part=True, cell=True):

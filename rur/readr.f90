@@ -21,6 +21,9 @@ module readr
 
     integer :: nhvar
 
+    ! Some useful header informations...
+    real(kind=8) :: aexp
+
 contains
 !#####################################################################
     subroutine read_cell(repo, iout, cpu_list, mode, verbose)
@@ -413,7 +416,6 @@ contains
 
         integer :: nsink, ndim, i, ireal, iint
         integer :: sink_n, nreal, nint
-        real :: aexp
 
         character(len=128),    intent(in) :: repo
         integer,               intent(in) :: iprop
