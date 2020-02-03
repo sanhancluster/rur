@@ -137,6 +137,7 @@ def custom_units(snap):
         'ly'  : ly / l,
 
         # Mass
+        'g'  : 1 / m,
         'kg'  : 1E3 / m,
         'Msol': Msol / m,
         'Msun': Msol / m,

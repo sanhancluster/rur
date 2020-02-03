@@ -2,10 +2,10 @@ import numpy as np
 from matplotlib import pyplot as plt
 from skimage.transform import rescale, resize, warp, EuclideanTransform, AffineTransform
 from rur import drawer as dr, utool
-from rur import uri
+from rur.drawer import ccm
+from rur import uri, uhmi
 from rur.utool import Timer, get_vector, bin_centers, rss, los
 from matplotlib.patches import RegularPolygon, Rectangle
-import matplotlib.colors
 from scipy.ndimage.filters import gaussian_filter1d
 from collections.abc import Iterable
 from itertools import repeat
@@ -845,3 +845,94 @@ def get_tickvalues(range, nticks=4):
     if(order_int>=0):
         ticks = ticks.astype(int)
     return ticks
+
+def viewer(snap, hf='GalaxyMaker', rank=1, radius=10, mode='star',
+           savefile=None, part_method='hist', align=True, age_cut=None, center=None):
+    cell = None
+
+    if(hf == 'GalaxyMaker'):
+        gal = uhmi.HaloMaker.load(snap, path_in_repo='galaxy', galaxy=True)
+        gal = np.sort(gal, order='m')
+    else:
+        gal = None
+
+    if (gal is None):
+        snap.set_box(center, radius * snap.unit['kpc'] * 2)
+    else:
+        snap.set_box_halo(gal[-rank], radius=radius * snap.unit['kpc'], use_halo_radius=False)
+    snap.get_part()
+    if (mode == 'gas' or mode == 'dust' or mode == 'metal' or mode == 'temp'):
+        snap.get_cell()
+        # cell = snap.cell
+        if (gal is not None and align):
+            cell = uri.align_axis_cell(snap.cell, gal[-rank])
+        else:
+            cell = snap.cell
+    if (gal is not None and align):
+        part = uri.align_axis(snap.part, gal[-rank])
+    else:
+        part = snap.part
+
+    smbh = part['smbh']
+
+    plt.figure(figsize=(20, 10))
+
+    plt.subplot(121)
+    proj = [0, 1]
+    if (mode == 'star'):
+        star = part['star']
+        if (age_cut is not None):
+            star = star[star['age', 'Gyr'] < age_cut]
+        draw_partmap(star, proj=proj, shape=1000, qscale=4, vmax=3E5, crho=True, method=part_method,
+                             unit='Msol/pc2')
+    if (mode == 'dm'):
+        dm = part['dm']
+        draw_partmap(dm, proj=proj, shape=1000, qscale=4, vmax=1E4, crho=True, method=part_method,
+                             unit='Msol/pc2')
+    elif (mode == 'gas'):
+        draw_gasmap(cell, proj=proj, shape=1000, qscale=4, vmax=3E3, mode='crho', cmap=ccm.hesperia,
+                            interp_order=1, unit='Msol/pc2')
+    elif (mode == 'temp'):
+        draw_gasmap(cell, proj=proj, shape=1000, qscale=4, mode='T', cmap=ccm.hesperia, vmax=1E8, unit='K')
+    elif (mode == 'dust'):
+        draw_gasmap(cell, proj=proj, shape=1000, qscale=2, vmax=3E-2, mode='dust', cmap=ccm.lacerta,
+                            interp_order=1)
+    elif (mode == 'metal'):
+        draw_gasmap(cell, proj=proj, shape=1000, qscale=3, vmax=1E-1, mode='metal', cmap=ccm.lacerta,
+                            interp_order=1)
+    draw_smbhs(smbh, proj=proj, labels=['%.3f' % m for m in np.log10(smbh['m', 'Msol'])], color='gray',
+                       fontsize=10, mass_range=[4, 8])
+    set_ticks_unit(snap, proj, 'kpc')
+    if (gal is not None):
+        dr.axlabel('M$_*$ = %.3e M$_{sol}$' % gal[i]['m'], 'left top', color='white', fontsize=20)
+    dr.axlabel('z = %.3f' % snap.z, 'right top', color='white', fontsize=20)
+
+    plt.subplot(122)
+    proj = [0, 2]
+    if (mode == 'star'):
+        star = part['star']
+        if (age_cut is not None):
+            star = star[star['age', 'Gyr'] < age_cut]
+        draw_partmap(star, proj=proj, shape=1000, qscale=4, vmax=3E5, crho=True, method=part_method,
+                             unit='Msol/pc2')
+    if (mode == 'dm'):
+        dm = part['dm']
+        draw_partmap(dm, proj=proj, shape=1000, qscale=4, vmax=1E4, crho=True, method=part_method,
+                             unit='Msol/pc2')
+    elif (mode == 'gas'):
+        draw_gasmap(cell, proj=proj, shape=1000, qscale=3, vmax=3E3, mode='crho', cmap=ccm.hesperia,
+                            interp_order=1, unit='Msol/pc2')
+    elif (mode == 'temp'):
+        draw_gasmap(cell, proj=proj, shape=1000, qscale=4, mode='T', cmap=ccm.hesperia, vmax=1E8, unit='K')
+    elif (mode == 'dust'):
+        draw_gasmap(cell, proj=proj, shape=1000, qscale=2, vmax=3E-2, mode='dust', cmap=ccm.lacerta,
+                            interp_order=1)
+    elif (mode == 'metal'):
+        draw_gasmap(cell, proj=proj, shape=1000, qscale=3, vmax=1E-1, mode='metal', cmap=ccm.lacerta,
+                            interp_order=1)
+    draw_smbhs(smbh, proj=proj, labels=['%.3f' % m for m in np.log10(smbh['m', 'Msol'])], color='gray',
+                       fontsize=10, mass_range=[4, 8])
+    set_ticks_unit(snap, proj, 'kpc')
+
+    if (savefile is not None):
+        save_figure(savefile)
