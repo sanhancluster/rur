@@ -172,8 +172,9 @@ def find_smbh(part, verbose=None):
         smbh.append(row)
     smbh = np.array(smbh, dtype=part.dtype)
     timer.record()
-    if(timer.verbose >=1):
+    if(timer.verbose >=2):
         print('Found %d SMBHs.' % smbh.size)
+    timer.verbose = verbose_tmp
     return smbh
 
 def box_mask(coo, box, size=None, exclusive=False):
