@@ -14,7 +14,7 @@ if __name__ == "__main__":
         author_email="sn1994a@gmai.com",
         description="A package for reading and analyzing the RAMSES data",
         packages=['rur'],
-        ext_packagess=['rur'],
+        ext_packages=['rur'],
         ext_modules=[readr, readhtm, hilbert3d],
         long_description=long_description,
         package_data={'rur': ['colormaps/data/*.csv']},
