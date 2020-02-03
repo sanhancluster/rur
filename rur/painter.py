@@ -467,15 +467,31 @@ def draw_contour(image, extent, vmin=None, vmax=None, qscale=None, normmode='log
     return plt.contour(xarr, yarr, image, **kwargs)
 
 
-def draw_points(points, box=None, proj=[0, 1], **kwargs):
+def draw_points(points, box=None, proj=[0, 1], color=None, label=None, fontsize=None, fontcolor=None, **kwargs):
     x = get_vector(points)
-    if box is None:
+    if(box is None and isinstance(points, uri.RamsesSnapshot.Particle)):
+        box = points.snap.box
+    else:
         box = default_box
-    box = np.array(box)
-    x =x[uri.box_mask(x, box)]
+    mask = uri.box_mask(x, box)
+    x = x[mask]
 
-    plt.scatter(x[:, proj[0]], x[:, proj[1]], zorder=100, **kwargs)
+    plt.scatter(x[:, proj[0]], x[:, proj[1]], color=color, zorder=50, **kwargs)
 
+    if(label is not None):
+        label = np.array(label)[mask]
+        if(not isinstance(label, Iterable)):
+            label = repeat(label)
+        if (fontsize is not None and not isinstance(fontsize, Iterable)):
+            fontsize = repeat(fontsize)
+        ax = plt.gca()
+        if(fontcolor is None):
+            fontcolor = color
+        if (isinstance(fontcolor, str) or not isinstance(fontcolor, Iterable)):
+            fontcolor = repeat(fontcolor)
+
+        for pos, lb, fs, fc in zip(x, label, fontsize, fontcolor):
+            ax.annotate(lb, (pos[proj[0]], pos[proj[1]]), xytext=(5, 5), textcoords='offset points', color=fc, fontsize=fs, zorder=100)
 
 def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_range=None, zorder=100, labels=None, fontsize=10, fontcolor='lightyellow', **kwargs):
     if(box is None and isinstance(smbh, uri.RamsesSnapshot.Particle)):
