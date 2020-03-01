@@ -8,6 +8,7 @@ from scipy.integrate import cumtrapz
 from rur.fortranfile import FortranFile
 from rur.hilbert3d import hilbert3d
 from rur.readr import readr
+from rur.io_ramses import io_ramses
 from rur.config import *
 from rur import utool
 import numpy as np
@@ -337,7 +338,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
     """
 
-    def __init__(self, repo, iout, mode='none', box=None, path_in_repo='snapshots', full_path=False, snap=None, longint=False):
+    def __init__(self, repo, iout, mode='none', box=None, path_in_repo='', full_path=False, snap=None, longint=False):
         if(full_path):
             self.snap_path = repo
         else:
@@ -622,6 +623,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         """
         if(cpulist is None):
             cpulist = self.get_involved_cpu()
+        else:
+            cpulist = np.array(cpulist)
         if(self.cell_data is not None):
             if(timer.verbose>=1):
                 print('Searching for extra files...')
@@ -655,6 +658,74 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             timer.start('Building table for %d cells... ' % (arr[0].size), 1)
             cell = fromarrays(arr, formats=formats, names=names)
             readr.close()
+
+            bound = compute_boundary(cell['cpu'], cpulist)
+            if (self.cell_data is None):
+                self.cell_data = cell
+            else:
+                self.cell_data = np.concatenate([self.cell_data, cell])
+
+            self.bound_cell = np.concatenate([self.bound_cell[:-1], self.bound_cell[-1] + bound])
+            self.cpulist_cell = np.concatenate([self.cpulist_cell, cpulist])
+            timer.record()
+
+        else:
+            if(timer.verbose>=1):
+                print('CPU list already satisfied.')
+
+    def read_ripses(self, target_fields=None, cpulist=None):
+        """Reads ripses output data from current box.
+
+        Parameters
+        ----------
+        target_fields: list of string
+            target field name to read. If None is passed, read all fields.
+        cpulist: list of integer
+            target list of cpus, if specified, read selected cpus regardless of current box.
+        Returns
+        -------
+        cell : RamsesSnapshot.Cell object
+            amr data, can be accessed as attributes also.
+
+        """
+        if(cpulist is None):
+            cpulist = self.get_involved_cpu()
+        else:
+            cpulist = np.array(cpulist)
+        if(self.cell_data is not None):
+            if(timer.verbose>=1):
+                print('Searching for extra files...')
+            cpulist = cpulist[np.isin(cpulist, self.cpulist_cell, assume_unique=True, invert=True)]
+
+        if(cpulist.size > 0):
+            timer.start('Reading %d grid files in %s... ' % (cpulist.size, self.path), 1)
+
+            io_ramses.read_ripses_cell(self.snap_path, self.iout, cpulist)
+            self.params['nhvar'] = int(io_ramses.nvar)
+            timer.record()
+
+            formats = ['f8'] * self.params['ndim'] + ['f8'] * self.params['nhvar'] + ['i4'] * 2
+
+            names = list(dim_keys[:self.params['ndim']]) + self.hydro_names + ['level', 'cpu']
+
+            arr = [*io_ramses.xc.T, *io_ramses.uc.T, io_ramses.lvlc, io_ramses.cpuc]
+
+            if(len(arr) != len(names)):
+                io_ramses.close()
+                raise ValueError(
+                    "Number of fields and size of the hydro array does not match\n"
+                    "Consider changing the content of RamsesSnapshot.hydro_names\n"
+                    "nvar = %d, recieved: %d" % (len(names), len(arr)))
+
+            if target_fields is not None:
+                target_idx = np.where(np.isin(names, target_fields))[0]
+                arr = [arr[idx] for idx in target_idx]
+                formats = [formats[idx] for idx in target_idx]
+                names = [names[idx] for idx in target_idx]
+
+            timer.start('Building table for %d cells... ' % (arr[0].size), 1)
+            cell = fromarrays(arr, formats=formats, names=names)
+            io_ramses.close()
 
             bound = compute_boundary(cell['cpu'], cpulist)
             if (self.cell_data is None):
@@ -799,9 +870,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.ref = np.concatenate(amr_refs)
         self.cpu = np.concatenate(amr_cpus)
 
-    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None):
+    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, ripses=False):
         if(not exists(self.get_path('hydro'))):
-            raise FileNotFoundError("Hydro file not found.")
+            if (exists(self.get_path('grid'))):
+                ripses = True
+            else:
+                raise FileNotFoundError("Hydro file, nor grid file not found.")
         if(box is not None):
             self.box = box
         if(self.box is None or np.array_equal(self.box, default_box)):
@@ -813,7 +887,10 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             else:
                 domain_slicing=False
                 exact_box=False
-            self.read_cell(target_fields=target_fields, cpulist=cpulist)
+            if(not ripses):
+                self.read_cell(target_fields=target_fields, cpulist=cpulist)
+            else:
+                self.read_ripses(target_fields=target_fields, cpulist=cpulist)
             if(domain_slicing):
                 cell = domain_slice(self.cell_data, cpulist, self.cpulist_cell, self.bound_cell)
             else:
