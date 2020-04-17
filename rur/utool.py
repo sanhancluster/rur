@@ -108,6 +108,13 @@ def get_box(center, extent):
         extent = np.array(extent)
     return np.stack([center-extent/2, center+extent/2], axis=-1)
 
+def get_bounding_box(coo):
+    # return bounding box from coordinates
+    coo = np.array(coo)
+    ndim = coo.shape[-1]
+    bbox = ([np.min(coo, axis=0), np.max(coo, axis=0)])
+
+
 def get_distance(a, b, prefix='', ndim=3):
     return rss(get_vector(a, prefix, ndim) - get_vector(b, prefix, ndim))
 

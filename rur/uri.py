@@ -501,8 +501,10 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 self.bound_key = np.array(bound_key)
 
             if(exists(self.get_path('part', 1))):
-                self.params['star'] = self._read_nstar()>0
+                self.params['nstar'] = self._read_nstar()
+                self.params['star'] = self.params['nstar']>0
             else:
+                self.params['nstar'] = 0
                 self.params['star'] = False
 
             # check if star particle exists
@@ -766,6 +768,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             dtype = sink_prop_dtype_drag
         else:
             dtype = sink_prop_dtype
+        if(self.mode == 'fornax'):
+            dtype = sink_prop_dtype_drag_fornax
+        if(len(arr) != len(dtype)):
+            readr.close()
+            raise ValueError('Number of fields mismatch\n'
+                             'Recieved: %d, Allocated: %d' % (len(arr), len(dtype)))
         sink = fromarrays(arr, dtype=dtype)
         timer.record()
         aexp = np.copy(readr.aexp)
