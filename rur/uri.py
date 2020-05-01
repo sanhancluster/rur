@@ -436,6 +436,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             extent = extent / self.unit[unit]
             center = center / self.unit[unit]
         self.box = get_box(center, extent)
+        if(self.box.shape != (2, 3)):
+            raise ValueError("Incorrect box shape: ", self.box.shape)
 
     def epoch_to_age(self, epoch):
         table = self.cosmo_table
