@@ -13,8 +13,8 @@ module io_ramses
    integer :: headf, tailf, numbf, used_mem, used_mem_tot
    character(len=128) :: ordering
 
-   real(kind=16), dimension(:), allocatable :: bound_keyl
-   real(kind=8), dimension(:), allocatable :: bound_key
+   integer(kind=16), dimension(:), allocatable :: bound_keyl
+   integer(kind=8), dimension(:), allocatable :: bound_key
 
    ! Header data (Added from Hydro)
    integer :: nvar
