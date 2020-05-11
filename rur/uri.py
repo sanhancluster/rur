@@ -981,10 +981,14 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 return RamsesSnapshot.Particle(self.table[item], self.snap)
 
 
-    def get_halos_cpulist(self, halos, radius=3., radius_name='rvir', n_divide=4):
+    def get_halos_cpulist(self, halos, radius=3., use_halo_radius=True, radius_name='rvir', n_divide=4):
         cpulist = []
         for halo in halos:
-            box = get_box(get_vector(halo), halo[radius_name]*radius*2)
+            if(use_halo_radius):
+                extent = halo[radius_name]*radius*2
+            else:
+                extent = radius*2
+            box = get_box(get_vector(halo), extent)
             cpulist.append(get_cpulist(box, None, self.levelmax, self.bound_key, self.ndim, n_divide))
         return np.unique(np.concatenate(cpulist))
 
