@@ -865,7 +865,7 @@ contains
             npart_c = npart_c + npart
             close(part_n)
         end do
-    end subroutine read_part
+    end subroutine read_part_single
 
 !#####################################################################
    subroutine close()
