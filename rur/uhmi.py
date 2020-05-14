@@ -145,7 +145,7 @@ class HaloMaker:
                 double_precision=False
         if (galaxy):
             if(path_in_repo is None):
-                path_in_repo = 'GalaxyMaker/gal'
+                path_in_repo = 'galaxy'
             if(not double_precision):
                 dtype = HaloMaker.galaxy_dtype
             else:

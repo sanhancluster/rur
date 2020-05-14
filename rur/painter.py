@@ -283,7 +283,7 @@ def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho',
     if extent is None:
         extent = np.concatenate(box_proj)
 
-    draw_image(image, extent=extent, **kwargs)
+    return draw_image(image, extent=extent, **kwargs)
 
 def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, anti_aliasing=False):
     if(box is None and isinstance(tracer_part, uri.RamsesSnapshot.Particle)):
@@ -357,7 +357,7 @@ def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, m
     if extent is None:
         extent = np.concatenate(box_proj)
 
-    draw_image(image, extent=extent, **kwargs)
+    return draw_image(image, extent=extent, **kwargs)
 
 def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, method='hist', x=None, smooth=16, crho=False):
     if(box is None and isinstance(part, uri.RamsesSnapshot.Particle)):
@@ -416,7 +416,7 @@ def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=No
     if extent is None:
         extent = np.concatenate(box_proj)
 
-    draw_image(image, extent=extent, **kwargs)
+    return draw_image(image, extent=extent, **kwargs)
 
 
 def rgb_image(image,  vmin=None, vmax=None, qscale=3., normmode='log', nanzero=False, imfilter=None, cmap=dr.ccm.laguna):
