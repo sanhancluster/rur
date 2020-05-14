@@ -12,11 +12,9 @@ module io_ramses
    integer, dimension(:, :), allocatable :: headl, taill, numbl, numbtot
    integer :: headf, tailf, numbf, used_mem, used_mem_tot
    character(len=128) :: ordering
-#ifdef QUADHILBERT
-   real(kind=16), dimension(:), allocatable :: bound_key
-#else
-   real(kind=8), dimension(:), allocatable :: bound_key
-#endif
+
+   integer(kind=16), dimension(:), allocatable :: bound_keyl
+   integer(kind=8), dimension(:), allocatable :: bound_key
 
    ! Header data (Added from Hydro)
    integer :: nvar
@@ -37,6 +35,18 @@ module io_ramses
    real(kind=8), dimension(:, :, :), allocatable :: ug
    logical, dimension(:, :), allocatable :: refg
    integer, dimension(:), allocatable :: lvlg
+
+   real(kind=8), dimension(:, :), allocatable :: xp, vp
+   integer, dimension(:), allocatable :: idp
+   integer(kind=8), dimension(:), allocatable :: idpl
+   byte, dimension(:), allocatable :: fam, tag
+   real(kind=8), dimension(:), allocatable :: mp, tp, zp
+
+   logical :: quadhilbert = .false.
+   logical :: star = .false.
+   logical :: family = .true.
+   logical :: metal = .false.
+   logical :: longint = .false.
 
 contains
 !#####################################################################
@@ -109,8 +119,13 @@ contains
          stop
       end if
 
-      allocate(bound_key(0:ncpu))
-      read(amr_n) bound_key(0:ncpu)
+      if(quadhilbert) then
+         allocate(bound_keyl(0:ncpu))
+         read(amr_n) bound_keyl(0:ncpu)
+      else
+         allocate(bound_key(0:ncpu))
+         read(amr_n) bound_key(0:ncpu)
+      end if
 
       ! Skip coarse data
       call skip_read(amr_n, 3)
@@ -631,6 +646,226 @@ contains
       end do
 
    end subroutine read_ripses_cell
+
+!#####################################################################
+! RAMSES particle data format
+!#####################################################################
+! ver.1 : x(3), v(3), mass, id
+! ver.2 : x(3), v(3), mass, id, (family, tag), (epoch), (metal)
+! option : star, metal, fam, longint
+
+!!#####################################################################
+!   subroutine read_part(repo, iout, cpulist)
+!!#####################################################################
+!      implicit none
+!
+!      integer :: part_n
+!      integer :: i, j, icpu, idim
+!      integer :: npart
+!      integer(kind=8) :: npart_tot, ipart
+!
+!      part_n = 30
+!
+!      ! Count total number of particles
+!      npart_tot = 0
+!      do i = 1, SIZE(cpu_list)
+!         icpu = cpu_list(i)
+!         open(unit=part_n, file=part_filename(repo, iout, icpu), form='unformatted')
+!         call skip_read(part_n, 2)
+!         read(part_n) npart
+!         npart_tot = npart_tot + npart
+!         close(part_n)
+!      end do
+!
+!      allocate(xp(1:npart_tot, 1:ndim), vp(1:npart_tot, 1:ndim), mp(1:npart_tot))
+!      if(longint) then
+!         allocate(idpl(1:npart_tot))
+!      else
+!         allocate(idp(1:npart_tot))
+!      end if
+!
+!      if(star) allocate(tp(1:npart_tot))
+!      if(metal) allocate(zp(1:npart_tot))
+!      if(family) allocate(fam(1:npart_tot), tag(1:npart_tot))
+!
+!      jpart = 0
+!      do i = 1, SIZE(cpu_list)
+!         icpu = cpu_list(i)
+!         open(unit=part_n, file=part_filename(repo, iout, icpu), form='unformatted')
+!         read(part_n) ncpu
+!         read(part_n) ndim
+!         read(part_n) npart
+!         call skip_read(part_n, 4)
+!
+!         ipart = jpart + 1
+!         jpart = jpart + npart
+!         do idim = 1, ndim
+!            read(part_n) xp(ipart:jpart, idim)
+!         end do
+!         do idim = 1, ndim
+!            read(part_n) vp(ipart:jpart, idim)
+!         end do
+!         read(part_n) mp(ipart:jpart)
+!         if(longint) then
+!            read(part_n) idp(ipart:jpart)
+!         else
+!            read(part_n) idpl(ipart:jpart)
+!         end if
+!
+!      end do
+!
+!   end subroutine read_part
+!!#####################################################################
+!    subroutine read_part_single(repo, iout, icpu, longint)
+!!#####################################################################
+!        implicit none
+!
+!        integer :: i, j, icpu, idim, ipart
+!        integer :: ncpu, ndim
+!        integer :: npart, nstar_int, nsink
+!        integer(kind=8) :: npart_tot, nstar, npart_c
+!
+!        integer :: part_n, nreal, nint, nbyte, nlong
+!        integer :: pint
+!        logical :: ok
+!
+!        character(len=128) :: file_path
+!
+!        character(len=128),    intent(in) :: repo
+!        integer,               intent(in) :: iout
+!        integer, dimension(:), intent(in) :: cpu_list
+!        character(len=10),     intent(in) :: mode
+!        logical,               intent(in) :: verbose
+!        logical,               intent(in) :: longint
+!
+!        part_n = 30
+!
+!        file_path = part_filename(repo, iout, cpu_list(1), mode)
+!
+!        ! Step 1: Verify there is file
+!        inquire(file=file_path, exist=ok)
+!        if ( .not. ok ) then
+!            print *, file_path, ' not found.'
+!            stop
+!        endif
+!
+!        ! Step 2: Count the total number of particles.
+!        open(unit=part_n, file=file_path, status='old', form='unformatted')
+!        read(part_n) ncpu
+!        read(part_n) ndim
+!        call skip_read(part_n, 2)
+!        if(longint) then
+!            read(part_n) nstar
+!        else
+!            read(part_n) nstar_int
+!            nstar = nstar_int
+!        end if
+!        call skip_read(part_n, 2)
+!        read(part_n) nsink
+!        close(part_n)
+!
+!        npart_tot = 0
+!        do i = 1, SIZE(cpu_list)
+!            icpu = cpu_list(i)
+!
+!            open(unit=part_n, file=part_filename(repo, iout, icpu, mode), status='old', form='unformatted')
+!            call skip_read(part_n, 2)
+!            read(part_n) npart
+!            close(part_n)
+!            npart_tot = npart_tot + npart
+!        end do
+!
+!        ! Set coulum spaces of each datatype for different versions of RAMSES
+!        if(mode == 'nh' .or. mode == 'yzics') then ! New Horizon / YZiCS / Horizon-AGN
+!            if(nstar > 0 .or. nsink > 0) then
+!                nreal = 2*ndim + 3
+!            else
+!                nreal = 2*ndim + 1
+!            end if
+!            nint = 3
+!            nbyte = 0
+!        elseif(mode == 'iap' .or. mode == 'gem' .or. mode == 'fornax' .or. mode == 'none') then ! New RAMSES version that includes family, tag
+!            nreal = 2*ndim + 3
+!            nint = 3
+!            nbyte = 2
+!        end if
+!
+!        if(longint) then
+!            nint = nint-1
+!            nlong = 1
+!        else
+!            nlong = 0
+!        end if
+!
+!        call close()
+!
+!        ! Allocate space for particle data
+!        allocate(real_table(1:npart_tot, 1:nreal))
+!        allocate(integer_table(1:npart_tot, 1:nint))
+!        allocate(byte_table(1:npart_tot, 1:nbyte))
+!        if(longint)allocate(long_table(1:npart_tot, 1:nlong))
+!
+!        ! Step 3: Read the actual particle data
+!        ! Current position for particle
+!        npart_c = 1
+!
+!        if(verbose)write(6, '(a)', advance='no') 'Progress: '
+!        do i = 1, SIZE(cpu_list)
+!            if(verbose)call progress_bar(i, SIZE(cpu_list))
+!            icpu = cpu_list(i)
+!
+!            open(unit=part_n, file=part_filename(repo, iout, icpu, mode), status='old', form='unformatted')
+!            ! Skip headers
+!            call skip_read(part_n, 2)
+!            read(part_n) npart
+!            call skip_read(part_n, 5)
+!
+!            ! Read position(3), velocity(3), mass
+!            do idim = 1, 2*ndim+1
+!                read(part_n) real_table(npart_c:npart_c+npart-1, idim)
+!            end do
+!
+!            ! Read id
+!            pint=1
+!            if(longint) then
+!                read(part_n) long_table(npart_c:npart_c+npart-1, 1)
+!            else
+!                read(part_n) integer_table(npart_c:npart_c+npart-1, pint)
+!                pint = pint+1
+!            end if
+!            ! Read level
+!            read(part_n) integer_table(npart_c:npart_c+npart-1, pint)
+!            pint = pint+1
+!            if(mode == 'nh' .or. mode == 'yzics') then
+!                ! If star or sink particles are activated, RAMSES adds epoch, metallicity information for particles.
+!                if(nstar > 0 .or. nsink > 0) then
+!                    read(part_n) real_table(npart_c:npart_c+npart-1, 2*ndim+2)
+!                    read(part_n) real_table(npart_c:npart_c+npart-1, 2*ndim+3)
+!                end if
+!
+!                ! Add CPU information
+!                integer_table(npart_c:npart_c+npart-1, pint) = icpu
+!
+!            elseif(mode == 'iap' .or. mode == 'gem' .or. mode == 'none' .or. mode == 'fornax') then
+!                ! family, tag
+!                read(part_n) byte_table(npart_c:npart_c+npart-1, 1)
+!                read(part_n) byte_table(npart_c:npart_c+npart-1, 2)
+!
+!                ! If star or sink particles are activated, RAMSES adds epoch, metallicity information for particles.
+!                if(nstar > 0 .or. nsink > 0) then
+!                    read(part_n) real_table(npart_c:npart_c+npart-1, 2*ndim+2)
+!                    read(part_n) real_table(npart_c:npart_c+npart-1, 2*ndim+3)
+!                else
+!                    real_table(npart_c:npart_c+npart-1, 2*ndim+2:2*ndim+3) = 0d0
+!                end if
+!
+!                ! Add CPU information
+!                integer_table(npart_c:npart_c+npart-1, pint) = icpu
+!            end if
+!            npart_c = npart_c + npart
+!            close(part_n)
+!        end do
+!    end subroutine read_part_single
 
 !#####################################################################
    subroutine close()
