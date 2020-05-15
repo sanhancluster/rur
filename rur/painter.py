@@ -283,7 +283,7 @@ def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho',
     if extent is None:
         extent = np.concatenate(box_proj)
 
-    draw_image(image, extent=extent, **kwargs)
+    return draw_image(image, extent=extent, **kwargs)
 
 def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, anti_aliasing=False):
     if(box is None and isinstance(tracer_part, uri.RamsesSnapshot.Particle)):
@@ -357,9 +357,9 @@ def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, m
     if extent is None:
         extent = np.concatenate(box_proj)
 
-    draw_image(image, extent=extent, **kwargs)
+    return draw_image(image, extent=extent, **kwargs)
 
-def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, method='hist', x=None, smooth=16, crho=False):
+def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, method='hist', x=None, smooth=16, crho=False, **kwargs):
     if(box is None and isinstance(part, uri.RamsesSnapshot.Particle)):
         box = part.snap.box
 
@@ -385,7 +385,10 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
     timer.start('Computing particle map of %d particles... ' % part.size, 1)
 
     if(method == 'hist'):
-        image = np.histogram2d(x[:, proj[0]], x[:, proj[1]], bins=shape, range=box_proj, weights=weights)[0]
+        image = np.histogram2d(x[:, proj[0]], x[:, proj[1]], bins=shape, range=box_proj, weights=weights, **kwargs)[0]
+        image /= px_area
+    elif (method == 'gaussian'):
+        image = dr.gauss_img(x[:, proj[0]], x[:, proj[1]], reso=shape, lims=box_proj, weights=weights, **kwargs)
         image /= px_area
     elif(method == 'kde'):
         image = dr.kde_img(x[:, proj[0]], x[:, proj[1]], reso=shape, lims=box_proj, weights=weights, tree=True)
@@ -416,7 +419,7 @@ def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=No
     if extent is None:
         extent = np.concatenate(box_proj)
 
-    draw_image(image, extent=extent, **kwargs)
+    return draw_image(image, extent=extent, **kwargs)
 
 
 def rgb_image(image,  vmin=None, vmax=None, qscale=3., normmode='log', nanzero=False, imfilter=None, cmap=dr.ccm.laguna):

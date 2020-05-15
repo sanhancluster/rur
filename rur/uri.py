@@ -4,6 +4,7 @@ from parse import parse
 from numpy.core.records import fromarrays as fromarrays
 
 from scipy.integrate import cumtrapz
+from collections.abc import Iterable
 
 from rur.fortranfile import FortranFile
 from rur.hilbert3d import hilbert3d
@@ -14,269 +15,6 @@ from rur import utool
 import numpy as np
 import warnings
 import glob
-
-
-def write_zoomparts_music(part_ini, cropped, filepath, reduce=None):
-    """
-    writes position table of particles in MUSIC format.
-    """
-    cropped_ini = part_ini[np.isin(part_ini['id'], cropped['id'], True)]
-    if reduce is not None:
-        cropped_ini = np.random.choice(cropped_ini, cropped_ini.size//reduce, replace=False)
-    np.savetxt(filepath, get_vector(cropped_ini))
-    return cropped_ini
-
-def write_parts_rockstar(part, snap, filepath):
-    """
-    writes particle data in ASCII format that can be read by Rockstar
-    """
-    timer.start('Writing %d particles in %s... ' % (part.size, filepath), 1)
-
-    pos = get_vector(part) * snap.params['boxsize']
-    vel = get_vector(part, 'v') * snap.get_unit('v', 'km/s')
-    table = fromarrays([*pos.T, *vel.T, part['id']], formats=['f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'i4'])
-    np.savetxt(filepath, table, fmt=('%.16e',)*6 + ('%d',))
-
-    timer.record()
-
-def write_snaps_rockstar(repo, start, end, mode='none', path_in_repo='snapshots', ncpu=48, min_halo_particles=100):
-    path = join(repo, 'rst')
-    dm_flist = []
-    star_flist = []
-    for iout in np.arange(start, end):
-        snap = RamsesSnapshot(repo, iout, mode, path_in_repo=path_in_repo)
-        part = snap.get_part()
-
-        filepath = join(path, 'dm_%05d.dat' % iout)
-        write_parts_rockstar(part['dm'], snap, filepath)
-        dm_flist.append(filepath)
-
-        if(snap.params['star']):
-            filepath = join(path, 'star_%05d.dat' % iout)
-            write_parts_rockstar(part['star'], snap, filepath)
-            star_flist.append(filepath)
-
-    with open(join(path, 'dmlist.dat'), 'w') as opened:
-        for fname in dm_flist:
-            opened.write(fname+'\n')
-
-    with open(join(path, 'dm.cfg')) as opened:
-        opened.write('SNAPSHOT_NAMES = %s\n' % join(path, 'dmlist.dat'))
-        opened.write('NUM_WRITERS = %d\n' % ncpu)
-        opened.write('FILE_FORMAT = ASCII\n')
-
-        opened.write('BOX_SIZE = %.3f\n' % snap.params['boxsize'])
-        opened.write('PARTICLE_MASS = %.3f\n' % np.min(snap.part['m']) * snap.get_unit('m', 'Msun') * snap.params['h'])
-        opened.write('h0 = %.4f\n' % snap.params['h'])
-        opened.write('Ol = %.4f\n' % snap.params['omega_l'])
-        opened.write('Om = %.4f\n' % snap.params['omega_m'])
-
-        opened.write('MIN_HALO_PARTICLES = %d\n' % min_halo_particles)
-
-    if (snap.params['star']):
-
-        with open(join(path, 'starlist.dat'), 'w') as opened:
-            for fname in star_flist:
-                opened.write(fname+'\n')
-
-        with open(join(path, 'star.cfg')) as opened:
-            opened.write('SNAPSHOT_NAMES = %s\n' % join(path, 'starlist.dat'))
-            opened.write('NUM_WRITERS = %d\n' % ncpu)
-            opened.write('FILE_FORMAT = ASCII\n')
-
-            opened.write('BOX_SIZE = %.3f\n' % snap.params['boxsize'])
-            opened.write('PARTICLE_MASS = %.3f\n' % np.min(snap.part['m']) * snap.get_unit('m', 'Msun') * snap.params['h'])
-            opened.write('h0 = %.4f\n' % snap.params['h'])
-            opened.write('Ol = %.4f\n' % snap.params['omega_l'])
-            opened.write('Om = %.4f\n' % snap.params['omega_m'])
-
-            opened.write('MIN_HALO_PARTICLES = %d\n' % min_halo_particles)
-
-def cut_spherical(table, center, radius, prefix='', ndim=3, inverse=False):
-    distances = rss(center - get_vector(table, prefix, ndim))
-    if(inverse):
-        mask = distances > radius
-    else:
-        mask = distances <= radius
-    return table[mask]
-
-def cut_halo(table, halo, radius=1, use_halo_radius=True, inverse=False, radius_name='rvir'):
-    center = get_vector(halo)
-    if(use_halo_radius):
-        radius = halo[radius_name] * radius
-    else:
-        radius = radius
-    return cut_spherical(table, center, radius, inverse=inverse)
-
-def classify_part(part, pname):
-    # classity particles, if familty is given, use it.
-    # if there is no field 'family', use id, mass and epoch instead.
-    timer.start('Classifying %d particles... ' % part.size, 2)
-    names = part.dtype.names
-    if('family' in names):
-        # Do a family-based classification
-        mask = np.isin(part['family'], part_family[pname])
-
-    elif('epoch' in names):
-        # Do a parameter-based classification
-        if(pname == 'dm'):
-            mask = (part['epoch'] == 0) & (part['id'] > 0)
-        elif(pname == 'star'):
-            mask = ((part['epoch'] < 0) & (part['id'] > 0))\
-                   | ((part['epoch'] != 0) & (part['id'] < 0))
-        elif(pname == 'sink' or pname == 'cloud'):
-            mask = (part['id'] < 0) & (part['m'] > 0) & (part['epoch'] == 0)
-        elif(pname == 'tracer'):
-            mask = (part['id'] < 0) & (part['m'] == 0)
-        else:
-            mask = False
-    elif('id' in names):
-        # DM-only simulation
-        if(pname == 'dm'):
-            mask =  part['id'] > 0
-        elif(pname == 'tracer'):
-            mask = (part['id'] < 0) & (part['m'] == 0)
-        else:
-            mask = False
-    else:
-        # No particle classification is possible
-        raise ValueError('Particle data structure not classifiable.')
-    output = part[mask]
-
-    timer.record()
-    return output
-
-def find_smbh(part, verbose=None):
-    # Find SMBHs by merging sink (cloud) particles
-    verbose_tmp = verbose
-    if(verbose is not None):
-        timer.verbose = verbose
-    timer.start('Searching for SMBHs...', 1)
-    sink = classify_part(part, 'cloud')
-    names = part.dtype.names
-    ids = np.unique(sink['id'])
-
-    smbh = []
-    for id in ids:
-        smbh_cloud = sink[sink['id'] == id]
-        row = ()
-        for name in names:
-            if (name == 'm'):
-                val = np.sum(smbh_cloud[name])
-            elif (name == 'family'):
-                val = 4
-            elif (name == 'tag'):
-                val = 0
-            else:
-                val = np.average(smbh_cloud[name])
-            row += (val,)
-        smbh.append(row)
-    smbh = np.array(smbh, dtype=part.dtype)
-    timer.record()
-    if(timer.verbose >=2):
-        print('Found %d SMBHs.' % smbh.size)
-    timer.verbose = verbose_tmp
-    return smbh
-
-def box_mask(coo, box, size=None, exclusive=False):
-    # masking coordinates based on the box
-    if size is not None:
-        size = expand_shape(size, [0], 2)
-    else:
-        size = 0
-    if(exclusive):
-        size *= -1
-
-    box_mask = np.all((box[:, 0] <= coo+size/2) & (coo-size/2 <= box[:, 1]), axis=-1)
-    return box_mask
-
-def interpolate_part(part1, part2, name, fraction=0.5):
-    id1 = part1['id']
-    id2 = part2['id']
-
-    id1 = np.abs(id1)
-    id2 = np.abs(id2)
-
-    part_size = np.maximum(np.max(id1), np.max(id2))+1
-
-    val1 = part1[name]
-    val2 = part2[name]
-
-    if(name == 'pos' or name == 'vel'):
-        pool = np.zeros((part_size, 3), dtype='f8')
-    else:
-        pool = np.zeros(part_size, dtype=val1.dtype)
-
-    mask1 = np.zeros(part_size, dtype='?')
-    mask2 = np.zeros(part_size, dtype='?')
-
-    mask1[id1] = True
-    mask2[id2] = True
-
-    active_mask = mask1 & mask2
-
-    pool[id1] += val1 * (1. - fraction)
-    pool[id2] += val2 * fraction
-    val = pool[active_mask]
-
-    if(timer.verbose>=2):
-        print("Particle interpolation - part1[%d], part2[%d], result[%d]" % (id1.size, id2.size, np.sum(active_mask)))
-
-    return val
-
-def time_series(repo, iouts, halo_table, mode='none', extent=None, unit=None):
-    # returns multiple snapshots from repository and array of iouts
-    snaps = []
-    snap = None
-    for halo, iout in zip(halo_table, iouts):
-        snap = RamsesSnapshot(repo, iout, mode, snap=snap)
-        if(extent is None):
-            extent_now = halo['rvir']*2
-        else:
-            extent_now = extent * snap.unit[unit]
-        box = get_box(get_vector(halo), extent_now)
-        snap.box = box
-        snaps.append(snap)
-    return snaps
-
-def get_cpulist(box, binlvl, maxlvl, bound_key, ndim, n_divide):
-    # get list of cpus involved in selected box.
-    volume = np.prod([box[:, 1] - box[:, 0]])
-    if (binlvl is None):
-        binlvl = int(np.log2(1. / (volume + 1E-20)) / ndim) + n_divide
-    if (binlvl > 64 // ndim):
-        binlvl = 64 // ndim - 1
-    lower, upper = np.floor(box[:, 0] * 2 ** binlvl).astype(int), np.ceil(box[:, 1] * 2 ** binlvl).astype(int)
-    bbox = np.stack([lower, upper], axis=-1)
-
-    bin_list = cartesian(
-        np.arange(bbox[0, 0], bbox[0, 1]),
-        np.arange(bbox[1, 0], bbox[1, 1]),
-        np.arange(bbox[2, 0], bbox[2, 1]))  # TODO: generalize this
-
-    if (timer.verbose >= 2):
-        print("Setting bin level as %d..." % binlvl)
-        print("Input box:", box)
-        print("Bounding box:", bbox)
-        ratio = np.prod([bbox[:, 1] / 2 ** binlvl - bbox[:, 0] / 2 ** binlvl]) / volume
-        print("Volume ratio:", ratio)
-        print("N. of Blocks:", bin_list.shape[0])
-
-    keys = hilbert3d(*(bin_list.T), binlvl, bin_list.shape[0])
-    keys = np.array(keys)
-    key_range = np.stack([keys, keys + 1], axis=-1)
-    key_range = key_range.astype('f8')
-
-    involved_cpu = []
-    for icpu_range, key in zip(
-            np.searchsorted(bound_key / 2. ** (ndim * (maxlvl - binlvl + 1)), key_range),
-            key_range):
-        involved_cpu.append(np.arange(icpu_range[0], icpu_range[1] + 1))
-    involved_cpu = np.unique(np.concatenate(involved_cpu)) + 1
-    if (timer.verbose >= 2):
-        print("List of involved CPUs: ", involved_cpu)
-    return involved_cpu
-
 
 class RamsesSnapshot(object):
     """A handy object to store RAMSES AMR/Particle snapshot data.
@@ -513,6 +251,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
             # check if star particle exists
             if(not self.params['star']):
+                # This only applies to old RAMSES particle format
                 if(self.mode == 'nh'):
                     self.part_dtype = part_dtype['nh_dm_only']
                 elif (self.mode == 'yzics'):
@@ -550,7 +289,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
     def read_sink_table(self):
         if(self.mode=='nh'):
-            table = np.genfromtxt(self.path+'/sink_%05d.csv' % self.iout, dtype=sink_table_format, delimiter=',')
+            table = np.genfromtxt(self.path+'/sink_%05d.csv' % self.iout, dtype=sink_table_dtype, delimiter=',')
         else:
             raise ValueError('This function works only for NH-version RAMSES')
         return table
@@ -1072,6 +811,320 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         if(self.cell is not None and self.part is not None):
             print('Baryonic fraction: %.3f' % ((gas_tot+star_tot+smbh_tot) / (dm_tot+gas_tot+star_tot+smbh_tot)))
 
+def trace_parts(part_ini, cropped):
+    return part_ini[np.isin(part_ini['id'], cropped['id'], True)]
+
+def write_zoomparts_music(part_ini: RamsesSnapshot.Particle, cropped: RamsesSnapshot.Particle,
+                          filepath: str, reduce: int=None):
+    """
+    writes position table of particles in MUSIC format.
+    """
+    cropped_ini = part_ini[np.isin(part_ini['id'], cropped['id'], True)]
+    if reduce is not None:
+        cropped_ini = np.random.choice(cropped_ini, cropped_ini.size//reduce, replace=False)
+    np.savetxt(filepath, get_vector(cropped_ini))
+    return cropped_ini
+
+def write_parts_rockstar(part: RamsesSnapshot.Particle, snap: RamsesSnapshot, filepath: str):
+    """
+    writes particle data in ASCII format that can be read by Rockstar
+    """
+    timer.start('Writing %d particles in %s... ' % (part.size, filepath), 1)
+
+    pos = get_vector(part) * snap.params['boxsize']
+    vel = get_vector(part, 'v') * snap.get_unit('v', 'km/s')
+    table = fromarrays([*pos.T, *vel.T, part['id']], formats=['f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'i4'])
+    np.savetxt(filepath, table, fmt=('%.16e',)*6 + ('%d',))
+
+    timer.record()
+
+def write_snaps_rockstar(repo: str, start: int, end: int, mode='none',
+                         path_in_repo='snapshots', ncpu=48, min_halo_particles=100):
+    path = join(repo, 'rst')
+    dm_flist = []
+    star_flist = []
+    for iout in np.arange(start, end):
+        snap = RamsesSnapshot(repo, iout, mode, path_in_repo=path_in_repo)
+        part = snap.get_part()
+
+        filepath = join(path, 'dm_%05d.dat' % iout)
+        write_parts_rockstar(part['dm'], snap, filepath)
+        dm_flist.append(filepath)
+
+        if(snap.params['star']):
+            filepath = join(path, 'star_%05d.dat' % iout)
+            write_parts_rockstar(part['star'], snap, filepath)
+            star_flist.append(filepath)
+
+    with open(join(path, 'dmlist.dat'), 'w') as opened:
+        for fname in dm_flist:
+            opened.write(fname+'\n')
+
+    with open(join(path, 'dm.cfg')) as opened:
+        opened.write('SNAPSHOT_NAMES = %s\n' % join(path, 'dmlist.dat'))
+        opened.write('NUM_WRITERS = %d\n' % ncpu)
+        opened.write('FILE_FORMAT = ASCII\n')
+
+        opened.write('BOX_SIZE = %.3f\n' % snap.params['boxsize'])
+        opened.write('PARTICLE_MASS = %.3f\n' % np.min(snap.part['m']) * snap.get_unit('m', 'Msun') * snap.params['h'])
+        opened.write('h0 = %.4f\n' % snap.params['h'])
+        opened.write('Ol = %.4f\n' % snap.params['omega_l'])
+        opened.write('Om = %.4f\n' % snap.params['omega_m'])
+
+        opened.write('MIN_HALO_PARTICLES = %d\n' % min_halo_particles)
+
+    if (snap.params['star']):
+
+        with open(join(path, 'starlist.dat'), 'w') as opened:
+            for fname in star_flist:
+                opened.write(fname+'\n')
+
+        with open(join(path, 'star.cfg')) as opened:
+            opened.write('SNAPSHOT_NAMES = %s\n' % join(path, 'starlist.dat'))
+            opened.write('NUM_WRITERS = %d\n' % ncpu)
+            opened.write('FILE_FORMAT = ASCII\n')
+
+            opened.write('BOX_SIZE = %.3f\n' % snap.params['boxsize'])
+            opened.write('PARTICLE_MASS = %.3f\n' % np.min(snap.part['m']) * snap.get_unit('m', 'Msun') * snap.params['h'])
+            opened.write('h0 = %.4f\n' % snap.params['h'])
+            opened.write('Ol = %.4f\n' % snap.params['omega_l'])
+            opened.write('Om = %.4f\n' % snap.params['omega_m'])
+
+            opened.write('MIN_HALO_PARTICLES = %d\n' % min_halo_particles)
+
+def cut_spherical(table, center, radius, prefix='', ndim=3, inverse=False):
+    distances = rss(center - get_vector(table, prefix, ndim))
+    if(inverse):
+        mask = distances > radius
+    else:
+        mask = distances <= radius
+    return table[mask]
+
+def cut_halo(table, halo, radius=1, use_halo_radius=True, inverse=False, radius_name='rvir'):
+    center = get_vector(halo)
+    if(use_halo_radius):
+        radius = halo[radius_name] * radius
+    else:
+        radius = radius
+    return cut_spherical(table, center, radius, inverse=inverse)
+
+def classify_part(part, pname):
+    # classity particles, if familty is given, use it.
+    # if there is no field 'family', use id, mass and epoch instead.
+    timer.start('Classifying %d particles... ' % part.size, 2)
+    names = part.dtype.names
+    if('family' in names):
+        # Do a family-based classification
+        mask = np.isin(part['family'], part_family[pname])
+
+    elif('epoch' in names):
+        # Do a parameter-based classification
+        if(pname == 'dm'):
+            mask = (part['epoch'] == 0) & (part['id'] > 0)
+        elif(pname == 'star'):
+            mask = ((part['epoch'] < 0) & (part['id'] > 0))\
+                   | ((part['epoch'] != 0) & (part['id'] < 0))
+        elif(pname == 'sink' or pname == 'cloud'):
+            mask = (part['id'] < 0) & (part['m'] > 0) & (part['epoch'] == 0)
+        elif(pname == 'tracer'):
+            mask = (part['id'] < 0) & (part['m'] == 0)
+        else:
+            mask = False
+    elif('id' in names):
+        # DM-only simulation
+        if(pname == 'dm'):
+            mask =  part['id'] > 0
+        elif(pname == 'tracer'):
+            mask = (part['id'] < 0) & (part['m'] == 0)
+        else:
+            mask = False
+    else:
+        # No particle classification is possible
+        raise ValueError('Particle data structure not classifiable.')
+    output = part[mask]
+
+    timer.record()
+    return output
+
+def find_smbh(part, verbose=None):
+    # Find SMBHs by merging sink (cloud) particles
+    verbose_tmp = verbose
+    if(verbose is not None):
+        timer.verbose = verbose
+    timer.start('Searching for SMBHs...', 1)
+    sink = classify_part(part, 'cloud')
+    names = part.dtype.names
+    ids = np.unique(sink['id'])
+
+    smbh = []
+    for id in ids:
+        smbh_cloud = sink[sink['id'] == id]
+        row = ()
+        for name in names:
+            if (name == 'm'):
+                val = np.sum(smbh_cloud[name])
+            elif (name == 'family'):
+                val = 4
+            elif (name == 'tag'):
+                val = 0
+            else:
+                val = np.average(smbh_cloud[name])
+            row += (val,)
+        smbh.append(row)
+    smbh = np.array(smbh, dtype=part.dtype)
+    timer.record()
+    if(timer.verbose >=2):
+        print('Found %d SMBHs.' % smbh.size)
+    timer.verbose = verbose_tmp
+    return smbh
+
+def box_mask(coo, box, size=None, exclusive=False):
+    # masking coordinates based on the box
+    if size is not None:
+        size = expand_shape(size, [0], 2)
+    else:
+        size = 0
+    if(exclusive):
+        size *= -1
+
+    box_mask = np.all((box[:, 0] <= coo+size/2) & (coo-size/2 <= box[:, 1]), axis=-1)
+    return box_mask
+
+def interpolate_part(part1, part2, name, fraction=0.5):
+    # Interpolates two particle snapshots based on their position and fraction
+    timer.start('Interpolating %d, %d particles...' % (part1.size, part2.size), 2)
+
+    id1 = part1['id']
+    id2 = part2['id']
+
+    id1 = np.abs(id1)
+    id2 = np.abs(id2)
+
+    part_size = np.maximum(np.max(id1), np.max(id2))+1
+
+    val1 = part1[name]
+    val2 = part2[name]
+
+    if(name == 'pos' or name == 'vel'):
+        pool = np.zeros((part_size, 3), dtype='f8')
+    else:
+        pool = np.zeros(part_size, dtype=val1.dtype)
+
+    mask1 = np.zeros(part_size, dtype='?')
+    mask2 = np.zeros(part_size, dtype='?')
+
+    mask1[id1] = True
+    mask2[id2] = True
+
+    active_mask = mask1 & mask2
+
+    pool[id1] += val1 * (1. - fraction)
+    pool[id2] += val2 * fraction
+    val = pool[active_mask]
+
+    if(timer.verbose>=2):
+        print("Particle interpolation - part1[%d], part2[%d], result[%d]" % (id1.size, id2.size, np.sum(active_mask)))
+    timer.record()
+
+    return val
+
+def interpolate_part_pos(part1, part2, Gyr_interp, fraction=0.5):
+    # Interpolates two particle snapshots based on their position and fraction
+    timer.start('Interpolating %d, %d particles...' % (part1.size, part2.size), 2)
+
+    id1 = part1['id']
+    id2 = part2['id']
+
+    id1 = np.abs(id1)
+    id2 = np.abs(id2)
+
+    part_size = np.maximum(np.max(id1), np.max(id2))+1
+
+    pos1 = part1['pos']
+    pos2 = part2['pos']
+
+    vel1 = part1['vel']
+    vel2 = part2['vel']
+
+    pool = np.zeros((part_size, 3), dtype='f8')
+
+    mask1 = np.zeros(part_size, dtype='?')
+    mask2 = np.zeros(part_size, dtype='?')
+
+    mask1[id1] = True
+    mask2[id2] = True
+
+    active_mask = mask1 & mask2
+
+    time_interval = (part2.snap.age - part1.snap.age) * Gyr_interp
+
+    pool[id1] += interp_term(pos1, vel1, fraction, time_interval)
+    pool[id2] += interp_term(pos2, vel2, 1-fraction, time_interval)
+    val = pool[active_mask]
+
+    if(timer.verbose>=2):
+        print("Particle interpolation - part1[%d], part2[%d], result[%d]" % (id1.size, id2.size, np.sum(active_mask)))
+    timer.record()
+
+    return val
+
+def interp_term(pos, vel, fraction, time_interval):
+    #fun = lambda x: -np.cos(x*np.pi)/2 + 0.5 # arbitrary blending function I just invented...
+    return (pos + time_interval * fraction * vel) * (1-fraction)
+
+def time_series(repo, iouts, halo_table, mode='none', extent=None, unit=None):
+    # returns multiple snapshots from repository and array of iouts
+    snaps = []
+    snap = None
+    for halo, iout in zip(halo_table, iouts):
+        snap = RamsesSnapshot(repo, iout, mode, snap=snap)
+        if(extent is None):
+            extent_now = halo['rvir']*2
+        else:
+            extent_now = extent * snap.unit[unit]
+        box = get_box(get_vector(halo), extent_now)
+        snap.box = box
+        snaps.append(snap)
+    return snaps
+
+def get_cpulist(box, binlvl, maxlvl, bound_key, ndim, n_divide):
+    # get list of cpus involved in selected box.
+    volume = np.prod([box[:, 1] - box[:, 0]])
+    if (binlvl is None):
+        binlvl = int(np.log2(1. / (volume + 1E-20)) / ndim) + n_divide
+    if (binlvl > 64 // ndim):
+        binlvl = 64 // ndim - 1
+    lower, upper = np.floor(box[:, 0] * 2 ** binlvl).astype(int), np.ceil(box[:, 1] * 2 ** binlvl).astype(int)
+    bbox = np.stack([lower, upper], axis=-1)
+
+    bin_list = utool.cartesian(
+        np.arange(bbox[0, 0], bbox[0, 1]),
+        np.arange(bbox[1, 0], bbox[1, 1]),
+        np.arange(bbox[2, 0], bbox[2, 1]))  # TODO: generalize this
+
+    if (timer.verbose >= 2):
+        print("Setting bin level as %d..." % binlvl)
+        print("Input box:", box)
+        print("Bounding box:", bbox)
+        ratio = np.prod([bbox[:, 1] / 2 ** binlvl - bbox[:, 0] / 2 ** binlvl]) / volume
+        print("Volume ratio:", ratio)
+        print("N. of Blocks:", bin_list.shape[0])
+
+    keys = hilbert3d(*(bin_list.T), binlvl, bin_list.shape[0])
+    keys = np.array(keys)
+    key_range = np.stack([keys, keys + 1], axis=-1)
+    key_range = key_range.astype('f8')
+
+    involved_cpu = []
+    for icpu_range, key in zip(
+            np.searchsorted(bound_key / 2. ** (ndim * (maxlvl - binlvl + 1)), key_range),
+            key_range):
+        involved_cpu.append(np.arange(icpu_range[0], icpu_range[1] + 1))
+    involved_cpu = np.unique(np.concatenate(involved_cpu)) + 1
+    if (timer.verbose >= 2):
+        print("List of involved CPUs: ", involved_cpu)
+    return involved_cpu
+
 
 def ckey2idx(amr_keys, nocts, levelmin, ndim=3):
     idx = 0
@@ -1094,15 +1147,6 @@ def ckey2idx(amr_keys, nocts, levelmin, ndim=3):
     #poss = np.mod(poss-0.5, 1)
     lvls = np.concatenate(lvls)
     return poss, lvls
-
-def cartesian(*arrays):
-    # cartesian product of arrays
-    la = len(arrays)
-    dtype = np.result_type(*arrays)
-    arr = np.empty([len(a) for a in arrays] + [la], dtype=dtype)
-    for i, a in enumerate(np.ix_(*arrays)):
-        arr[...,i] = a
-    return arr.reshape(-1, la)
 
 def domain_slice(array, cpulist, cpulist_all, bound):
     # array should already been aligned with bound
@@ -1156,7 +1200,7 @@ def align_axis(part, gal):
     part = RamsesSnapshot.Particle(table, part.snap)
     return part
 
-def align_axis_cell(part, gal):
+def align_axis_cell(part: RamsesSnapshot.Particle, gal: np.recarray):
     # Experimental
     coo = get_vector(part)
     j = get_vector(gal, prefix='L')

@@ -5,6 +5,8 @@ from scipy.ndimage.filters import gaussian_filter
 from rur.utool import *
 from scipy.spatial import Delaunay
 from scipy.interpolate import LinearNDInterpolator
+from scipy.stats import norm
+from scipy.signal import convolve2d
 from numpy.linalg import det
 
 import string
@@ -260,6 +262,27 @@ def gaussian_filter_border(image, sigma, **kwargs):
     fraction = sigma - sigma_int
     return gaussian_filter(image, sigma_int, **kwargs) * fraction + gaussian_filter(image, sigma_int+1, **kwargs) * (1-fraction)
 
+def gauss_img(x, y, lims, reso=100, weights=None, subdivide=3, kernel_size=1):
+    x, y = np.array(x), np.array(y)
+    mask = np.isfinite(x) & np.isfinite(y)
+    x, y = x[mask], y[mask]
+    if(weights is not None):
+        weights = weights[mask]
+
+    kern_size = int(kernel_size*subdivide*6) - 1
+
+    arr = bin_centers(-kern_size/2, kern_size/2, kern_size)
+    xm, ym = np.meshgrid(arr, arr)
+    mesh = np.stack([xm, ym], axis=-1)
+    dist = rss(mesh)
+
+    kern = norm.pdf(dist, scale=kernel_size*subdivide)
+    kern /= np.sum(kern)
+
+    hist = np.histogram2d(x, y, bins=reso*subdivide, range=lims, weights=weights)[0]
+    hist = convolve2d(hist, kern, mode='same')
+
+    return hist
 
 def kde_img(x, y, lims, reso=100, weights=None, tree=True):
     x, y = np.array(x), np.array(y)
