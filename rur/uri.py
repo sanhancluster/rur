@@ -1102,15 +1102,6 @@ def ckey2idx(amr_keys, nocts, levelmin, ndim=3):
     lvls = np.concatenate(lvls)
     return poss, lvls
 
-def cartesian(*arrays):
-    # cartesian product of arrays
-    la = len(arrays)
-    dtype = np.result_type(*arrays)
-    arr = np.empty([len(a) for a in arrays] + [la], dtype=dtype)
-    for i, a in enumerate(np.ix_(*arrays)):
-        arr[...,i] = a
-    return arr.reshape(-1, la)
-
 def domain_slice(array, cpulist, cpulist_all, bound):
     # array should already been aligned with bound
     idxs = np.where(np.isin(cpulist_all, cpulist))[0]

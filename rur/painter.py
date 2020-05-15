@@ -359,7 +359,7 @@ def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, m
 
     return draw_image(image, extent=extent, **kwargs)
 
-def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, method='hist', x=None, smooth=16, crho=False):
+def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, method='hist', x=None, smooth=16, crho=False, **kwargs):
     if(box is None and isinstance(part, uri.RamsesSnapshot.Particle)):
         box = part.snap.box
 
@@ -385,7 +385,10 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
     timer.start('Computing particle map of %d particles... ' % part.size, 1)
 
     if(method == 'hist'):
-        image = np.histogram2d(x[:, proj[0]], x[:, proj[1]], bins=shape, range=box_proj, weights=weights)[0]
+        image = np.histogram2d(x[:, proj[0]], x[:, proj[1]], bins=shape, range=box_proj, weights=weights, **kwargs)[0]
+        image /= px_area
+    elif (method == 'gaussian'):
+        image = dr.gauss_img(x[:, proj[0]], x[:, proj[1]], reso=shape, lims=box_proj, weights=weights, **kwargs)
         image /= px_area
     elif(method == 'kde'):
         image = dr.kde_img(x[:, proj[0]], x[:, proj[1]], reso=shape, lims=box_proj, weights=weights, tree=True)
