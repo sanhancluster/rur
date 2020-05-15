@@ -388,6 +388,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         return self.params[item]
 
     def __getattr__(self, item):
+        if item.startswith('__') and item.endswith('__'):
+            return super(RamsesSnapshot, self).__getattr__(item)
         return self.__getitem__(item)
 
     def get_path(self, type='amr', icpu=1):
