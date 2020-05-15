@@ -1,5 +1,6 @@
 ! Created by San Han on 20. 2. 14..
 
+! This module reads RAMSES AMR / hydro / particle raw data file and converts it to more flexible structure.
 module io_ramses
 
    ! Header data (AMR)
@@ -52,6 +53,7 @@ contains
 !#####################################################################
    subroutine read_grid_header(repo, iout, icpu)
 !#####################################################################
+      ! This routine reads first few information of RAMSES amr_*.out* file for some useful informations.
       implicit none
       character(len=128), intent(in) :: repo
       integer, intent(in) :: iout, icpu
@@ -158,6 +160,7 @@ contains
 !#####################################################################
    subroutine read_cell_single(repo, iout, icpu)
 !#####################################################################
+      ! This routine reads AMR and hydro data (amr_*.out*, hydro_*.out*)
       implicit none
       character(len=128), intent(in) :: repo
       integer, intent(in) :: iout, icpu
@@ -500,159 +503,18 @@ contains
    end subroutine read_grid_single
 
 !#####################################################################
-   subroutine write_ripses(repo, iout, icpu)
-!#####################################################################
-      ! Write currently cached grid data to ripses format
-      implicit none
-      character(len=128), intent(in) :: repo
-      integer, intent(in) :: iout, icpu
-
-      integer :: grid_n, nskip
-
-      grid_n = 50
-      nskip = 19 ! number of reads to skip header
-
-      open(unit=grid_n, file=grid_filename(repo, iout, icpu), form='unformatted')
-      write(grid_n)ncpu
-      write(grid_n)ndim
-      write(grid_n)ngrid_tot, nleaf
-      write(grid_n)nvar
-      write(grid_n)nskip
-
-      write(grid_n)nx,ny,nz
-      write(grid_n)nlevelmax
-      write(grid_n)ngridmax
-      write(grid_n)nboundary
-      write(grid_n)ngrid_current
-      write(grid_n)boxlen
-
-      write(grid_n)noutput,iout,ifout
-      write(grid_n)tout(1:noutput)
-      write(grid_n)aout(1:noutput)
-      write(grid_n)t
-      write(grid_n)dtold(1:nlevelmax)
-      write(grid_n)dtnew(1:nlevelmax)
-      write(grid_n)nstep,nstep_coarse
-      write(grid_n)einit,mass_tot_0,rho_tot
-      write(grid_n)omega_m,omega_l,omega_k,omega_b,h0,aexp_ini,boxlen_ini
-      write(grid_n)aexp,hexp,aexp_old,epot_tot_int,epot_tot_old
-      write(grid_n)mass_sph
-      write(grid_n)gamma
-
-      write(grid_n)numbl(1:ncpu,1:nlevelmax)
-
-      write(grid_n) xg
-      write(grid_n) ug
-      write(grid_n) refg
-      write(grid_n) lvlg
-      close(grid_n)
-
-   end subroutine write_ripses
-
-!#####################################################################
-   subroutine read_ripses_single(repo, iout, icpu)
-!#####################################################################
-      implicit none
-      ! Read grid data from ripses-format file
-      character(len=128), intent(in) :: repo
-      integer, intent(in) :: iout, icpu
-
-      integer :: grid_n, nskip
-
-      grid_n = 50
-
-      open(unit=grid_n, file=grid_filename(repo, iout, icpu), form='unformatted')
-      read(grid_n)ncpu
-      read(grid_n)ndim
-      read(grid_n)ngrid_tot, nleaf
-      read(grid_n)nvar
-      read(grid_n)nskip
-
-      call skip_read(grid_n, nskip)
-
-      twotondim = 2**ndim
-      allocate(xg(1:ngrid_tot, 1:ndim))
-      allocate(ug(1:ngrid_tot, 1:twotondim, 1:nvar))
-      allocate(refg(1:ngrid_tot, 1:twotondim))
-      allocate(lvlg(1:ngrid_tot))
-
-      read(grid_n) xg
-      read(grid_n) ug
-      read(grid_n) refg
-      read(grid_n) lvlg
-      close(grid_n)
-
-   end subroutine read_ripses_single
-
-!#####################################################################
-   subroutine read_ripses_cell(repo, iout, cpu_list)
-!#####################################################################
-      implicit none
-
-      character(len=128), intent(in) :: repo
-      integer, intent(in) :: iout
-      integer, dimension(:), intent(in) :: cpu_list
-
-      integer :: i, icpu, igrid, ind, icell, jcell, ngrid_now, nleaf_now
-      integer :: grid_n, nskip
-
-      real(kind=8), dimension(1:8, 1:3) :: oct_offset
-
-      ! Positional offset for 3-dimensional oct-tree
-      oct_offset = reshape((/&
-          -0.5,  0.5, -0.5,  0.5, -0.5,  0.5, -0.5,  0.5, &
-          -0.5, -0.5,  0.5,  0.5, -0.5, -0.5,  0.5,  0.5, &
-          -0.5, -0.5, -0.5, -0.5,  0.5,  0.5,  0.5,  0.5  &
-      /), shape(oct_offset))
-
-      grid_n = 50
-
-      ncell_tot = 0
-      do i = 1, SIZE(cpu_list)
-         icpu = cpu_list(i)
-         open(unit=grid_n, file=grid_filename(repo, iout, icpu), form='unformatted')
-         read(grid_n) ! ncpu
-         read(grid_n) ndim
-         read(grid_n) ngrid_now, nleaf_now
-         read(grid_n) nvar
-         close(grid_n)
-         ncell_tot = ncell_tot + nleaf_now
-      end do
-
-      allocate(xc(1:ncell_tot, 1:ndim), uc(1:ncell_tot, 1:nvar), lvlc(1:ncell_tot), cpuc(1:ncell_tot))
-
-      icell = 1
-      do i = 1, SIZE(cpu_list)
-         icpu = cpu_list(i)
-         call read_ripses_single(repo, iout, icpu)
-
-         ! Convert to cell format
-         jcell = 0
-         do ind = 1, twotondim
-            do igrid = 1, ngrid_tot
-               if(refg(igrid, ind)) then
-                  xc(icell + jcell, :) = xg(igrid, :) &
-                          + oct_offset(ind, :) * half ** lvlg(igrid)
-                  uc(icell + jcell, :) = ug(igrid, ind, :)
-                  lvlc(icell + jcell) = lvlg(igrid)
-                  cpuc(icell + jcell) = icpu
-                  jcell = jcell + 1
-               end if
-            end do
-         end do
-         icell = icell + jcell
-
-         call close_grid
-      end do
-
-   end subroutine read_ripses_cell
-
-!#####################################################################
 ! RAMSES particle data format
 !#####################################################################
+! There are large variations of RAMSES particle data format.
 ! ver.1 : x(3), v(3), mass, id
 ! ver.2 : x(3), v(3), mass, id, (family, tag), (epoch), (metal)
-! option : star, metal, fam, longint
+
+! Possible options
+!  star: read as stellar data format (which includes as epoch, metal), old RAMSES turn this on if there is any star / sink particle formed
+!  metal: turn this on if the simulation includes metal
+!  fam:
+!  longint:
+!
 
 !!#####################################################################
 !   subroutine read_part(repo, iout, cpulist)
@@ -866,6 +728,158 @@ contains
 !            close(part_n)
 !        end do
 !    end subroutine read_part_single
+
+!#####################################################################
+! RIPSES I/O subroutinnes
+!#####################################################################
+
+!#####################################################################
+   subroutine write_ripses(repo, iout, icpu)
+!#####################################################################
+      ! Write currently cached grid data to ripses format
+      implicit none
+      character(len=128), intent(in) :: repo
+      integer, intent(in) :: iout, icpu
+
+      integer :: grid_n, nskip
+
+      grid_n = 50
+      nskip = 19 ! number of reads to skip header
+
+      open(unit=grid_n, file=grid_filename(repo, iout, icpu), form='unformatted')
+      write(grid_n)ncpu
+      write(grid_n)ndim
+      write(grid_n)ngrid_tot, nleaf
+      write(grid_n)nvar
+      write(grid_n)nskip
+
+      write(grid_n)nx,ny,nz
+      write(grid_n)nlevelmax
+      write(grid_n)ngridmax
+      write(grid_n)nboundary
+      write(grid_n)ngrid_current
+      write(grid_n)boxlen
+
+      write(grid_n)noutput,iout,ifout
+      write(grid_n)tout(1:noutput)
+      write(grid_n)aout(1:noutput)
+      write(grid_n)t
+      write(grid_n)dtold(1:nlevelmax)
+      write(grid_n)dtnew(1:nlevelmax)
+      write(grid_n)nstep,nstep_coarse
+      write(grid_n)einit,mass_tot_0,rho_tot
+      write(grid_n)omega_m,omega_l,omega_k,omega_b,h0,aexp_ini,boxlen_ini
+      write(grid_n)aexp,hexp,aexp_old,epot_tot_int,epot_tot_old
+      write(grid_n)mass_sph
+      write(grid_n)gamma
+
+      write(grid_n)numbl(1:ncpu,1:nlevelmax)
+
+      write(grid_n) xg
+      write(grid_n) ug
+      write(grid_n) refg
+      write(grid_n) lvlg
+      close(grid_n)
+
+   end subroutine write_ripses
+
+!#####################################################################
+   subroutine read_ripses_single(repo, iout, icpu)
+!#####################################################################
+      implicit none
+      ! Read grid data from ripses-format file
+      character(len=128), intent(in) :: repo
+      integer, intent(in) :: iout, icpu
+
+      integer :: grid_n, nskip
+
+      grid_n = 50
+
+      open(unit=grid_n, file=grid_filename(repo, iout, icpu), form='unformatted')
+      read(grid_n)ncpu
+      read(grid_n)ndim
+      read(grid_n)ngrid_tot, nleaf
+      read(grid_n)nvar
+      read(grid_n)nskip
+
+      call skip_read(grid_n, nskip)
+
+      twotondim = 2**ndim
+      allocate(xg(1:ngrid_tot, 1:ndim))
+      allocate(ug(1:ngrid_tot, 1:twotondim, 1:nvar))
+      allocate(refg(1:ngrid_tot, 1:twotondim))
+      allocate(lvlg(1:ngrid_tot))
+
+      read(grid_n) xg
+      read(grid_n) ug
+      read(grid_n) refg
+      read(grid_n) lvlg
+      close(grid_n)
+
+   end subroutine read_ripses_single
+
+!#####################################################################
+   subroutine read_ripses_cell(repo, iout, cpu_list)
+!#####################################################################
+      implicit none
+
+      character(len=128), intent(in) :: repo
+      integer, intent(in) :: iout
+      integer, dimension(:), intent(in) :: cpu_list
+
+      integer :: i, icpu, igrid, ind, icell, jcell, ngrid_now, nleaf_now
+      integer :: grid_n, nskip
+
+      real(kind=8), dimension(1:8, 1:3) :: oct_offset
+
+      ! Positional offset for 3-dimensional oct-tree
+      oct_offset = reshape((/&
+          -0.5,  0.5, -0.5,  0.5, -0.5,  0.5, -0.5,  0.5, &
+          -0.5, -0.5,  0.5,  0.5, -0.5, -0.5,  0.5,  0.5, &
+          -0.5, -0.5, -0.5, -0.5,  0.5,  0.5,  0.5,  0.5  &
+      /), shape(oct_offset))
+
+      grid_n = 50
+
+      ncell_tot = 0
+      do i = 1, SIZE(cpu_list)
+         icpu = cpu_list(i)
+         open(unit=grid_n, file=grid_filename(repo, iout, icpu), form='unformatted')
+         read(grid_n) ! ncpu
+         read(grid_n) ndim
+         read(grid_n) ngrid_now, nleaf_now
+         read(grid_n) nvar
+         close(grid_n)
+         ncell_tot = ncell_tot + nleaf_now
+      end do
+
+      allocate(xc(1:ncell_tot, 1:ndim), uc(1:ncell_tot, 1:nvar), lvlc(1:ncell_tot), cpuc(1:ncell_tot))
+
+      icell = 1
+      do i = 1, SIZE(cpu_list)
+         icpu = cpu_list(i)
+         call read_ripses_single(repo, iout, icpu)
+
+         ! Convert to cell format
+         jcell = 0
+         do ind = 1, twotondim
+            do igrid = 1, ngrid_tot
+               if(refg(igrid, ind)) then
+                  xc(icell + jcell, :) = xg(igrid, :) &
+                          + oct_offset(ind, :) * half ** lvlg(igrid)
+                  uc(icell + jcell, :) = ug(igrid, ind, :)
+                  lvlc(icell + jcell) = lvlg(igrid)
+                  cpuc(icell + jcell) = icpu
+                  jcell = jcell + 1
+               end if
+            end do
+         end do
+         icell = icell + jcell
+
+         call close_grid
+      end do
+
+   end subroutine read_ripses_cell
 
 !#####################################################################
    subroutine close()
