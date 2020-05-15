@@ -31,7 +31,7 @@ part_dtype = {
     'iap': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'u1'), ('cpu', 'i4'), ('family', 'i1'), ('tag', 'i1')],
     'gem': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'u1'), ('cpu', 'i4'), ('family', 'i1'), ('tag', 'i1')],
     'fornax': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'u1'), ('cpu', 'i4'), ('family', 'i1'), ('tag', 'i1')],
-    'gem_longint': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i8'), ('level', 'u1'), ('cpu', 'i4'), ('family', 'i1'),('tag', 'i1')],
+    'gem_longint': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i8'), ('level', 'u1'), ('cpu', 'i4'), ('family', 'i1'), ('tag', 'i1')],
 
     'ng': default + [('id', 'i4'), ('level', 'u1'), ('cpu', 'i4')],
 }
@@ -71,8 +71,8 @@ hydro_names = {
     'yzics_dm_only': ['rho', 'vx', 'vy', 'vz', 'P', 'metal'],
     'none': ['rho', 'vx', 'vy', 'vz', 'P'],
     'iap': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],
-    'gem': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],
-    'fornax': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],
+    'gem': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'dust', 'refmask'],
+    'fornax': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'dust', 'refmask'],
     'ng': ['rho', 'vx', 'vy', 'vz', 'P'],
 }
 
