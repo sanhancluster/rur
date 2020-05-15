@@ -1026,6 +1026,50 @@ def interpolate_part(part1, part2, name, fraction=0.5):
 
     return val
 
+def interpolate_part_pos(part1, part2, Gyr_interp, fraction=0.5):
+    # Interpolates two particle snapshots based on their position and fraction
+    timer.start('Interpolating %d, %d particles...' % (part1.size, part2.size), 2)
+
+    id1 = part1['id']
+    id2 = part2['id']
+
+    id1 = np.abs(id1)
+    id2 = np.abs(id2)
+
+    part_size = np.maximum(np.max(id1), np.max(id2))+1
+
+    pos1 = part1['pos']
+    pos2 = part2['pos']
+
+    vel1 = part1['vel']
+    vel2 = part2['vel']
+
+    pool = np.zeros((part_size, 3), dtype='f8')
+
+    mask1 = np.zeros(part_size, dtype='?')
+    mask2 = np.zeros(part_size, dtype='?')
+
+    mask1[id1] = True
+    mask2[id2] = True
+
+    active_mask = mask1 & mask2
+
+    time_interval = (part2.snap.age - part1.snap.age) * Gyr_interp
+
+    pool[id1] += interp_term(pos1, vel1, fraction, time_interval, 1)
+    pool[id2] += interp_term(pos2, vel2, 1-fraction, time_interval, -1)
+    val = pool[active_mask]
+
+    if(timer.verbose>=2):
+        print("Particle interpolation - part1[%d], part2[%d], result[%d]" % (id1.size, id2.size, np.sum(active_mask)))
+    timer.record()
+
+    return val
+
+def interp_term(pos, vel, fraction, time_interval, vel_sign=1):
+    fun = lambda x: -np.cos(x*np.pi)/2 + 0.5 # arbitrary blending function I just invented...
+    return (pos + time_interval * fraction * vel * vel_sign) * fun(1-fraction)
+
 def time_series(repo, iouts, halo_table, mode='none', extent=None, unit=None):
     # returns multiple snapshots from repository and array of iouts
     snaps = []
@@ -1051,7 +1095,7 @@ def get_cpulist(box, binlvl, maxlvl, bound_key, ndim, n_divide):
     lower, upper = np.floor(box[:, 0] * 2 ** binlvl).astype(int), np.ceil(box[:, 1] * 2 ** binlvl).astype(int)
     bbox = np.stack([lower, upper], axis=-1)
 
-    bin_list = cartesian(
+    bin_list = utool.cartesian(
         np.arange(bbox[0, 0], bbox[0, 1]),
         np.arange(bbox[1, 0], bbox[1, 1]),
         np.arange(bbox[2, 0], bbox[2, 1]))  # TODO: generalize this
