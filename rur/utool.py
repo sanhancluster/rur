@@ -180,11 +180,12 @@ def append_rows(array, new_rows, idx=None):
 def expand_shape(arr, axis, ndim):
     # axis: array that has same size with current number of dimensions, positions of axis in the resulting array
     # ndim: number of dimensions of resulting array
+    axis = np.array(axis)
     arr = np.array(arr)
-    if (len(arr.shape) != len(axis)):
+    if (arr.ndim != axis.size):
         raise ValueError("Invalid axes")
     newshape = np.full(ndim, 1, dtype=np.int)
-    newshape[np.array(axis)] = np.array(arr.shape)[np.arange(len(axis))]
+    newshape[np.array(axis)] = np.array(arr.shape)[np.arange(axis.size)]
     return np.reshape(arr, newshape)
 
 def make_broadcastable(arr_tuple, axes, ndim=None):
