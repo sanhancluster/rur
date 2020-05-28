@@ -2,11 +2,11 @@ import os
 from numpy.core.records import fromarrays
 import numpy as np
 from rur.utool import Timer, get_vector, type_of_script, dump, load, pairing, get_distance, rss, ss,\
-    set_vector, discrete_hist2d, weighted_quantile
+    set_vector, discrete_hist2d, weighted_quantile, expand_shape
 from rur.readhtm import readhtm as readh
 from rur import uri
 from scipy.stats import mode
-from numpy.lib.recfunctions import append_fields, drop_fields
+from numpy.lib.recfunctions import append_fields, drop_fields, merge_arrays
 import gc
 import string
 from glob import glob
@@ -209,13 +209,13 @@ class HaloMaker:
 class PhantomTree:
     path_in_repo = 'ptree'
     ptree_file = 'ptree.pkl'
-    ptree_format = 'ptree_%05d.pkl'
-    desc_format = 'desc%d%s'
-    pass_format = 'pass%d%s'
+    ptree_file_format = 'ptree_%05d.pkl'
+    desc_name = 'desc'
+    pass_name = 'pass'
 
     @staticmethod
     def from_halomaker(snap, lookup, rankup=1, path_in_repo=path_in_repo, max_part_size=None,
-                       desc_format=desc_format, pass_format=pass_format, ptree_format=ptree_format, nparts_min=None,
+                       ptree_file_format=ptree_file_format, nparts_min=None,
                        part_array_buffer=1.1, skip_jumps=False, start_on_middle=False, **kwargs):
         print('Building PhantomTree from HaloMaker data in %s' % snap.repo)
         max_iout = snap.iout
@@ -233,7 +233,7 @@ class PhantomTree:
         iterator = tqdm(snap_iouts, unit='snapshot')
         for iout in iterator:
             try:
-                snap = uri.RamsesSnapshot(repo=snap.repo, iout=iout, mode=snap.mode)
+                snap = uri.RamsesSnapshot(repo=snap.repo, iout=iout, mode=snap.mode, longint=snap.longint)
             except FileNotFoundError:
                 if(skip_jumps):
                     continue
@@ -254,6 +254,7 @@ class PhantomTree:
             if(halo.size == 0):
                 iterator.close()
                 break
+
             halo_idx = np.repeat(np.arange(halo.size), halo['nparts'])
 
             part_pool[1:lookup] = part_pool[0:lookup-1]
@@ -268,10 +269,13 @@ class PhantomTree:
             desc_ids = np.empty(shape=((lookup-1)*rankup, halo.size), dtype='i4')
             npass = np.empty(shape=((lookup-1)*rankup, halo.size), dtype='i4')
 
-            for ilook in tqdm(np.arange(1, lookup), unit='lookup'):
+            # loop over lookup arrays (i.e. look foward snapshots)
+            for ilook in np.arange(1, lookup):
                 rank_range = slice((ilook - 1) * rankup, ilook * rankup)
+                # record descendent halos and number of particles sent, sorted by rank
                 if(ilook<=buffer):
-                    desc_idx, npass_arr = PhantomTree.find_desc(part_pool[np.array([0, ilook])], rankup=rankup)
+                    desc_idx, npass_arr = PhantomTree.find_desc(part_pool[np.array([0, ilook])],
+                                                                prog_n=sizes[0], next_n=sizes[ilook], rankup=rankup)
                     desc_ids[rank_range] = halo_ids[ilook-1][desc_idx]
                     desc_ids[rank_range][desc_idx==-1] = -1
                     npass[rank_range] = npass_arr
@@ -287,14 +291,22 @@ class PhantomTree:
                 print("Skipping output of iout = %d..." % iout)
                 continue
 
-            if(rankup==1):
-                names = [desc_format % (ilook, "") for ilook in np.arange(1, lookup)] + [pass_format % (ilook, "") for ilook in np.arange(1, lookup)] + ['scale']
-            elif(rankup>1):
-                names = [desc_format % (ilook, rankchar) for ilook in np.arange(1, lookup) for rankchar in chars[:rankup]]\
-                        + [pass_format % (ilook, rankchar) for ilook in np.arange(1, lookup) for rankchar in chars[:rankup]] + ['scale']
-            scale = np.full(halo.size, snap['aexp'])
-            halo = append_fields(halo, names=names, data=[*desc_ids, *npass, scale], usemask=False)
-            path = os.path.join(snap.repo, path_in_repo, ptree_format % iout)
+            tree_dtype = np.dtype([('desc', 'i4', (lookup-1, rankup)), ('npass', 'i4', (lookup-1, rankup))])
+            tree_data = np.full(halo.size, fill_value=-2, dtype=tree_dtype)
+
+            desc_ids = np.reshape(desc_ids, (lookup-1, rankup, halo.size))
+            desc_ids = np.rollaxis(desc_ids, -1, 0)
+
+            npass = np.reshape(npass, (lookup-1, rankup, halo.size))
+            npass = np.rollaxis(npass, -1, 0)
+
+            tree_data['desc'] = desc_ids
+            tree_data['npass'] = npass
+
+            # merge generated tree data
+            halo = merge_arrays([halo, tree_data], fill_value=-2, flatten=True, usemask=False)
+
+            path = os.path.join(snap.repo, path_in_repo, ptree_file_format % iout)
             dump(halo, path, msg=False)
         uri.timer.verbose = 1
 
@@ -305,26 +317,13 @@ class PhantomTree:
         :param hid_arr: 2 * nparts array that specifies idx of halos for each particle.
         :param prog_n: number of progenitors.
         :param next_n: number of next halos.
-        :return: list of descendent idx of each progentor, number of partices passed
+        :return: list of descendent idx of each progenitor, number of particles passed
         """
         hid_arr = hid_arr[:, (hid_arr[0] != -1) & (hid_arr[1] != -1)]
         if (prog_n is None):
             prog_n = np.max(hid_arr[0]) + 1
         if (next_n is None):
             next_n = np.max(hid_arr[1]) + 1
-        """
-        # performs discrete 2d histogram, which seems not available in numpy, much faster than np.histogram2d and np.add.at
-        # multiprocessing implemented
-        ncpu = mp.cpu_count()
-        nparts = hid_arr.shape[-1]
-        idxarr = nparts * np.arange(0, ncpu+1) // ncpu
-        arrs = [hid_arr[:, bot:top] for bot, top in zip(idxarr[:-1], idxarr[1:])]
-        
-        pool = mp.Pool(processes=ncpu)
-        hists = [pool.apply(PhantomTree.discrete_hist2d, args=((prog_n, next_n), hid_subarr)) for hid_subarr in arrs]
-        pool.close()
-        hist = np.sum(hists, axis=0)
-        """
         hist = discrete_hist2d((prog_n, next_n), hid_arr, use_long=True)
 
         desc_idx = np.argpartition(hist, -(np.arange(rankup) + 1), axis=1)[:, -1:-(rankup + 1):-1].T
@@ -336,13 +335,13 @@ class PhantomTree:
         return desc_idx, npass
 
     @staticmethod
-    def merge_ptree(repo, iout_max, path_in_repo=path_in_repo, ptree_file=ptree_file, ptree_format=ptree_format, desc_format=desc_format, skip_jumps=False):
+    def merge_ptree(repo, iout_max, path_in_repo=path_in_repo, ptree_file=ptree_file, ptree_file_format=ptree_file_format, skip_jumps=False):
         dirpath = os.path.join(repo, path_in_repo)
         iout = iout_max
         ptree = []
 
         while(True):
-            path = os.path.join(dirpath, ptree_format % iout)
+            path = os.path.join(dirpath, ptree_file_format % iout)
             if(not os.path.exists(path)):
                 if(skip_jumps):
                     if(iout == 1):
@@ -359,55 +358,93 @@ class PhantomTree:
             raise FileNotFoundError('No ptree file found in %s' % dirpath)
 
         ptree = np.concatenate(ptree)
-        ptree = PhantomTree.set_pairing_id(ptree, desc_format)
+        ptree = PhantomTree.set_pairing_id(ptree)
 
         dump(ptree, os.path.join(dirpath, ptree_file))
 
     @staticmethod
-    def set_pairing_id(ptree, desc_format=desc_format, save_hmid=True, fix_range=10000):
-        # fix range: temporary fix feature, if maximum id is smaller than this value, apply fix.
-        names = ptree.dtype.names
+    def set_pairing_id(ptree, save_hmid=True):
+        halo_uid = pairing(ptree['timestep'], ptree['id'], ignore=-1)
         if(save_hmid):
-            idx = names.index('id')
-            names = np.array(names)
-            names[idx] = 'hmid'
-        else:
-            ptree = drop_fields(ptree, 'id')
+            hmid = ptree['id']
+            ptree = append_fields(ptree, 'hmid', hmid, usemask=False)
 
-        halo_uid = pairing(ptree['timestep'], ptree['hmid'], ignore=-1)
+        lookup, rankup = ptree['desc'].shape[-2:]
+        lookup += 1
 
-        ilook = 1
-        while(True):
-            name1 = desc_format % (ilook, '')
-            name2 = desc_format % (ilook, 'a')
-            if(name1 in names):
-                ptree[name1] = pairing(ptree['timestep'] + ilook, ptree[name1], ignore=-1)
-                ilook += 1
-            elif name2 in names:
-                irank = 0
-                while(True):
-                    name2 = desc_format % (ilook, chars[irank])
-                    if (name2 in names and np.max(ptree[name2])<fix_range):
-                        ptree[name2] = pairing(ptree['timestep'] + ilook, ptree[name2], ignore=-1)
-                        irank += 1
-                    else:
-                        break
-                ilook += 1
-            else:
-                break
-
-        ptree = append_fields(ptree, 'id', halo_uid, usemask=False)
+        for ilook in np.arange(1, lookup):
+            ptree['desc'][:, ilook-1] = pairing(expand_shape(ptree['timestep'] + ilook, 0, 2), ptree['desc'][:, ilook-1], ignore=-1)
+        ptree['id'] = halo_uid
         return ptree
 
+    @staticmethod
+    def build_tree(ptree, overwrite=False, jump_ratio=0.5):
+        print('Building tree from %d halo-nodes...' % ptree.size)
+        names = ['fat', 'son', 'score_fat', 'score_son']
+        if(overwrite):
+            ptree = drop_fields(ptree, names, usemask=False)
+        id_ini = np.full(ptree.size, -1, dtype='i4')
+        score_ini = np.zeros(ptree.size, dtype='f8')
+        ptree = append_fields(
+            ptree, names,
+            [id_ini, id_ini, score_ini, score_ini], usemask=False)
+        ptree.sort(order='id')
+
+        lookup, rankup = ptree['desc'].shape[-2:]
+        lookup += 1
+
+        frac_send = ptree['npass'] / expand_shape(ptree['nparts'], 0, 3)
+        desc_idx = np.searchsorted(ptree['id'], ptree['desc'])
+        frac_recv = ptree['npass'] / ptree['nparts'][desc_idx]
+        score = frac_recv * frac_send
+
+        # score is reduced by jump_ratio per each jump
+        score *= expand_shape(jump_ratio**np.arange(1, lookup), 1, 3)
+        max_score = np.zeros(ptree.size, dtype='f8')
+
+        # flatten rank-lookup axis
+        score = score.reshape(*score.shape[:-2], -1)
+        desc = ptree['desc'].reshape(*ptree['desc'].shape[:-2], -1)
+        score_max = np.max(score, axis=-1)
+        mask = np.any(score>0, axis=-1)
+
+        ptree['son'][mask] = desc[np.arange(0, ptree.size), np.argmax(score, axis=-1)][mask]
+        ptree['score_son'] = score_max
+
+        score = score.flatten()
+
+        # sort descendent/progenitor index by increasing order
+        key = np.argsort(score)
+        score = score[key]
+        mask = score > 0
+        desc_idx = desc_idx.flatten()[key][mask]
+        prog_idx = np.repeat(np.arange(ptree.size), rankup*(lookup-1))[key][mask]
+
+        # We put progenitor id on the place of their respective descendent
+        # progenitors with bigger score always writes later
+        ptree['fat'][desc_idx] = ptree['id'][prog_idx]
+        ptree['score_fat'][desc_idx] = score[mask]
+
+        #mask = max_score>0
+        #for idx in tqdm(np.arange(ptree.size)[mask]):
+        #    me = ptree[idx]
+        #    found = desc == me['id']
+        #    my_score = score[found]
+        #    if(my_score.size>0):
+        #        prog_idx = np.where(np.any(found, axis=-1))[0]
+        #        #if(prog_idx.size != my_score.size):
+        #        #    raise ValueError('Something is wrong.')
+        #        ptree[idx]['fat'] = ptree[prog_idx[np.argmax(my_score)]]['id']
+        return ptree
 
     @staticmethod
-    def process_tree(ptree, lookup=4, rankup=4, overwrite=False, purity_threshold=0.5, desc_format=desc_format, reduce=True):
+    def process_tree(ptree, lookup=4, rankup=4, overwrite=False, purity_threshold=0.5, reduce=True):
         if(overwrite):
-            ptree = drop_fields(ptree, ['desc', 'mainp', 'leaf', 'nprog', 'line'], usemask=False)
+            ptree = drop_fields(ptree, ['desc', 'mainp', 'leaf', 'nprog', 'inherit'], usemask=False)
 
         id_ini = np.full(ptree.size, -1, dtype='i4')
         ptree = append_fields(
-            ptree, ['desc', 'mainp', 'leaf', 'nprog', 'line'],
+            ptree, ['desc', 'mainp', 'leaf', 'nprog', 'legit'],
             [id_ini, id_ini, ptree['id'], np.zeros(ptree.size, dtype='i4'), np.zeros(ptree.size, dtype='f8')], usemask=False)
         ptree.sort(order='id')
 
@@ -419,11 +456,7 @@ class PhantomTree:
             ilook += 1
         lookup = np.minimum(ilook, lookup)
         """
-        if(rankup>1):
-            desc_all = [ptree[desc_format % (ilook, 'a')] for ilook in np.arange(1, lookup)]
-        else:
-            desc_all = [ptree[desc_format % (ilook)] for ilook in np.arange(1, lookup)]
-        desc_all = np.unique(np.concatenate(desc_all))
+        desc_all = np.unique(ptree['desc'].flatten())
 
         leafs = ptree[np.isin(ptree['id'], desc_all, assume_unique=True, invert=True)]
         leafs_id = leafs['id']
@@ -447,10 +480,14 @@ class PhantomTree:
         return ptree
 
     @staticmethod
-    def process_leafs(ptree, leafs_id, lookup, rankup, purity_threshold, desc_format=desc_format, pass_format=pass_format):
+    def process_leafs(ptree, leafs_id, lookup, rankup, purity_threshold):
         for leaf_id in tqdm(leafs_id):
             halo = ptree[np.searchsorted(ptree['id'], leaf_id)]  # get a pointer
             halo['leaf'] = leaf_id
+
+            desc = halo['desc']
+
+
             while (True):
                 if(rankup>1):
                     char='a'
@@ -500,13 +537,13 @@ class PhantomTree:
 
 
     @staticmethod
-    def load(repo, path_in_repo=path_in_repo, ptree_file=ptree_file, ptree_format=ptree_format, iout=None, msg=True):
+    def load(repo, path_in_repo=path_in_repo, ptree_file=ptree_file, ptree_file_format=ptree_file_format, iout=None, msg=True):
         if(isinstance(repo, uri.RamsesSnapshot)):
             repo = repo.repo
         if(iout is None):
             filename = ptree_file
         else:
-            filename = ptree_format % iout
+            filename = ptree_file_format % iout
         path = os.path.join(repo, path_in_repo, filename)
         return load(path, msg=msg)
 
@@ -525,7 +562,7 @@ class PhantomTree:
 
 
     @staticmethod
-    def calc_sfr(repo, path_in_repo=path_in_repo, halomaker_repo='GalaxyMaker/gal', ptree_format=ptree_format, mode='none', max_part_size=None, overwrite=True):
+    def calc_sfr(repo, path_in_repo=path_in_repo, halomaker_repo='GalaxyMaker/gal', ptree_file_format=ptree_file_format, mode='none', max_part_size=None, overwrite=True):
         # repo should be specified here since we use particle data.
         print("Starting SFR estimation for %s" % repo)
 
@@ -545,7 +582,7 @@ class PhantomTree:
         psnap = uri.RamsesSnapshot(repo, iouts[0] - 1, mode=mode)
         for iout in tqdm(iouts): # never reorder this!
             nsnap = uri.RamsesSnapshot(repo, iout, mode=mode)
-            ptree = PhantomTree.load(repo, path_in_repo=path_in_repo, ptree_format=ptree_format, iout=iout,
+            ptree = PhantomTree.load(repo, path_in_repo=path_in_repo, ptree_file_format=ptree_file_format, iout=iout,
                                      msg=False)
             if (overwrite):
                 ptree = drop_fields(ptree, 'msf', usemask=False)
@@ -577,7 +614,7 @@ class PhantomTree:
             newstar_mass = np.bincount(newstar_halos, weights=newstar['m', 'Msol'], minlength=halo.size)
             halo['msf'] = newstar_mass
 
-            PhantomTree.save(halo, repo, path_in_repo=path_in_repo, ptree_file=ptree_format % iout, msg=False)
+            PhantomTree.save(halo, repo, path_in_repo=path_in_repo, ptree_file=ptree_file_format % iout, msg=False)
             psnap = nsnap
             gc.collect()
 
