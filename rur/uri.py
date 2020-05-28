@@ -206,7 +206,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
         format1 = '{name:<12}={data:>11d}\n'
         format2 = '{name:<12}={data:>2.15e}\n'
-        format3 = '{:14}{ordering:20}'
+        format3 = '{:14}{ordering:10}'
         format4 = '{domain:>8d} {ind_min:>2.15e} {ind_max:>2.15e}'
 
         params = {}

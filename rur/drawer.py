@@ -113,7 +113,8 @@ def hist_imshow(x, y, lims=None, reso=100, weights=None, filter_sigma=None, norm
         mask = np.isfinite(x) & np.isfinite(y)
         x = x[mask]
         y = y[mask]
-        weights = weights[mask]
+        if(weights is not None):
+            weights = weights[mask]
         lims = [[np.nanquantile(x, 0.00001), np.nanquantile(x, 0.99999)],
                 [np.nanquantile(y, 0.00001), np.nanquantile(y, 0.99999)]]
         print('Automatically setting lims as ', lims)
