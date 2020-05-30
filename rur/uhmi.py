@@ -15,7 +15,7 @@ if(type_of_script() == 'jupyter'):
     from tqdm import tqdm_notebook as tqdm
 else:
     from tqdm import tqdm
-
+import warnings
 
 chars = string.ascii_lowercase
 
@@ -364,6 +364,9 @@ class PhantomTree:
 
     @staticmethod
     def set_pairing_id(ptree, save_hmid=True):
+        if(np.max(ptree['timestep'])*np.max(ptree['id'])+1 < 65535):
+            warnings.warn("Max ID from halo is too big; You probably need to replace pairing id to 64-bit integer.")
+
         halo_uid = pairing(ptree['timestep'], ptree['id'], ignore=-1)
         if(save_hmid):
             hmid = ptree['id']
@@ -381,6 +384,7 @@ class PhantomTree:
     def build_tree(ptree, overwrite=False, jump_ratio=0.5):
         print('Building tree from %d halo-nodes...' % ptree.size)
         names = ['fat', 'son', 'score_fat', 'score_son']
+        ptree.sort(order='id')
         if(overwrite):
             ptree = drop_fields(ptree, names, usemask=False)
         id_ini = np.full(ptree.size, -1, dtype='i4')
@@ -388,7 +392,6 @@ class PhantomTree:
         ptree = append_fields(
             ptree, names,
             [id_ini, id_ini, score_ini, score_ini], usemask=False)
-        ptree.sort(order='id')
 
         lookup, rankup = ptree['desc'].shape[-2:]
         lookup += 1
@@ -421,119 +424,70 @@ class PhantomTree:
         prog_idx = np.repeat(np.arange(ptree.size), rankup*(lookup-1))[key][mask]
 
         # We put progenitor id on the place of their respective descendent
-        # progenitors with bigger score always writes later
+        # progenitors with bigger score are always written later
         ptree['fat'][desc_idx] = ptree['id'][prog_idx]
         ptree['score_fat'][desc_idx] = score[mask]
 
-        #mask = max_score>0
-        #for idx in tqdm(np.arange(ptree.size)[mask]):
-        #    me = ptree[idx]
-        #    found = desc == me['id']
-        #    my_score = score[found]
-        #    if(my_score.size>0):
-        #        prog_idx = np.where(np.any(found, axis=-1))[0]
-        #        #if(prog_idx.size != my_score.size):
-        #        #    raise ValueError('Something is wrong.')
-        #        ptree[idx]['fat'] = ptree[prog_idx[np.argmax(my_score)]]['id']
         return ptree
 
     @staticmethod
-    def process_tree(ptree, lookup=4, rankup=4, overwrite=False, purity_threshold=0.5, reduce=True):
+    def add_tree_info(ptree, overwrite=False):
+        # this function adds some useful tree information from tree data already built
+        print('Adding tree info from %d halo-nodes...' % ptree.size)
+        names = ['nprog', 'ndesc', 'first', 'last', 'first_rev', 'last_rev']
         if(overwrite):
-            ptree = drop_fields(ptree, ['desc', 'mainp', 'leaf', 'nprog', 'inherit'], usemask=False)
-
+            ptree = drop_fields(ptree, names, usemask=False)
         id_ini = np.full(ptree.size, -1, dtype='i4')
+        num_ini = np.zeros(ptree.size, dtype='i4')
         ptree = append_fields(
-            ptree, ['desc', 'mainp', 'leaf', 'nprog', 'legit'],
-            [id_ini, id_ini, ptree['id'], np.zeros(ptree.size, dtype='i4'), np.zeros(ptree.size, dtype='f8')], usemask=False)
-        ptree.sort(order='id')
+            ptree, names,
+            [num_ini, num_ini, id_ini, id_ini, id_ini, id_ini], usemask=False)
 
-        iout_max = np.max(ptree['timestep'])
-        """
-        names = ptree.dtype.names
-        ilook = 1
-        while('desc%da' % ilook in names):
-            ilook += 1
-        lookup = np.minimum(ilook, lookup)
-        """
-        desc_all = np.unique(ptree['desc'].flatten())
+        def search_tree_reverse(son, last, nprog):
+            ptree.sort(order=son)
+            # first fill end-nodes (leafs and roots)
+            last_idx = np.where(ptree[son]==-1)[0]
+            ptree[last][last_idx] = ptree['id'][last_idx]
 
-        leafs = ptree[np.isin(ptree['id'], desc_all, assume_unique=True, invert=True)]
-        leafs_id = leafs['id']
+            t = tqdm(total=ptree.size)
+            while last_idx.size > 0:
+                t.update(last_idx.size)
+                my_id = ptree['id'][last_idx]
+                #find the idx there other nodes find itself
+                lidxs = np.searchsorted(ptree[son], my_id, side='left')
+                ridxs = np.searchsorted(ptree[son], my_id, side='right')
+                ptree[nprog][last_idx] = ridxs - lidxs
 
-        print('Number of leafs = %d' % leafs.size)
-        PhantomTree.process_leafs(ptree, leafs_id, lookup, rankup, purity_threshold)
+                # I found no better solution then using for loop here...
+                idxs = []
+                for lid, l, r in zip(ptree[last][last_idx], lidxs, ridxs):
+                    ptree[last][l:r] = lid
+                    idxs.append(np.arange(l, r))
+                last_idx = np.concatenate(idxs)
+            t.close()
 
-        rems = ptree[(ptree['desc'] == -1) & (ptree['timestep'] != iout_max)]
-        print("Remainders: %d" % rems.size)
-        rems_id = rems['id']
-        PhantomTree.process_leafs(ptree, rems_id, lookup, rankup, purity_threshold)
+        def search_tree(son, first):
+            ptree.sort(order='id')
+            # first fill end-nodes (leafs and roots)
+            son_idx = np.where(~np.isin(ptree['id'], ptree[son]))[0]
+            first_ids = ptree['id'][son_idx]
 
-        if(reduce):
-            leafs, counts = np.unique(ptree['leaf'], return_counts=True)
-            leafs = leafs[counts>lookup]
+            t = tqdm(total=ptree.size)
+            while son_idx.size > 0:
+                ptree[first][son_idx] = first_ids
+                son_ids = ptree[son][son_idx]
+                mask = son_ids!=-1
+                son_idx = np.searchsorted(ptree['id'], son_ids[mask])
+                first_ids = first_ids[mask]
+                t.update(son_idx.size)
+            t.close()
 
-            reduce_mask = np.isin(ptree['leaf'], leafs)
-            print('Reducing Trees... %d --> %d' % (np.sum(reduce_mask), reduce_mask.size))
-            ptree = ptree[reduce_mask]
+        search_tree('son', 'first')
+        search_tree('fat', 'last')
 
+        search_tree_reverse('son', 'first_rev', 'nprog')
+        search_tree_reverse('fat', 'last_rev', 'ndesc')
         return ptree
-
-    @staticmethod
-    def process_leafs(ptree, leafs_id, lookup, rankup, purity_threshold):
-        for leaf_id in tqdm(leafs_id):
-            halo = ptree[np.searchsorted(ptree['id'], leaf_id)]  # get a pointer
-            halo['leaf'] = leaf_id
-
-            desc = halo['desc']
-
-
-            while (True):
-                if(rankup>1):
-                    char='a'
-                else:
-                    char=''
-                desc_ids = np.array([halo[desc_format % (i, char)] for i in np.arange(1, lookup )])
-                mask = desc_ids > 0
-                if (np.sum(mask) > 0):
-                    desc_ids = desc_ids[mask]
-                    if (rankup > 1):
-                        npasses = np.array([halo[pass_format % (i, 'a')] for i in np.arange(1, lookup)])
-                    else:
-                        npasses = np.array([halo[pass_format % (i)] for i in np.arange(1, lookup)])
-                    npasses = npasses[mask]
-
-                    ilooks = np.searchsorted(ptree['id'], desc_ids)
-
-                    descs = ptree[ilooks]
-                    if('msf' in descs.dtype.names):
-                        purity = npasses / (descs['nparts'] * (descs['m'] - descs['msf']) / descs['m'])
-                    else:
-                        purity = npasses / descs['nparts']
-
-                    heiridx = np.argmax(purity)
-
-                    if (purity[heiridx] - purity[0] < purity_threshold):
-                        heiridx = 0
-                    halo['desc'] = desc_ids[heiridx]
-
-                    desc = ptree[np.searchsorted(ptree['id'], halo['desc'])]
-                    if (desc['id'] != halo['desc']):
-                        print('Something Wrong: descendent id does not exist')
-                        break
-
-                    desc['nprog'] += 1
-                    if(desc['line']<=purity[heiridx]): # IMPORTANT: should include "equal"!
-                        # write parent data, can be overwritten.
-                        desc['leaf'] = leaf_id
-                        desc['mainp'] = halo['id']
-                        desc['line'] = purity[heiridx]
-                    else:
-                        break
-                    halo = desc
-
-                else:
-                    break
 
 
     @staticmethod
