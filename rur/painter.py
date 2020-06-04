@@ -9,6 +9,7 @@ from matplotlib.patches import RegularPolygon, Rectangle
 from scipy.ndimage.filters import gaussian_filter1d
 from collections.abc import Iterable
 from itertools import repeat
+from PIL import Image
 import os
 
 verbose = 1
@@ -443,17 +444,19 @@ def draw_image(image, extent=None, vmin=None, vmax=None, qscale=3., normmode='lo
     return ims
 
 
-def save_image(image, fname, cmap=dr.ccm.laguna, vmin=None, vmax=None, qscale=3., normmode='log', nanzero=False, make_dir=False):
+def save_image(image, fname, cmap=dr.ccm.laguna, vmin=None, vmax=None, qscale=3., normmode='log',
+               nanzero=False, make_dir=False, grayscale=False, img_mode='RGB'):
     fname = os.path.expanduser(fname)
     if(make_dir):
         os.makedirs(os.path.dirname(fname), exist_ok=True)
 
-    if(len(image.shape)>2):
-        plt.imsave(fname, image, origin='lower')
-    else:
-        image_norm = cmap(norm(image, vmin, vmax, qscale, mode=normmode, nanzero=nanzero))
+    image = norm(image, vmin, vmax, qscale, mode=normmode, nanzero=nanzero)
+    if(not grayscale and len(image.shape)<3):
+        image = cmap(image)
+    im = Image.fromarray(np.uint16(image * 65535), mode=img_mode)
+    im.save(fname, format='png', compression=None)
 
-        plt.imsave(fname, image_norm, origin='lower')
+
 
 def save_figure(fname, make_dir=True, **kwargs):
     fname = os.path.expanduser(fname)
