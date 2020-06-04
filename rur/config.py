@@ -136,6 +136,9 @@ def custom_units(snap):
         'Mpc' : Mpc / l,
         'ly'  : ly / l,
 
+        'ckpc': 1E-3 / snap.boxsize * snap.h,
+        'cMpc': 1E0 / snap.boxsize * snap.h,
+
         # Mass
         'g'  : 1 / m,
         'kg'  : 1E3 / m,
