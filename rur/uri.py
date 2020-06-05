@@ -57,7 +57,7 @@ class RamsesSnapshot(object):
     ----------
     To read data from ramses raw binary data:
 
-    >>> from rur.rur import uri
+    >>> from rur import uri
     >>> repo = "path/to/your/ramses/outputs"
     >>> snap = uri.RamsesSnapshot(repo, iout=1, path_in_repo='')
     >>> snap.box = np.array([[0, 1], [0, 1], [0, 1]])
@@ -106,6 +106,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.cell = None
 
         self.longint = longint
+
+        if(mode == 'fornax'):
+            self.longint = True
 
         if(mode == 'ng'):
             self.classic_format = False
