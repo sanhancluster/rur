@@ -577,12 +577,13 @@ class PhantomTree:
 
 
     @staticmethod
-    def measure_star_prop(repo, path_in_repo=path_in_repo, halomaker_repo='GalaxyMaker/gal', ptree_file=ptree_file, mode='none',
-                          overwrite=True, backup_freq=30, sfr_measure_Myr=50., mass_cut_refine=2.4E-11,
+    def measure_star_prop(repo, path_in_repo=path_in_repo, halomaker_repo='galaxy', ptree_file=ptree_file,
+                          mode='none', longint=False, overwrite=True,
+                          backup_freq=30, sfr_measure_Myr=50., mass_cut_refine=2.4E-11,
                           output_file='ptree_SFR.pkl', backup_file='ptree_SFR.pkl.backup'):
         # repo should be specified here since we use particle data.
         # following stellar properties are added
-        #   sfr, sfr2, sfr4: star formation rate using 100, 200, 400Myr interval [Msol/yr]
+        #   sfr, sfr2, sfr4: star formation rate using 50, 100, 200Myr interval [Msol/yr]
         #   msf: mass of stars formed since last snapshot [Msol]
         #   r90, r50: radius that encloses 90% and 50% of the total mass [code unit]
         #   age: mean age of stars [Gyr]
@@ -592,7 +593,7 @@ class PhantomTree:
         #   mbh: mass of most massive bh within r90 [Msol]
         #   bh_offset: most massive bh's spatial offset from galactic center [code unit]
 
-        print("Starting properties measure for %s" % repo)
+        print("Starting stellar properties measure for %s" % repo)
         ptree_path = os.path.join(repo, path_in_repo)
         ptree = PhantomTree.load(repo, ptree_path, ptree_file=ptree_file)
 
@@ -603,12 +604,11 @@ class PhantomTree:
         ptree = append_fields(ptree, ['idx', *fields],
                               [np.arange(ptree.size), *(zero_double,)*len(fields)], usemask=False)
 
-        iouts = np.unique(ptree['timestep'])
-        iouts = np.sort(iouts)
+        iouts = np.sort(np.unique(ptree['timestep']))
         min_iout = np.min(iouts)
         max_iout = np.max(iouts)
 
-        snap = uri.RamsesSnapshot(repo, max_iout, mode=mode)
+        snap = uri.RamsesSnapshot(repo, max_iout, mode=mode, longint=longint)
         part_ids = HaloMaker.load(snap, halomaker_repo, galaxy=True, load_parts=True)[1]
         max_part_size = int(np.max(part_ids) * 1.2)
         part_pool = np.full(max_part_size, -1, dtype='i4')
@@ -616,9 +616,9 @@ class PhantomTree:
         uri.timer.verbose = 0
         uri.verbose = 0
 
-        psnap = uri.RamsesSnapshot(repo, min_iout-1, mode=mode)
+        psnap = uri.RamsesSnapshot(repo, min_iout-1, mode=mode, longint=longint)
         for iout in tqdm(iouts):
-            nsnap = uri.RamsesSnapshot(repo, iout, mode=mode)
+            nsnap = uri.RamsesSnapshot(repo, iout, mode=mode, longint=longint)
 
             mask = ptree['timestep'] == iout
             gals = ptree[mask]
@@ -626,10 +626,6 @@ class PhantomTree:
             gals.sort(order='hmid')
 
             halomaker, part_ids = HaloMaker.load(nsnap, halomaker_repo, galaxy=True, load_parts=True)
-
-            # find missing galaxies (temporal SF clumps that was previously removed by PhantomTree)
-            gal_missing = halomaker[np.isin(halomaker['id'], gals['hmid'], assume_unique=True, invert=True)]
-            #halomaker, part_ids = HaloMaker.cut_table(halomaker, part_ids, mask2)
 
             idxs = np.arange(halomaker.size)
             halomaker_idx = np.repeat(idxs, halomaker['nparts'])
@@ -656,16 +652,6 @@ class PhantomTree:
                 # first calculate r90 (may be updated if there's a subgalaxy
                 r90 = weighted_quantile(dists, 0.9, sample_weight=gal_star['m'])
 
-                subgals = gal_missing[get_distance(gal, gal_missing)<r90]
-
-                if(subgals.size>0):
-                    # get mask for both main galaxy and subgalaxies
-                    subgal_mask = np.isin(halomaker['id'], np.concatenate([[gal['hmid']], subgals['id']]), assume_unique=True)
-                    gal_mask = np.isin(part_pool[np.abs(star['id'])], idxs[subgal_mask], assume_unique=True)
-                    gal_star = star[gal_mask]
-                    dists = get_distance(gal, gal_star)
-                    r90 = weighted_quantile(dists, 0.9, sample_weight=gal_star['m'])
-
                 r50 = weighted_quantile(dists, 0.5, sample_weight=gal_star['m'])
                 sfr = np.sum(gal_star[gal_star['age', 'Myr']<sfr_measure_Myr]['m', 'Msol']) / (sfr_measure_Myr*1E6)
                 sfr2 = np.sum(gal_star[gal_star['age', 'Myr']<sfr_measure_Myr*2]['m', 'Msol']) / (sfr_measure_Myr*2E6)
@@ -673,15 +659,13 @@ class PhantomTree:
                 msf = np.sum(gal_star[(psnap['time'] < gal_star['epoch']) & (nsnap['time'] >= gal_star['epoch'])]['m', 'Msol'])
 
                 age = np.average(gal_star['age', 'Gyr'], weights=gal_star['m'])
+                tform = np.median(snap.age-gal_star['age', 'Gyr'])
                 metal = np.average(gal_star['metal'], weights=gal_star['m'])
 
                 dm_r90 = uri.cut_halo(dm, gal, r90, use_halo_radius=False)
                 contam = np.sum(dm_r90[dm_r90['m']>mass_cut_refine]['m'])/np.sum(dm_r90['m'])
 
-                bh_r50 = uri.cut_halo(smbh, gal, r50, use_halo_radius=False)
-                bh_max = bh_r50[np.argmax(bh_r50['m'])]
-                mbh = bh_max['m']
-                bh_offset = get_distance(gal, bh_max)
+                bh_r90 = uri.cut_halo(smbh, gal, r90, use_halo_radius=False)
 
                 ptree['sfr'][gal['idx']] = sfr
                 ptree['sfr2'][gal['idx']] = sfr2
@@ -689,19 +673,20 @@ class PhantomTree:
                 ptree['msf'][gal['idx']] = msf
                 ptree['r90'][gal['idx']] = r90
                 ptree['r50'][gal['idx']] = r50
-                ptree['m'][gal['idx']] = np.sum(gal_star['m', 'Msol'])
-
-                ptree['vx'][gal['idx']] = np.average(gal_star['vx', 'km/s'], weights=gal_star['m'])
-                ptree['vy'][gal['idx']] = np.average(gal_star['vy', 'km/s'], weights=gal_star['m'])
-                ptree['vz'][gal['idx']] = np.average(gal_star['vz', 'km/s'], weights=gal_star['m'])
 
                 ptree['nparts'][gal['idx']] = gal_star.size
                 ptree['contam'][gal['idx']] = contam
                 ptree['age'][gal['idx']] = age
+                ptree['tform'][gal['idx']] = tform
                 ptree['metal'][gal['idx']] = metal
 
-                ptree['mbh'][gal['idx']] = mbh
-                ptree['bh_offset'][gal['idx']] = bh_offset
+                if(bh_r90.size>0):
+                    bh_max = bh_r90[np.argmax(bh_r90['m'])]
+                    mbh = bh_max['m']
+                    bh_offset = get_distance(gal, bh_max)
+
+                    ptree['mbh'][gal['idx']] = mbh
+                    ptree['bh_offset'][gal['idx']] = bh_offset
 
             if(iout % backup_freq == 0):
                 PhantomTree.save(ptree, repo, ptree_path, ptree_file=backup_file)
@@ -709,6 +694,7 @@ class PhantomTree:
             psnap.clear()
             psnap = nsnap
             gc.collect()
+        tqdm.close()
 
         uri.timer.verbose = 1
         uri.verbose = 1
@@ -716,7 +702,9 @@ class PhantomTree:
         PhantomTree.save(ptree, repo, ptree_path, ptree_file=output_file)
 
     @staticmethod
-    def measure_gas_prop(repo, path_in_repo=path_in_repo, ptree_file=ptree_file, mode='none', overwrite=True, backup_freq=30, min_radius=1., max_radius=4., radius_name='r90', iout_start=0):
+    def measure_gas_prop(repo, path_in_repo=path_in_repo, ptree_file=ptree_file, mode='none', overwrite=True,
+                         backup_freq=30, min_radius=1., max_radius=4., radius_name='r90', iout_start=0,
+                         measure_contam=True):
         def wgas_mask(cell):
             # Torrey et al. 2012
             return np.log10(cell['T', 'K']) < 6 + 0.25 * np.log10(cell['rho', 'Msol/kpc3'] * snap['h'] ** 2 / 10 ** 10)
@@ -731,70 +719,34 @@ class PhantomTree:
             snap.get_cell(cpulist=cpulist)
             return gals, snap
 
-        def measure_rgas(gas, rgal):
-            mask = wgas_mask(gas)
-            wgas = gas[mask]
-            hgas = gas[~mask]
-
-            wgas_dist = get_distance(gal, wgas)
-            key = np.argsort(wgas_dist)
-            wgas = wgas[key]
-            wgas_dist = wgas_dist[key]
-            wgas_cum = np.cumsum(wgas['vol'])
-            min_idx = np.searchsorted(wgas_dist, min_radius * rgal)
-            wgas_dist = wgas_dist[min_idx:]
-            wgas_cum = wgas_cum[min_idx:]
-
-            hgas_dist = get_distance(gal, hgas)
-            key = np.argsort(hgas_dist)
-            hgas = hgas[key]
-            hgas_dist = hgas_dist[key]
-            hgas_cum = np.cumsum(hgas['vol'])
-            min_idx = np.searchsorted(hgas_dist, min_radius * rgal)
-            hgas_dist = hgas_dist[min_idx:]
-            hgas_cum = hgas_cum[min_idx:]
-
-            if (hgas_dist.size == 0):  # no hot gas
-                rgas = max_radius * rgal
-            elif (wgas_dist.size == 0):  # no cold gas
-                rgas = min_radius * rgal
-            else:  # both exists
-                res = np.interp(hgas_dist, wgas_dist, wgas_cum) - hgas_cum
-                res_mask = res < 0
-
-                if (np.all(res_mask)):  # if inverted at the first place
-                    rgas = min_radius * rgal
-                elif (np.any(res_mask)):  # if inversion happens
-                    rgas = hgas_dist[res_mask][0]
-                else:  # no inversion
-                    rgas = max_radius * rgal
-
-            wgas = uri.cut_halo(wgas, gal, rgas, code_unit=True)
-            mask = cgas_mask(wgas)
-            cgas = wgas[mask]
-            wgas = wgas[~mask]
-            hgas = uri.cut_halo(hgas, gal, rgas, code_unit=True)
-            return cgas, wgas, hgas, rgas
-
-        def measure_rgas_v2(gas, gal, rgal):
-            # Adds outer gas
+        def measure_rgas(gas, gal, rgal):
+            # cgas: cold gas; represents molecular cloud, HI clouds
+            # wgas: warm gas; represents circumgalactic medium, HII regions
+            # hgas: (inner) hot gas; represents hot bubble from SN and AGN, should be within min_radius
+            # ogas: (outer) hot gas; represents ICM/IGM
+            # rgas: a radius where the volume of (outer) hot and cold gas becomes same.
             mask = wgas_mask(gas)
             wgas = gas[mask] # includes cg also
             hgas = gas[~mask] # includes og also
 
+            # sort wgas by the distance from center
             wgas_dist = get_distance(gal, wgas)
             key = np.argsort(wgas_dist)
             wgas = wgas[key]
             wgas_dist = wgas_dist[key]
+
+            # calculate the cumsum of volume, find the minimum index where the distance is larger than min_radius
             wgas_cum = np.cumsum(wgas['vol'])
             min_idx = np.searchsorted(wgas_dist, min_radius * rgal)
             wgas_dist = wgas_dist[min_idx:]
             wgas_cum = wgas_cum[min_idx:]
 
+            # divide hgas and ogas
             hgas_dist = get_distance(gal, hgas)
             hgas = hgas[hgas_dist < min_radius * rgal]
             ogas = hgas[hgas_dist >= min_radius * rgal]
 
+            # sort ogas by the distance from center
             ogas_dist = get_distance(gal, ogas)
             key = np.argsort(ogas_dist)
             ogas = ogas[key]
@@ -804,6 +756,9 @@ class PhantomTree:
             ogas_dist = ogas_dist[min_idx:]
             ogas_cum = ogas_cum[min_idx:]
 
+            # measure rgas based on the following criterion
+            # 1. rgas is selected between min - max radius
+            # 2. rgas is where cumulative sum of wgas and ogas crosses each other
             if (ogas_dist.size == 0):  # no hot gas
                 rgas = max_radius * rgal
             elif (wgas_dist.size == 0):  # no cold gas
@@ -827,54 +782,68 @@ class PhantomTree:
 
             return cgas, wgas, hgas, ogas, rgas
 
-        def set_gas_properties(gal, gas, abbr):
+        def set_gas_properties(gal, gas, phase):
+            # phase is a pointer from ptree array that represents specific phase of the gas
             vgal = get_vector(gal, 'v') * snap.unit['km/s']
             pgal = get_vector(gal)
+            gal_gas = gal[phase]
 
-            gal['m%s' % abbr] = np.sum(gas['m'])
-            gal['rho_%s' % abbr] = np.average(gas['rho'], weights=gas['m'])
-            gal['metal_%s' % abbr] = np.average(gas['metal'], weights=gas['m'])
+            gal_gas['m'] = np.sum(gas['m'])
+            gal_gas['rho'] = np.average(gas['rho'], weights=gas['m'])
+            gal_gas['metal'] = np.average(gas['metal'], weights=gas['m'])
 
             vel = gas['vel'] - vgal
             pos = (gas['pos'] - pgal)
             vrad = np.sum(vel * pos, axis=-1) / rss(pos)
-            gal['flux_%s' % abbr] = np.sum(vrad * gas['rho'] * gas['dx']**2)
-            set_vector(gal, np.average(vel, axis=0, weights=gas['m']), abbr+'v')
+            gal_gas['vr'] = np.average(vrad, weights=gas['m'])
+            set_vector(gal_gas, np.average(vel, axis=0, weights=gas['m']), 'v')
+            if('contam' in gal_gas.dtype.names):
+                gal_gas['contam'] = np.sum(gas[gas['refmask']<0.01]['m'])/gal_gas['m']
 
-        def fin_gas_propertiles(gals, abbr):
-            gals['m%s' % abbr] /= snap.unit['Msol']
-            gals['rho_%s' % abbr] /= snap.unit['H/cc']
+        def fin_gas_propertiles(gals, phase):
+            gal_gas = gals[phase]
+            gal_gas['m'] /= snap.unit['Msol']
+            gal_gas['rho'] /= snap.unit['H/cc']
 
-            gals['%sx' % abbr] /= snap.unit['km/s']
-            gals['%sy' % abbr] /= snap.unit['km/s']
-            gals['%sz' % abbr] /= snap.unit['km/s']
-
-            gals['flux_%s' % abbr] /= snap.unit['Msol/yr']
+            gal_gas['vx'] /= snap.unit['km/s']
+            gal_gas['vy'] /= snap.unit['km/s']
+            gal_gas['vz'] /= snap.unit['km/s']
 
         ptree = PhantomTree.load(repo, path_in_repo=path_in_repo, ptree_file=ptree_file)
 
-        gas_phases = ['cg', 'wg', 'hg', 'og']
-        gas_names = ['m%s', '%svx', '%svy', '%svz', 'rho_%s', 'metal_%s']
-        full_names = [name % abbr for abbr in gas_phases for name in gas_names]
-        names = ['idx', *full_names, 'ramp', 'rgas']
+        gas_phases = ['cgas', 'wgas', 'hgas', 'ogas']
+        gas_names = ['m', 'vx', 'vy', 'vz', 'rho', 'metal']
 
-        empty_double = np.zeros(ptree.size, dtype='f8')
+        extras = ['pram', 'idx']
+        extra_formats = ['f8', 'i4']
+        if(measure_contam):
+            gas_names.append('contam')
+
+        gas_dtype = {
+            'names': gas_names,
+            'formats': ['f8']*len(gas_names),
+        }
+
+        dtype = {
+            'names': gas_phases+extras,
+            'formats': [gas_dtype]*len(gas_phases)+extra_formats,
+        }
+
         if(overwrite):
-            ptree = drop_fields(ptree, names, usemask=True)
+            ptree = drop_fields(ptree, gas_phases, usemask=True)
         if(iout_start==0):
-            ptree = append_fields(ptree, names=names, data=[np.arange(ptree.size), *(empty_double.copy(),) * (len(names)-1)], usemask=False)
+            gas_data = np.zeros(ptree.size, dtype=dtype)
+            ptree = merge_arrays([ptree, gas_data], usemask=False)
+            ptree['idx'] = np.arange(ptree.size)
 
-        leafs_id = np.unique(ptree['leaf'])
-        ptree = ptree[np.isin(ptree['leaf'], leafs_id)]
         iouts = np.unique(ptree['timestep'])
         iouts = iouts[iouts>=iout_start]
         iouts.sort()
 
-        print("Calculating RPS from iout = %d to %d..." % (iouts[0], iouts[-1]))
+        print("Measuring gas properties from iout = %d to %d..." % (iouts[0], iouts[-1]))
 
         uri.timer.verbose = 0
         uri.verbose = 0
-
 
         for iout in tqdm(iouts):
             gals, snap = load_cell_snap(iout)
@@ -887,41 +856,37 @@ class PhantomTree:
                 if(cell.size == 0):
                     continue
 
-                cgas, wgas, hgas, ogas, radius = measure_rgas(cell, gal[radius_name])
+                cgas, wgas, hgas, ogas, rgas = measure_rgas(cell, gal, gal[radius_name])
 
-                gal['rgas'] = radius
-
+                gal['rgas'] = rgas
                 if(cgas.size>0):
-                    set_gas_properties(gal, cgas, 'cg')
+                    set_gas_properties(gal, cgas, 'cgas')
                 if(wgas.size>0):
-                    set_gas_properties(gal, wgas, 'wg')
+                    set_gas_properties(gal, wgas, 'wgas')
                 if(hgas.size>0):
-                    set_gas_properties(gal, hgas, 'hg')
+                    set_gas_properties(gal, hgas, 'hgas')
                 if(ogas.size > 0):
-                    set_gas_properties(gal, ogas, 'og')
-
-                    gal['ramp'] = ss(get_vector(gal, 'ogv')) * gal['rho_og']
+                    set_gas_properties(gal, ogas, 'ogas')
+                    gal['pram'] = ss(get_vector(gal['ogas'], 'v')) * gal['ogas']['rho']
             iterator.close()
 
-            fin_gas_propertiles(gals, 'cg')
-            fin_gas_propertiles(gals, 'wg')
-            fin_gas_propertiles(gals, 'hg')
-            fin_gas_propertiles(gals, 'og')
+            for phase in gas_phases:
+                fin_gas_propertiles(gals, phase)
 
-            gals['ramp'] /= snap.unit['Ba']
+            gals['pram'] /= snap.unit['Ba']
 
             ptree[gals['idx']] = gals
             if(iout % backup_freq == 0):
-                PhantomTree.save(ptree, repo, ptree_file='ptree_RPS.pkl', msg=False)
+                PhantomTree.save(ptree, repo, ptree_file='ptree_stable.pkl', msg=False)
             snap.clear()
-            del cell, cgas, wgas, hgas, snap
+            del cell, cgas, wgas, hgas, ogas, snap
             gc.collect()
         uri.timer.verbose = 1
         uri.verbose = 1
 
         ptree = drop_fields(ptree, ['idx'], usemask=False)
 
-        PhantomTree.save(ptree, repo, ptree_file='ptree_RPS.pkl')
+        PhantomTree.save(ptree, repo, ptree_file='ptree_stable.pkl')
 
     #@staticmethod
     #def repair_tree(ptree):
