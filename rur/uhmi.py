@@ -581,11 +581,22 @@ class PhantomTree:
                           overwrite=True, backup_freq=30, sfr_measure_Myr=50., mass_cut_refine=2.4E-11,
                           output_file='ptree_SFR.pkl', backup_file='ptree_SFR.pkl.backup'):
         # repo should be specified here since we use particle data.
+        # following stellar properties are added
+        #   sfr, sfr2, sfr4: star formation rate using 100, 200, 400Myr interval [Msol/yr]
+        #   msf: mass of stars formed since last snapshot [Msol]
+        #   r90, r50: radius that encloses 90% and 50% of the total mass [code unit]
+        #   age: mean age of stars [Gyr]
+        #   tform: formation epoch (half-formation time) in age of the universe [Gyr]
+        #   metal: mean metallicity of stars
+        #   contam: mass fraction of low-resolution dark matter particles within r90
+        #   mbh: mass of most massive bh within r90 [Msol]
+        #   bh_offset: most massive bh's spatial offset from galactic center [code unit]
+
         print("Starting properties measure for %s" % repo)
         ptree_path = os.path.join(repo, path_in_repo)
         ptree = PhantomTree.load(repo, ptree_path, ptree_file=ptree_file)
 
-        fields = ['sfr', 'sfr2', 'sfr4', 'msf', 'r90', 'r50', 'age', 'metal', 'contam', 'mbh', 'bh_offset']
+        fields = ['sfr', 'sfr2', 'sfr4', 'msf', 'r90', 'r50', 'age', 'tform', 'metal', 'contam', 'mbh', 'bh_offset']
         if(overwrite):
             ptree = drop_fields(ptree, ['idx', *fields], usemask=False)
         zero_double = np.zeros(ptree.size, dtype='f8')
