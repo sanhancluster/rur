@@ -123,7 +123,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.box_cell = None
         self.box_part = None
 
-
+    def switch_iout(self, iout):
+        return RamsesSnapshot(self.repo, iout, self.mode, self.box, self.path_in_repo, snap=self, longint=self.longint)
 
     def __getitem__(self, item):
         return self.params[item]

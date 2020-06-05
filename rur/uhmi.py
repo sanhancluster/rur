@@ -233,7 +233,7 @@ class PhantomTree:
         iterator = tqdm(snap_iouts, unit='snapshot')
         for iout in iterator:
             try:
-                snap = uri.RamsesSnapshot(repo=snap.repo, iout=iout, mode=snap.mode, longint=snap.longint)
+                snap = snap.switch_iout(iout)
             except FileNotFoundError:
                 if(skip_jumps):
                     continue
