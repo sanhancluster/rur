@@ -443,50 +443,56 @@ class PhantomTree:
             ptree, names,
             [num_ini, num_ini, id_ini, id_ini, id_ini, id_ini], usemask=False)
 
-        def search_tree_reverse(son, last, nprog):
-            ptree.sort(order=son)
+        def search_tree_reverse(son_name, fat_name, last_name, nprog_name):
+            ptree.sort(order=son_name)
+            id_key = np.argsort(ptree['id'])
             # first fill end-nodes (leafs and roots)
-            last_idx = np.where(ptree[son]==-1)[0]
-            ptree[last][last_idx] = ptree['id'][last_idx]
+            last_idx = np.where(ptree[son_name]==-1)[0]
+            ptree[last_name][last_idx] = ptree['id'][last_idx]
 
             t = tqdm(total=ptree.size)
+            ptree[last_name] = ptree['id']
+            stat = [0, 0, 0]
             while last_idx.size > 0:
                 t.update(last_idx.size)
-                my_id = ptree['id'][last_idx]
-                #find the idx there other nodes find itself
-                lidxs = np.searchsorted(ptree[son], my_id, side='left')
-                ridxs = np.searchsorted(ptree[son], my_id, side='right')
-                ptree[nprog][last_idx] = ridxs - lidxs
+
+                # leave only nodes referenced by other node as son
+                last_idx = last_idx[np.isin(ptree[last_idx]['id'], ptree[son_name])]
+                now = ptree[last_idx]
+                my_id = now['id']
+
+                #find the range of idx of other nodes where pointing itself as a son
+                lidxs = np.searchsorted(ptree[son_name], my_id, side='left')
+                ridxs = np.searchsorted(ptree[son_name], my_id, side='right')
+                ptree[nprog_name][last_idx] = ridxs - lidxs
+
+                fat_idx = id_key[np.searchsorted(ptree['id'], now[fat_name], sorter=id_key)]
+                mask_mutual = (now[fat_name] != -1) & (my_id == ptree[son_name][fat_idx])
+
+                # if there's no mutually linked node, select most massive progenitor
+                fat_idx[~mask_mutual] = [np.argmax(ptree[l:r]['m'])+l for l, r in zip(lidxs[~mask_mutual], ridxs[~mask_mutual])]
+
+                # fill only mutually linked nodes (multiplicative)
+                ptree[last_name][fat_idx] = ptree[last_name][last_idx]
 
                 # I found no better solution then using for loop here...
-                idxs = []
-                for lid, l, r in zip(ptree[last][last_idx], lidxs, ridxs):
-                    ptree[last][l:r] = lid
-                    idxs.append(np.arange(l, r))
-                last_idx = np.concatenate(idxs)
+                last_idx = [np.arange(l, r) for l, r in zip(lidxs, ridxs)]
+                if(len(last_idx)>0):
+                    last_idx = np.concatenate(last_idx)
+                else:
+                    last_idx = np.array(last_idx)
+                stat[0] += np.sum(mask_mutual)
+                stat[1] += np.sum(~mask_mutual)
             t.close()
+            stat[2] = np.sum(~np.isin(ptree['id'], ptree[son_name]))
+            print('%8d nodes have mutual link.' % stat[0])
+            print('%8d nodes do not have mutual link.' % stat[1])
+            print('%8d nodes are last points.' % stat[2])
+            print('%8d nodes were processed in total' % np.sum(stat))
 
-        def search_tree(son, first):
-            ptree.sort(order='id')
-            # first fill end-nodes (leafs and roots)
-            son_idx = np.where(~np.isin(ptree['id'], ptree[son]))[0]
-            first_ids = ptree['id'][son_idx]
+        search_tree_reverse('son', 'fat', 'last', 'ndesc')
+        search_tree_reverse('fat', 'son', 'first', 'nprog')
 
-            t = tqdm(total=ptree.size)
-            while son_idx.size > 0:
-                ptree[first][son_idx] = first_ids
-                son_ids = ptree[son][son_idx]
-                mask = son_ids!=-1
-                son_idx = np.searchsorted(ptree['id'], son_ids[mask])
-                first_ids = first_ids[mask]
-                t.update(son_idx.size)
-            t.close()
-
-        search_tree('son', 'first')
-        search_tree('fat', 'last')
-
-        search_tree_reverse('son', 'first_rev', 'nprog')
-        search_tree_reverse('fat', 'last_rev', 'ndesc')
         return ptree
 
 
