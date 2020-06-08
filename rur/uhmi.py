@@ -470,7 +470,7 @@ class PhantomTree:
                 mask_mutual = (now[fat_name] != -1) & (my_id == ptree[son_name][fat_idx])
 
                 # if there's no mutually linked node, select most massive progenitor
-                fat_idx[~mask_mutual] = [np.argmax(ptree[l:r]['m'])+l for l, r in zip(lidxs[~mask_mutual], ridxs[~mask_mutual])]
+                fat_idx[~mask_mutual] = [np.argmax(ptree[l:r]['score_%s' % son_name])+l for l, r in zip(lidxs[~mask_mutual], ridxs[~mask_mutual])]
 
                 # fill only mutually linked nodes (multiplicative)
                 ptree[last_name][fat_idx] = ptree[last_name][last_idx]
@@ -485,6 +485,7 @@ class PhantomTree:
                 stat[1] += np.sum(~mask_mutual)
             t.close()
             stat[2] = np.sum(~np.isin(ptree['id'], ptree[son_name]))
+
             print('%8d nodes have mutual link.' % stat[0])
             print('%8d nodes do not have mutual link.' % stat[1])
             print('%8d nodes are last points.' % stat[2])
@@ -520,72 +521,9 @@ class PhantomTree:
         iouts = np.sort(iouts)
         return iouts
 
-
     @staticmethod
-    def calc_sfr(repo, path_in_repo=path_in_repo, halomaker_repo='GalaxyMaker/gal', ptree_file_format=ptree_file_format, mode='none', max_part_size=None, overwrite=True):
-        # repo should be specified here since we use particle data.
-        print("Starting SFR estimation for %s" % repo)
-
-        iouts = PhantomTree.count_snapshots(repo, path_in_repo)
-        max_iout = np.max(iouts)
-
-        if (max_part_size is None):
-            snap = uri.RamsesSnapshot(repo, max_iout, mode=mode)
-            part_ids = HaloMaker.load(snap, halomaker_repo, galaxy=True, load_parts=True)[1]
-            max_part_size = int(np.max(part_ids) * 1.1)
-
-        part_pool = np.full(max_part_size, -1, dtype='i4')
-
-        uri.timer.verbose = 0
-        uri.verbose = 0
-
-        psnap = uri.RamsesSnapshot(repo, iouts[0] - 1, mode=mode)
-        for iout in tqdm(iouts): # never reorder this!
-            nsnap = uri.RamsesSnapshot(repo, iout, mode=mode)
-            ptree = PhantomTree.load(repo, path_in_repo=path_in_repo, ptree_file_format=ptree_file_format, iout=iout,
-                                     msg=False)
-            if (overwrite):
-                ptree = drop_fields(ptree, 'msf', usemask=False)
-            ptree = append_fields(ptree, 'msf', np.zeros(ptree.size), usemask=False)
-            halo = ptree
-
-            halo.sort(order='id')
-
-            halomaker, part_ids = HaloMaker.load(nsnap, halomaker_repo, galaxy=True, load_parts=True)
-            mask2 = np.isin(halomaker['id'], halo['id'])
-            halomaker, part_ids = HaloMaker.cut_table(halomaker, part_ids, mask2)
-
-            halo_idx = np.repeat(np.arange(halo.size), halo['nparts'])
-
-            part_pool[:] = -1
-            part_pool[part_ids] = halo_idx
-
-            cpulist = nsnap.get_halos_cpulist(halo, buffer=3., n_divide=4)
-            star = nsnap.get_part(target_fields=['id', 'm', 'epoch', 'cpu'], cpulist=cpulist)['star']
-            newstar = star[(psnap['time'] < star['epoch']) & (nsnap['time'] >= star['epoch'])]
-
-            ids = np.abs(newstar['id'])
-            newstar_halos = part_pool[ids]
-
-            mask3 = newstar_halos>=0
-            newstar_halos = newstar_halos[mask3]
-            newstar = newstar[mask3]
-
-            newstar_mass = np.bincount(newstar_halos, weights=newstar['m', 'Msol'], minlength=halo.size)
-            halo['msf'] = newstar_mass
-
-            PhantomTree.save(halo, repo, path_in_repo=path_in_repo, ptree_file=ptree_file_format % iout, msg=False)
-            psnap = nsnap
-            gc.collect()
-
-        uri.timer.verbose = 1
-        uri.verbose = 1
-
-
-    @staticmethod
-    def measure_star_prop(repo, path_in_repo=path_in_repo, halomaker_repo='galaxy', ptree_file=ptree_file,
-                          mode='none', longint=False, overwrite=True,
-                          backup_freq=30, sfr_measure_Myr=50., mass_cut_refine=2.4E-11,
+    def measure_star_prop(snap, path_in_repo=path_in_repo, halomaker_repo='galaxy', ptree_file=ptree_file,
+                          overwrite=True, backup_freq=30, sfr_measure_Myr=50., mass_cut_refine=2.4E-11,
                           output_file='ptree_SFR.pkl', backup_file='ptree_SFR.pkl.backup'):
         # repo should be specified here since we use particle data.
         # following stellar properties are added
@@ -598,6 +536,7 @@ class PhantomTree:
         #   contam: mass fraction of low-resolution dark matter particles within r90
         #   mbh: mass of most massive bh within r90 [Msol]
         #   bh_offset: most massive bh's spatial offset from galactic center [code unit]
+        repo = snap.repo
 
         print("Starting stellar properties measure for %s" % repo)
         ptree_path = os.path.join(repo, path_in_repo)
@@ -612,9 +551,7 @@ class PhantomTree:
 
         iouts = np.sort(np.unique(ptree['timestep']))
         min_iout = np.min(iouts)
-        max_iout = np.max(iouts)
 
-        snap = uri.RamsesSnapshot(repo, max_iout, mode=mode, longint=longint)
         part_ids = HaloMaker.load(snap, halomaker_repo, galaxy=True, load_parts=True)[1]
         max_part_size = int(np.max(part_ids) * 1.2)
         part_pool = np.full(max_part_size, -1, dtype='i4')
@@ -622,9 +559,9 @@ class PhantomTree:
         uri.timer.verbose = 0
         uri.verbose = 0
 
-        psnap = uri.RamsesSnapshot(repo, min_iout-1, mode=mode, longint=longint)
+        psnap = snap.switch_iout(min_iout-1)
         for iout in tqdm(iouts):
-            nsnap = uri.RamsesSnapshot(repo, iout, mode=mode, longint=longint)
+            nsnap = snap.switch_iout(iout)
 
             mask = ptree['timestep'] == iout
             gals = ptree[mask]
