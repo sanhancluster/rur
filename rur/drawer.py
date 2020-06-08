@@ -295,7 +295,7 @@ def kde_img(x, y, lims, reso=100, weights=None, tree=True):
         weights = weights[mask]
 
     if(tree):
-        kde = gaussian_kde_tree(np.stack([x, y], axis=-1), weights=weights, smooth_factor=3, npoly=1)
+        kde = gaussian_kde_tree(np.stack([x, y], axis=-1), weights=weights, smooth_factor=3)
         return fun_img(kde, lims, reso, axis=-1)
     else:
         kde = gaussian_kde(np.stack([x, y], axis=0), weights=weights)
