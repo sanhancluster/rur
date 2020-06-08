@@ -8,6 +8,7 @@ from scipy.interpolate import LinearNDInterpolator
 from scipy.stats import norm
 from scipy.signal import convolve2d
 from numpy.linalg import det
+from skimage.transform import resize
 
 import string
 import matplotlib.collections as mcoll
@@ -282,6 +283,7 @@ def gauss_img(x, y, lims, reso=100, weights=None, subdivide=3, kernel_size=1):
 
     hist = np.histogram2d(x, y, bins=reso*subdivide, range=lims, weights=weights)[0]
     hist = convolve2d(hist, kern, mode='same')
+    hist = resize(hist, reso)*subdivide**2
 
     return hist
 
