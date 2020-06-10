@@ -528,7 +528,6 @@ class PhantomTree:
         # repo should be specified here since we use particle data.
         # following stellar properties are added
         #   sfr, sfr2, sfr4: star formation rate using 50, 100, 200Myr interval [Msol/yr]
-        #   msf: mass of stars formed since last snapshot [Msol]
         #   r90, r50: radius that encloses 90% and 50% of the total mass [code unit]
         #   age: mean age of stars [Gyr]
         #   tform: formation epoch (half-formation time) in age of the universe [Gyr]
@@ -542,7 +541,7 @@ class PhantomTree:
         ptree_path = os.path.join(repo, path_in_repo)
         ptree = PhantomTree.load(repo, ptree_path, ptree_file=ptree_file)
 
-        fields = ['sfr', 'sfr2', 'sfr4', 'msf', 'r90', 'r50', 'age', 'tform', 'metal', 'contam', 'mbh', 'bh_offset']
+        fields = ['sfr', 'sfr2', 'sfr4', 'r90', 'r50', 'age', 'tform', 'metal', 'contam', 'mbh', 'bh_offset']
         if(overwrite):
             ptree = drop_fields(ptree, ['idx', *fields], usemask=False)
         zero_double = np.zeros(ptree.size, dtype='f8')
@@ -559,7 +558,6 @@ class PhantomTree:
         uri.timer.verbose = 0
         uri.verbose = 0
 
-        psnap = snap.switch_iout(min_iout-1)
         for iout in tqdm(iouts):
             nsnap = snap.switch_iout(iout)
 
@@ -599,7 +597,6 @@ class PhantomTree:
                 sfr = np.sum(gal_star[gal_star['age', 'Myr']<sfr_measure_Myr]['m', 'Msol']) / (sfr_measure_Myr*1E6)
                 sfr2 = np.sum(gal_star[gal_star['age', 'Myr']<sfr_measure_Myr*2]['m', 'Msol']) / (sfr_measure_Myr*2E6)
                 sfr4 = np.sum(gal_star[gal_star['age', 'Myr']<sfr_measure_Myr*4]['m', 'Msol']) / (sfr_measure_Myr*4E6)
-                msf = np.sum(gal_star[(psnap['time'] < gal_star['epoch']) & (nsnap['time'] >= gal_star['epoch'])]['m', 'Msol'])
 
                 age = np.average(gal_star['age', 'Gyr'], weights=gal_star['m'])
                 tform = np.median(snap.age-gal_star['age', 'Gyr'])
@@ -613,7 +610,6 @@ class PhantomTree:
                 ptree['sfr'][gal['idx']] = sfr
                 ptree['sfr2'][gal['idx']] = sfr2
                 ptree['sfr4'][gal['idx']] = sfr4
-                ptree['msf'][gal['idx']] = msf
                 ptree['r90'][gal['idx']] = r90
                 ptree['r50'][gal['idx']] = r50
 
@@ -634,10 +630,8 @@ class PhantomTree:
             if(iout % backup_freq == 0):
                 PhantomTree.save(ptree, repo, ptree_path, ptree_file=backup_file)
 
-            psnap.clear()
-            psnap = nsnap
+            nsnap.clear()
             gc.collect()
-        tqdm.close()
 
         uri.timer.verbose = 1
         uri.verbose = 1
