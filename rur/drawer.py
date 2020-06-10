@@ -8,6 +8,7 @@ from scipy.interpolate import LinearNDInterpolator
 from scipy.stats import norm
 from scipy.signal import convolve2d
 from numpy.linalg import det
+from skimage.transform import resize
 
 import string
 import matplotlib.collections as mcoll
@@ -282,6 +283,7 @@ def gauss_img(x, y, lims, reso=100, weights=None, subdivide=3, kernel_size=1):
 
     hist = np.histogram2d(x, y, bins=reso*subdivide, range=lims, weights=weights)[0]
     hist = convolve2d(hist, kern, mode='same')
+    hist = resize(hist, reso)*subdivide**2
 
     return hist
 
@@ -293,7 +295,7 @@ def kde_img(x, y, lims, reso=100, weights=None, tree=True):
         weights = weights[mask]
 
     if(tree):
-        kde = gaussian_kde_tree(np.stack([x, y], axis=-1), weights=weights, smooth_factor=3, npoly=1)
+        kde = gaussian_kde_tree(np.stack([x, y], axis=-1), weights=weights, smooth_factor=3)
         return fun_img(kde, lims, reso, axis=-1)
     else:
         kde = gaussian_kde(np.stack([x, y], axis=0), weights=weights)

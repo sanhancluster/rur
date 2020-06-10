@@ -700,7 +700,7 @@ class gaussian_kde(object):
 class gaussian_kde_tree(object):
     # input: array or list with (n, d) shape
 
-    def __init__(self, dataset, weights=None, nsearch=100, smooth_factor=5, npoly=1):
+    def __init__(self, dataset, weights=None, nsearch=100, smooth_factor=3, niter=3):
         self.dataset = np.atleast_2d(dataset)
         if not self.dataset.size > 1:
             raise ValueError("`dataset` input should have multiple elements.")
@@ -712,10 +712,7 @@ class gaussian_kde_tree(object):
             self.weights = weights
         self.nsearch = nsearch
         self.smooth_factor = smooth_factor
-        self.npoly = npoly
-
-        if(nsearch <= smooth_factor**2):
-            warnings.warn(Warning("we suggest nsearch > smooth_factor**2."))
+        self.niter = niter
 
         self.tree = Tree(self.dataset, leafsize=16, compact_nodes=False, balanced_tree=False)
 
@@ -725,14 +722,15 @@ class gaussian_kde_tree(object):
 
         # compute the normalised residuals
         distances, indices = self.tree.query(points, self.nsearch, n_jobs=-1)
-        bandwidth = distances[:, -1]**self.npoly/rms(distances[:, -1], axis=0)**(self.npoly-1) / self.nsearch**0.5 * self.smooth_factor
+        normpdf = lambda x, b: (2*np.pi*b**2)**-(0.5*self.d)*np.exp(-0.5*(x/b)**2)
+        bandwidth = distances[:, -1]/np.sqrt(self.nsearch)*self.smooth_factor
 
         if self.weights is not None:
             weights = self.weights[indices]
         else:
             weights = 1
 
-        return np.sum(norm.pdf(distances.T, scale=bandwidth) * weights.T, axis=0)/self.nsearch
+        return np.sum(normpdf(distances.T, bandwidth) * weights.T, axis=0)
 
     __call__ = evaluate
 
