@@ -16,6 +16,25 @@ import numpy as np
 import warnings
 import glob
 
+class TimeSeries(object):
+    def __init__(self, snap):
+        self.snaps = {}
+        self.basesnap = snap
+        self.snaps[snap.iout] = snap
+
+    def get_snap(self, iout):
+        if(iout in self.snaps):
+            return self.snaps[iout]
+        else:
+            self.snaps[iout] = self.basesnap.switch_iout(iout)
+            return self.snaps[iout]
+
+    def __getitem__(self, item):
+        return self.get_snap(item)
+
+    def __getattr__(self, item):
+        return self.basesnap.item
+
 class RamsesSnapshot(object):
     """A handy object to store RAMSES AMR/Particle snapshot data.
 
@@ -310,7 +329,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         Returns
         -------
         part : RamsesSnapshot.Particle object
-            particle data, can be accessed as attributes also.
+            particle data, can be accessed as attribute also.
 
         """
         if(cpulist is None):
@@ -367,7 +386,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         Returns
         -------
         cell : RamsesSnapshot.Cell object
-            amr data, can be accessed as attributes also.
+            amr data, can be accessed as attribute also.
 
         """
         if(cpulist is None):
@@ -630,7 +649,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if (exists(self.get_path('grid'))):
                 ripses = True
             else:
-                raise FileNotFoundError("Hydro file, nor grid file not found.")
+                raise FileNotFoundError("No hydro file or grid file found.")
         if(box is not None):
             self.box = box
         if(self.box is None or np.array_equal(self.box, default_box)):
@@ -698,7 +717,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if(self.box is not None):
                 if(exact_box):
                     mask = box_mask(get_vector(part), self.box)
-                    timer.start('Masking parts... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask)/mask.size), 1)
+                    timer.start('Masking particles... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask)/mask.size), 1)
                     part = part[mask]
                     timer.record()
 
@@ -716,7 +735,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 elif item in part_family.keys():
                     return RamsesSnapshot.Particle(classify_part(self.table, item), self.snap)
                 elif item == 'smbh':
-                    return RamsesSnapshot.Particle(find_smbh(self.table, 0), self.snap)
+                    return RamsesSnapshot.Particle(find_smbh(self.table), self.snap)
                 else:
                     return self.table[item]
             elif isinstance(item, tuple):
@@ -913,8 +932,8 @@ def cut_halo(table, halo, radius=1, use_halo_radius=True, inverse=False, radius_
     return cut_spherical(table, center, radius, inverse=inverse)
 
 def classify_part(part, pname):
-    # classity particles, if familty is given, use it.
-    # if there is no field 'family', use id, mass and epoch instead.
+    # classify particles, if familty exists in the data, use it.
+    # if not, use id, mass and epoch instead.
     timer.start('Classifying %d particles... ' % part.size, 2)
     names = part.dtype.names
     if('family' in names):
@@ -952,10 +971,10 @@ def classify_part(part, pname):
 
 def find_smbh(part, verbose=None):
     # Find SMBHs by merging sink (cloud) particles
-    verbose_tmp = verbose
+    verbose_tmp = timer.verbose
     if(verbose is not None):
         timer.verbose = verbose
-    timer.start('Searching for SMBHs...', 1)
+    timer.start('Searching for SMBHs in %d particles...' % part.size, 2)
     sink = classify_part(part, 'cloud')
     names = part.dtype.names
     ids = np.unique(sink['id'])
