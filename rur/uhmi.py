@@ -5,6 +5,7 @@ from rur.utool import Timer, get_vector, type_of_script, dump, load, pairing, ge
     set_vector, discrete_hist2d, weighted_quantile, expand_shape
 from rur.readhtm import readhtm as readh
 from rur import uri
+from rur.config import Table
 from scipy.stats import mode
 from numpy.lib.recfunctions import append_fields, drop_fields, merge_arrays
 import gc
@@ -433,6 +434,29 @@ class PhantomTree:
     @staticmethod
     def add_tree_info(ptree, overwrite=False):
         # this function adds some useful tree information from tree data already built
+        """
+        This routine pre-computes father/son search with ptree.
+
+        last : last descendent of "current" branch, if it ended up merging with other galaxy and it is not a main
+        progenitor, the branch will end just before the merger. The search algorithm is done by choosing the 'best'
+        progenitor among the nodes that are pointing me as a son in previous snapshot. The choice is done by following
+        conditions.
+
+            condition 1: if it is mutually linked to each other
+            condition 2: higher score
+
+        first : first progenitor of "current" main branch, including the main progenitor when there is a merger
+
+        Parameters
+        ----------
+        ptree
+        overwrite
+
+        Returns
+        -------
+        An updated ptree table
+
+        """
         print('Adding tree info from %d halo-nodes...' % ptree.size)
         names = ['nprog', 'ndesc', 'first', 'last', 'first_rev', 'last_rev']
         if(overwrite):
@@ -469,7 +493,7 @@ class PhantomTree:
                 fat_idx = id_key[np.searchsorted(ptree['id'], now[fat_name], sorter=id_key)]
                 mask_mutual = (now[fat_name] != -1) & (my_id == ptree[son_name][fat_idx])
 
-                # if there's no mutually linked node, select most massive progenitor
+                # if there's no mutually linked node, select the progenitor with highest score
                 fat_idx[~mask_mutual] = [np.argmax(ptree[l:r]['score_%s' % son_name])+l for l, r in zip(lidxs[~mask_mutual], ridxs[~mask_mutual])]
 
                 # fill only mutually linked nodes (multiplicative)
@@ -858,6 +882,25 @@ class TreeMaker:
         ('rho0', 'f4'), ('rc', 'f4')]
 
     @staticmethod
+    def unit_conversion(array, snap):
+        # distance in code unit, mass in Msun
+        mass_unit = 1E11
+        array['m'] *= mass_unit
+        array['mvir'] *= mass_unit
+        boxsize_physical = snap['boxsize_physical']
+
+        pos = get_vector(array)
+        append_fields(array, names=['xp', 'yp', 'zp'], data=pos.T, usemask=False)
+        array['x'] = array['x'] / boxsize_physical / array['aexp'] + 0.5
+        array['y'] = array['y'] / boxsize_physical / array['aexp'] + 0.5
+        array['z'] = array['z'] / boxsize_physical / array['aexp'] + 0.5
+        array['rvir'] /= boxsize_physical
+        array['r'] /= boxsize_physical
+        array['rc'] /= boxsize_physical
+
+        return array
+
+    @staticmethod
     # boxsize: comoving length of the box in Mpc
     def load(snap, path_in_repo=None, galaxy=False, dp_ini=False):
         repo = snap.repo
@@ -882,12 +925,12 @@ class TreeMaker:
         readh.read_single_tree(path, galaxy, dp_ini=dp_ini)
         print('Took %.3fs' % timer.time())
 
-        print('Building table for particles... ', end='')
+        print('Building table for %d nodes... ' % readh.integer_table.shape[-1] , end='')
         timer.start()
         array = fromarrays([*readh.integer_table.T, *readh.real_table.T], dtype=dtype)
         print('Took %.3fs' % timer.time())
 
-        return HaloMaker.unit_conversion(array, snap)
+        return TreeMaker.unit_conversion(array, snap)
 
 
 class Rockstar:
