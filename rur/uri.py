@@ -994,7 +994,7 @@ def box_mask(coo, box, size=None, exclusive=False):
     box_mask = np.all((box[:, 0] <= coo+size/2) & (coo-size/2 <= box[:, 1]), axis=-1)
     return box_mask
 
-def interpolate_part(part1, part2, name, fraction=0.5):
+def interpolate_part(part1, part2, name, fraction=0.5, periodic=False):
     # Interpolates two particle snapshots based on their position and fraction
     timer.start('Interpolating %d, %d particles...' % (part1.size, part2.size), 2)
 
@@ -1021,10 +1021,24 @@ def interpolate_part(part1, part2, name, fraction=0.5):
     mask2[id2] = True
 
     active_mask = mask1 & mask2
+    if(periodic):
+        diff = np.zeros((part_size, 3), dtype='f8')
+        diff[id1] += val1
+        diff[id2] -= val2
+
+        # if val1-val2 >> 0, the particle moved outside the boundary 1
+        # if val1-val2 << 0, the particle moved outside the boundary 0
+        val2 = val2.copy()
+
+        val2[diff[id2] > 0.5] += 1.
+        val2[diff[id2] < -0.5] -= 1.
 
     pool[id1] += val1 * (1. - fraction)
     pool[id2] += val2 * fraction
     val = pool[active_mask]
+
+    if(periodic):
+        val = np.mod(val, 1.)
 
     if(timer.verbose>=2):
         print("Particle interpolation - part1[%d], part2[%d], result[%d]" % (id1.size, id2.size, np.sum(active_mask)))
