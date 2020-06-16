@@ -98,13 +98,13 @@ def bmask(arr, bet):
     return (bet[0] <= arr) & (arr < bet[1])
 
 
-def kde_imshow(x, y, lims=None, reso=100, bw_method='silverman', weights=None, **kwargs):
+def kde_imshow(x, y, lims=None, reso=100, weights=None, tree=True, **kwargs):
     if(lims is None):
         lims = [(np.nanquantile(x, 0.001), np.nanquantile(x, 0.999)),
                 (np.nanquantile(y, 0.001), np.nanquantile(y, 0.999))]
         print('Automatically setting lims as ', lims)
 
-    pdf = kde_img(x, y, lims, reso, bw_method, weights=weights)
+    pdf = kde_img(x, y, lims, reso, weights=weights, tree=tree)
     plt.imshow(pdf, origin='lower', extent=[lims[0][0], lims[0][1], lims[1][0], lims[1][1]], aspect='auto', **kwargs)
 
 
@@ -317,7 +317,7 @@ def fun_img(f, lims, reso=100, axis=-1):
     pdi = f(mesh)
     pdi = np.reshape(pdi, xm.shape)
 
-    return pdi.T
+    return pdi
 
 def kde_scatter(x, y, bw_method='silverman', cmap=plt.cm.jet, xlog=False, ylog=False, weights=None, **kwargs):
     if(xlog):
@@ -499,8 +499,8 @@ def gridplot(nrows, ncols, xlims=None, ylims=None, xshow=[], yshow=[], log=None,
     if fig is None:
         fig = plt.gcf()
 
-
     grid = plt.GridSpec(nrows, ncols, **kwargs)
+
     xshow, yshow = np.array(xshow), np.array(yshow)
     nogrid = np.array(nogrid)
     numlist = None
@@ -579,13 +579,12 @@ def gridplot(nrows, ncols, xlims=None, ylims=None, xshow=[], yshow=[], log=None,
 
 
     if(xlabel is not None or ylabel is not None):
-        basegrid = plt.GridSpec(1, 1, bottom=grid.get_subplot_params().bottom * 0.90, left=grid.get_subplot_params().left * 0.85)
-
-        base = fig.add_subplot(basegrid[0], frameon=False)
+        base = fig.add_subplot(111, frameon=False)
 
         base.tick_params(which='both', top='off', bottom='off', left='off', right='off')
         base.set_xticklabels([])
         base.set_yticklabels([])
+        print(xlabel)
 
         if(xlabel is not None):
             base.set_xlabel(xlabel)
