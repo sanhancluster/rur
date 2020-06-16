@@ -445,7 +445,7 @@ def draw_image(image, extent=None, vmin=None, vmax=None, qscale=3., normmode='lo
 
 
 def save_image(image, fname, cmap=dr.ccm.laguna, vmin=None, vmax=None, qscale=3., normmode='log',
-               nanzero=False, make_dir=False, grayscale=False, img_mode='RGB'):
+               nanzero=False, make_dir=False, grayscale=False, img_mode='RGB', bit=8):
     fname = os.path.expanduser(fname)
     if(make_dir):
         os.makedirs(os.path.dirname(fname), exist_ok=True)
@@ -453,9 +453,13 @@ def save_image(image, fname, cmap=dr.ccm.laguna, vmin=None, vmax=None, qscale=3.
     image = norm(image, vmin, vmax, qscale, mode=normmode, nanzero=nanzero)
     if(not grayscale and len(image.shape)<3):
         image = cmap(image)
-    im = Image.fromarray(np.uint16(image * 65535), mode=img_mode)
+    if(bit == 16):
+        im = Image.fromarray(np.uint16(image * 65535))
+    elif(bit == 8):
+        im = Image.fromarray(np.uint8(image * 255))
+    else:
+        raise ValueError("Unknown bit size")
     im.save(fname, format='png', compression=None)
-
 
 
 def save_figure(fname, make_dir=True, **kwargs):
