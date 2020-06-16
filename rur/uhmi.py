@@ -549,16 +549,18 @@ class PhantomTree:
     def measure_star_prop(snap, path_in_repo=path_in_repo, halomaker_repo='galaxy', ptree_file=ptree_file,
                           overwrite=True, backup_freq=30, sfr_measure_Myr=50., mass_cut_refine=2.4E-11,
                           output_file='ptree_SFR.pkl', backup_file='ptree_SFR.pkl.backup'):
-        # repo should be specified here since we use particle data.
-        # following stellar properties are added
-        #   sfr, sfr2, sfr4: star formation rate using 50, 100, 200Myr interval [Msol/yr]
-        #   r90, r50: radius that encloses 90% and 50% of the total mass [code unit]
-        #   age: mean age of stars [Gyr]
-        #   tform: formation epoch (half-formation time) in age of the universe [Gyr]
-        #   metal: mean metallicity of stars
-        #   contam: mass fraction of low-resolution dark matter particles within r90
-        #   mbh: mass of most massive bh within r90 [Msol]
-        #   bh_offset: most massive bh's spatial offset from galactic center [code unit]
+        """
+        repo should be specified here since we use particle data.
+        following stellar properties are added
+            sfr, sfr2, sfr4: star formation rate using 50, 100, 200Myr interval [Msol/yr]
+            r90, r50: radius that encloses 90% and 50% of the total mass [code unit]
+            age: mean age of stars [Gyr]
+            tform: formation epoch (half-formation time) in age of the universe [Gyr]
+            metal: mean metallicity of stars
+            contam: mass fraction of low-resolution dark matter particles within r90
+            mbh: mass of most massive bh within r90 [Msol]
+            bh_offset: most massive bh's spatial offset from galactic center [code unit]
+        """
         repo = snap.repo
 
         print("Starting stellar properties measure for %s" % repo)
@@ -681,11 +683,14 @@ class PhantomTree:
             return gals, snap
 
         def measure_rgas(gas, gal, rgal):
-            # cgas: cold gas; represents molecular cloud, HI clouds
-            # wgas: warm gas; represents circumgalactic medium, HII regions
-            # hgas: (inner) hot gas; represents hot bubble from SN and AGN, should be within min_radius
-            # ogas: (outer) hot gas; represents ICM/IGM
-            # rgas: a radius where the volume of (outer) hot and cold gas becomes same.
+            """
+            We classify gas as 5 different categories
+                cgas: cold gas; represents molecular cloud, HI clouds
+                wgas: warm gas; represents circumgalactic medium, HII regions
+                hgas: (inner) hot gas; represents hot bubble from SN and AGN, should be within min_radius
+                ogas: (outer) hot gas; represents ICM/IGM
+                rgas: a radius where the volume of (outer) hot and cold gas becomes same.
+            """
             mask = wgas_mask(gas)
             wgas = gas[mask] # includes cg also
             hgas = gas[~mask] # includes og also
