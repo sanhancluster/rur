@@ -623,7 +623,7 @@ class PhantomTree:
 
                 if(bh_r90.size>0):
                     bh_max = bh_r90[np.argmax(bh_r90['m'])]
-                    mbh = bh_max['m']
+                    mbh = bh_max['m']/snap.unit['Msol']
                     bh_offset = get_distance(gal, bh_max)
 
                     ptree['mbh'][gal['idx']] = mbh
@@ -638,6 +638,7 @@ class PhantomTree:
         uri.timer.verbose = 1
         uri.verbose = 1
         ptree = drop_fields(ptree, 'idx', usemask=False)
+        os.remove(os.path.join(repo, ptree_path, backup_file))
         PhantomTree.save(ptree, repo, ptree_path, ptree_file=output_file)
 
     @staticmethod
@@ -833,7 +834,13 @@ class PhantomTree:
     #@staticmethod
     #def repair_tree(ptree):
 
-
+    @staticmethod
+    def fix_mbh(ptree, snap):
+        # check if mbh is alredy fixed
+        if(any(ptree['mbh']>1)):
+            return ptree
+        else:
+            ptree['mbh'] /= snap.unit['Msol']
 
 class TreeMaker:
     dtype = [
