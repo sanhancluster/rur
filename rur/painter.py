@@ -383,7 +383,8 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
 
     px_area = np.multiply(*((box_proj[:, 1] - box_proj[:, 0])/shape))
 
-    timer.start('Computing particle map of %d particles... ' % part.size, 1)
+    if(part is not None):
+        timer.start('Computing particle map of %d particles... ' % part.size, 1)
 
     if(method == 'hist'):
         image = np.histogram2d(x[:, proj[0]], x[:, proj[1]], bins=shape, range=box_proj, weights=weights, **kwargs)[0]
