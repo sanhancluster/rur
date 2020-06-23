@@ -126,8 +126,10 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
         self.longint = longint
 
-        if(mode == 'fornax'):
+        if(mode == 'fornax' and self.longint is None):
             self.longint = True
+        else:
+            self.longint = False
 
         if(mode == 'ng'):
             self.classic_format = False
