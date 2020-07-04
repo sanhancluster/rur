@@ -317,7 +317,7 @@ def fun_img(f, lims, reso=100, axis=-1):
     pdi = f(mesh)
     pdi = np.reshape(pdi, xm.shape)
 
-    return pdi
+    return pdi.T
 
 def kde_scatter(x, y, bw_method='silverman', cmap=plt.cm.jet, xlog=False, ylog=False, weights=None, **kwargs):
     if(xlog):
