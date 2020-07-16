@@ -181,7 +181,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.params['lookback_time'] = self.cosmo_table['t'][-1] - self.params['age']
 
         if(timer.verbose>=1):
-            print('Age of the universe (now/z=0): %.3f / %.3f Gyr, z = %.5f' % (self.params['age'], self.cosmo_table['t'][-1], params['z']))
+            print('Age of the universe (now/z=0): %.3f / %.3f Gyr, z = %.5f (a = %.4f)' % (self.params['age'], self.cosmo_table['t'][-1], params['z'], params['aexp']))
 
     def aexp_to_age(self, aexp):
         return np.interp(aexp, self.cosmo_table['aexp'], self.cosmo_table['t'])
