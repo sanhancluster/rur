@@ -573,8 +573,8 @@ def draw_halos(halos, box=None, ax=None, proj=[0, 1], mass_range=None, cmap=plt.
     else:
         extents = extents
 
-    if(colors is None):
-        colors = repeat(None)
+    if(colors is None or isinstance(colors, Iterable)):
+        colors = repeat(colors)
 
     halos = np.array(halos)[mask]
     labels = np.array(labels)[mask]
