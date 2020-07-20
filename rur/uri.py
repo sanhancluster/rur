@@ -1236,7 +1236,7 @@ def align_axis(part, gal):
     j = get_vector(gal, prefix='L')
     coo_gal =  get_vector(gal)
     coo = utool.rotate_vector(coo - coo_gal, j)
-    table = utool.set_vector(part.table, coo + coo_gal)
+    table = utool.set_vector(part.table, coo + coo_gal, copy=True)
     part = RamsesSnapshot.Particle(table, part.snap)
     return part
 
@@ -1246,6 +1246,6 @@ def align_axis_cell(part: RamsesSnapshot.Particle, gal: np.recarray):
     j = get_vector(gal, prefix='L')
     coo_gal =  get_vector(gal)
     coo = utool.rotate_vector(coo - coo_gal, j)
-    table = utool.set_vector(part.table, coo + coo_gal)
+    table = utool.set_vector(part.table, coo + coo_gal, copy=True)
     part = RamsesSnapshot.Cell(table, part.snap)
     return part

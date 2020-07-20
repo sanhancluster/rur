@@ -91,10 +91,11 @@ def los(proj, ndim=3):
 def get_vector(table, prefix='', ndim=3):
     return np.stack([table[prefix + key] for key in dim_keys[:ndim]], axis=-1)
 
-def set_vector(table, vector, prefix='', ndim=3, where=None):
+def set_vector(table, vector, prefix='', ndim=3, where=None, copy=False):
     if(isinstance(table, Table)):
         table = table.table
-    table = table.copy()
+    if(copy):
+        table = table.copy()
     for idim in np.arange(ndim):
         if(where is None):
             table[prefix+dim_keys[idim]] = vector[..., idim]
