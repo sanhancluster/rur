@@ -564,8 +564,7 @@ class PhantomTree:
         repo = snap.repo
 
         print("Starting stellar properties measure for %s" % repo)
-        ptree_path = os.path.join(repo, path_in_repo)
-        ptree = PhantomTree.load(repo, ptree_path, ptree_file=ptree_file)
+        ptree = PhantomTree.load(repo, path_in_repo, ptree_file=ptree_file)
 
         fields = ['sfr', 'sfr2', 'sfr4', 'r90', 'r50', 'age', 'tform', 'metal', 'contam', 'mbh', 'bh_offset']
         if(overwrite):
@@ -654,7 +653,7 @@ class PhantomTree:
                     ptree['bh_offset'][gal['idx']] = bh_offset
 
             if(iout % backup_freq == 0):
-                PhantomTree.save(ptree, repo, ptree_path, ptree_file=backup_file)
+                PhantomTree.save(ptree, repo, path_in_repo, ptree_file=backup_file)
 
             nsnap.clear()
             gc.collect()
@@ -662,13 +661,13 @@ class PhantomTree:
         uri.timer.verbose = 1
         uri.verbose = 1
         ptree = drop_fields(ptree, 'idx', usemask=False)
-        os.remove(os.path.join(repo, ptree_path, backup_file))
-        PhantomTree.save(ptree, repo, ptree_path, ptree_file=output_file)
+        os.remove(os.path.join(repo, path_in_repo, backup_file))
+        PhantomTree.save(ptree, repo, path_in_repo, ptree_file=output_file)
 
     @staticmethod
-    def measure_gas_prop(repo, path_in_repo=path_in_repo, ptree_file=ptree_file, mode='none', overwrite=True,
+    def measure_gas_prop(snap, path_in_repo=path_in_repo, ptree_file=ptree_file,
                          backup_freq=30, min_radius=1., max_radius=4., radius_name='r90', iout_start=0,
-                         measure_contam=True):
+                         measure_contam=True, output_file='ptree_RPS.pkl', backup_file='ptree_RPS.pkl.backup'):
         def wgas_mask(cell):
             # Torrey et al. 2012
             return np.log10(cell['T', 'K']) < 6 + 0.25 * np.log10(cell['rho', 'Msol/kpc3'] * snap['h'] ** 2 / 10 ** 10)
@@ -678,7 +677,7 @@ class PhantomTree:
 
         def load_cell_snap(iout):
             gals = ptree[ptree['timestep'] == iout]
-            snap = uri.RamsesSnapshot(repo, iout, mode=mode)
+            snap = ts[iout]
             cpulist = snap.get_halos_cpulist(gals, radius=max_radius*1.25, radius_name=radius_name)
             snap.get_cell(cpulist=cpulist)
             return gals, snap
@@ -710,8 +709,8 @@ class PhantomTree:
 
             # divide hgas and ogas
             hgas_dist = get_distance(gal, hgas)
-            hgas = hgas[hgas_dist < min_radius * rgal]
             ogas = hgas[hgas_dist >= min_radius * rgal]
+            hgas = hgas[hgas_dist < min_radius * rgal]
 
             # sort ogas by the distance from center
             ogas_dist = get_distance(gal, ogas)
@@ -741,11 +740,11 @@ class PhantomTree:
                 else:  # no inversion
                     rgas = max_radius * rgal
 
-            wgas = uri.cut_halo(wgas, gal, rgas, code_unit=True)
+            wgas = uri.cut_halo(wgas, gal, rgas, use_halo_radius=False)
             mask = cgas_mask(wgas)
             cgas = wgas[mask]
             wgas = wgas[~mask]
-            ogas = uri.cut_halo(ogas, gal, rgas*1.25, code_unit=True)
+            ogas = uri.cut_halo(ogas, gal, rgas*1.25, use_halo_radius=False)
 
             return cgas, wgas, hgas, ogas, rgas
 
@@ -776,32 +775,42 @@ class PhantomTree:
             gal_gas['vy'] /= snap.unit['km/s']
             gal_gas['vz'] /= snap.unit['km/s']
 
+        repo = snap.repo
         ptree = PhantomTree.load(repo, path_in_repo=path_in_repo, ptree_file=ptree_file)
 
+
+        # Some workarounds for adding fields
+
         gas_phases = ['cgas', 'wgas', 'hgas', 'ogas']
-        gas_names = ['m', 'vx', 'vy', 'vz', 'rho', 'metal']
 
-        extras = ['pram', 'idx']
-        extra_formats = ['f8', 'i4']
-        if(measure_contam):
-            gas_names.append('contam')
+        if(iout_start == 0):
+            gas_names = ['m', 'vx', 'vy', 'vz', 'vr', 'rho', 'metal']
+            if (measure_contam):
+                gas_names.append('contam')
 
-        gas_dtype = {
-            'names': gas_names,
-            'formats': ['f8']*len(gas_names),
-        }
+            extras = ['pram', 'rgas', 'idx']
+            extra_formats = ['f8', 'f8', 'i4']
 
-        dtype = {
-            'names': gas_phases+extras,
-            'formats': [gas_dtype]*len(gas_phases)+extra_formats,
-        }
+            gas_dtype = {
+                'names': gas_names,
+                'formats': ['f8'] * len(gas_names),
+            }
 
-        if(overwrite):
+            dtype = {
+                'names': gas_phases + extras,
+                'formats': [gas_dtype] * len(gas_phases) + extra_formats,
+            }
+
             ptree = drop_fields(ptree, gas_phases, usemask=True)
-        if(iout_start==0):
-            gas_data = np.zeros(ptree.size, dtype=dtype)
-            ptree = merge_arrays([ptree, gas_data], usemask=False)
-            ptree['idx'] = np.arange(ptree.size)
+
+            dtype = np.dtype(dtype)
+            dtype = np.dtype(ptree.dtype.descr + dtype.descr)
+
+            new = np.zeros(ptree.size, dtype=dtype)
+            for name in ptree.dtype.names:
+                new[name] = ptree[name]
+            new['idx'] = np.arange(ptree.size)
+            ptree = new
 
         iouts = np.unique(ptree['timestep'])
         iouts = iouts[iouts>=iout_start]
@@ -811,6 +820,8 @@ class PhantomTree:
 
         uri.timer.verbose = 0
         uri.verbose = 0
+
+        ts = uri.TimeSeries(snap)
 
         for iout in tqdm(iouts):
             gals, snap = load_cell_snap(iout)
@@ -844,16 +855,17 @@ class PhantomTree:
 
             ptree[gals['idx']] = gals
             if(iout % backup_freq == 0):
-                PhantomTree.save(ptree, repo, ptree_file='ptree_stable.pkl', msg=False)
+                PhantomTree.save(ptree, repo, path_in_repo, ptree_file=backup_file, msg=False)
             snap.clear()
             del cell, cgas, wgas, hgas, ogas, snap
             gc.collect()
+
         uri.timer.verbose = 1
         uri.verbose = 1
 
         ptree = drop_fields(ptree, ['idx'], usemask=False)
-
-        PhantomTree.save(ptree, repo, ptree_file='ptree_stable.pkl')
+        os.remove(os.path.join(repo, path_in_repo, backup_file))
+        PhantomTree.save(ptree, repo, path_in_repo, ptree_file=output_file)
 
     #@staticmethod
     #def repair_tree(ptree):
@@ -865,6 +877,22 @@ class PhantomTree:
             return ptree
         else:
             ptree['mbh'] /= snap.unit['Msol']
+        return ptree
+
+    @staticmethod
+    def fix_aexp(ptree, snap):
+        # check if mbh is alredy fixed
+        if(all(ptree['aexp']<=1)):
+            return ptree
+        else:
+            ts = uri.TimeSeries(snap)
+            iouts = np.unique(ptree['timestep'])
+            iouts.sort()
+            for iout in iouts:
+                ptree['aexp'][ptree['timestep']==iout] = ts[iout].aexp
+
+        return ptree
+
 
 class TreeMaker:
     dtype = [
