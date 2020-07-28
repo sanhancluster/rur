@@ -45,6 +45,8 @@ Usage
 from rur import uri
 iout = 136 # arbitrary snapshot number, from output_XXXXX
 snap = uri.RamsesSnapshot('my_RAMSES_repo', iout, mode='none', path_in_repo='')
+
+# reads cell and particle data in the selected bounding box, if the box is not specified, loads the whole volume.
 cell = snap.get_cell()
 part = snap.get_part()
 ```
@@ -56,8 +58,8 @@ If Rockstar halo finder data is located in `my_RAMSES_repo/path_to_files_in_repo
 from rur import uri
 from rur.uhmi import Rockstar
 iout = 136
-snap = uri.RamsesSnapshot('my_RAMSES_repo', iout, mode='none', path_in_repo='path_to_files_in_repo')
-rst = Rockstar.load(snap, path_in_repo='path_to_files_in_repo')
+snap = uri.RamsesSnapshot('my_RAMSES_repo', iout, mode='none')
+rst = Rockstar.load(snap, path_in_repo='path_to_rockstar_in_repo')
 
 target_halo = rst[123] # arbitrary halo number
 snap.set_box_halo(target_halo, radius=1)
@@ -73,7 +75,7 @@ Cell and particle column data differ by RAMSES versions. This can be configured 
 ```python
 from rur import uri
 iout = 136
-snap = uri.RamsesSnapshot('my_RAMSES_repo', iout, mode='none', path_in_repo='path_to_files_in_repo')
+snap = uri.RamsesSnapshot('my_RAMSES_repo', iout, mode='none')
 snap.hydro_names = ['rho', 'x', 'y', 'z', 'P', 'some', 'additional', 'columns']
 cell = snap.get_cell()
 ```
@@ -88,7 +90,7 @@ Cell and particle data can be drawn directly from built-in module [`rur.painter`
 from rur import uri, painter
 import matplotlib.pyplot as plt
 iout = 136
-snap = uri.RamsesSnapshot('my_RAMSES_repo', iout, mode='none', path_in_repo='path_to_files_in_repo')
+snap = uri.RamsesSnapshot('my_RAMSES_repo', iout, mode='none')
 
 snap.set_box(center=[0.5, 0.5, 0.5], extent=[0.1, 0.2, 0.1]) # bounding box of the region to draw
 proj = [0, 2]

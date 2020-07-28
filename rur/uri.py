@@ -764,6 +764,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             cpulist.append(get_cpulist(box, None, self.levelmax, self.bound_key, self.ndim, n_divide))
         return np.unique(np.concatenate(cpulist))
 
+    def get_pcmap_cpulist(self, ids, path_in_repo='pcmap', filename='part_cpumap_%05d.pkl'):
+        # reads particle-cpumap file (if there's any) and returns appropriate cpulist for id list of paritcles
+        path = join(self.repo, path_in_repo, filename % self.iout)
+        pcmap = utool.load(path)
+        return np.unique(pcmap[ids]).astype('i8')
+
     def diag(self):
         dm_tot = 0
         star_tot = 0
@@ -922,6 +928,16 @@ def write_snaps_rockstar(repo: str, start: int, end: int, mode='none',
             opened.write('Om = %.4f\n' % snap.params['omega_m'])
 
             opened.write('MIN_HALO_PARTICLES = %d\n' % min_halo_particles)
+
+def save_part_cpumap(snap, full_box=False, icpu_dtype='u2', path_in_repo='pcmap', filename='part_cpumap_%05d.pkl'):
+    if(full_box):
+        snap.box = None
+    snap.get_part()
+    size = np.max(snap.part['id']) + 1
+    pcmap = np.zeros(size, dtype=icpu_dtype)
+    pcmap[snap.part['id']] = snap.part['cpu']
+    path = join(snap.repo, path_in_repo, filename % snap.iout)
+    utool.dump(pcmap, path)
 
 def cut_spherical(table, center, radius, prefix='', ndim=3, inverse=False):
     distances = rss(center - get_vector(table, prefix, ndim))
