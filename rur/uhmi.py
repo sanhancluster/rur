@@ -679,6 +679,7 @@ class PhantomTree:
         def load_cell_snap(iout, targets):
             snap = ts[iout]
             cpulist = snap.get_halos_cpulist(targets, radius=max_radius*1.25, radius_name=radius_name)
+            print("Number of domains to load = %d / %d" % (cpulist.size, snap.ncpu))
             snap.get_cell(cpulist=cpulist)
             return targets, snap
 
