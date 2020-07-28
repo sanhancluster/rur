@@ -771,6 +771,7 @@ class PhantomTree:
             gal_gas['m'] /= snap.unit['Msol']
             gal_gas['rho'] /= snap.unit['H/cc']
 
+            gal_gas['vr'] /= snap.unit['km/s']
             gal_gas['vx'] /= snap.unit['km/s']
             gal_gas['vy'] /= snap.unit['km/s']
             gal_gas['vz'] /= snap.unit['km/s']
