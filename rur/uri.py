@@ -653,17 +653,22 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.cpu = np.concatenate(amr_cpus)
 
     def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, ripses=False):
-        if(not exists(self.get_path('hydro'))):
-            if (exists(self.get_path('grid'))):
-                ripses = True
-            else:
-                raise FileNotFoundError("No hydro file or grid file found.")
         if(box is not None):
+            # if box is not specified, use self.box by default
             self.box = box
-        if(self.box is None or np.array_equal(self.box, default_box)):
-            domain_slicing = False
+        if(cpulist is None):
+            if(self.box is None or np.array_equal(self.box, default_box)):
+                # box is default box or None: load the whole volume
+                domain_slicing = False
+                exact_box = False
+        else:
+            # if cpulist is set,
+            if(not domain_slicing):
+                warnings.warn("cpulist cannot be set without domain_slicing!", UserWarning)
+                domain_slicing = True
             exact_box = False
-        if(self.box is None or not np.array_equal(self.box, self.box_cell)):
+
+        if(self.box is None or not np.array_equal(self.box, self.box_part) or cpulist is not None):
             if(cpulist is None):
                 cpulist = self.get_involved_cpu()
             else:
@@ -706,16 +711,26 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
     def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None):
         if(box is not None):
+            # if box is not specified, use self.box by default
             self.box = box
-        if(self.box is None or np.array_equal(self.box, default_box)):
-            domain_slicing = False
+        if(cpulist is None):
+            if(self.box is None or np.array_equal(self.box, default_box)):
+                # box is default box or None: load the whole volume
+                domain_slicing = False
+                exact_box = False
+        else:
+            # if cpulist is set,
+            if(not domain_slicing):
+                warnings.warn("cpulist cannot be set without domain_slicing!", UserWarning)
+                domain_slicing = True
             exact_box = False
-        if(self.box is None or not np.array_equal(self.box, self.box_part)):
+
+        if(self.box is None or not np.array_equal(self.box, self.box_part) or cpulist is not None):
             if(cpulist is None):
                 cpulist = self.get_involved_cpu()
             else:
-                domain_slicing=False
-                exact_box=False
+                domain_slicing = True
+                exact_box = False
             self.read_part(target_fields=target_fields, cpulist=cpulist)
             if(domain_slicing):
                 part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
