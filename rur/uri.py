@@ -35,6 +35,11 @@ class TimeSeries(object):
     def __getattr__(self, item):
         return self.basesnap.item
 
+    def set_box_halo(self, halo, radius=1, use_halo_radius=True, radius_name='rvir', iout_name='timestep'):
+        snap = self.get_snap(halo[iout_name])
+        snap.set_box_halo(halo, radius=1, use_halo_radius=True, radius_name='rvir')
+        return snap
+
 class RamsesSnapshot(object):
     """A handy object to store RAMSES AMR/Particle snapshot data.
 
