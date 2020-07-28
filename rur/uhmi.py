@@ -667,7 +667,8 @@ class PhantomTree:
     @staticmethod
     def measure_gas_prop(snap, path_in_repo=path_in_repo, ptree_file=ptree_file,
                          backup_freq=30, min_radius=1., max_radius=4., radius_name='r90', iout_start=0,
-                         measure_contam=True, output_file='ptree_RPS.pkl', backup_file='ptree_RPS.pkl.backup'):
+                         measure_contam=True, output_file='ptree_RPS.pkl', backup_file='ptree_RPS.pkl.backup',
+                         subload_limit=10000):
         def wgas_mask(cell):
             # Torrey et al. 2012
             return np.log10(cell['T', 'K']) < 6 + 0.25 * np.log10(cell['rho', 'Msol/kpc3'] * snap['h'] ** 2 / 10 ** 10)
@@ -675,12 +676,11 @@ class PhantomTree:
         def cgas_mask(cell):
             return np.log10(cell['T', 'K']) < 3.5 + 0.25 * np.log10(cell['rho', 'Msol/kpc3'] * snap['h'] ** 2 / 10 ** 10)
 
-        def load_cell_snap(iout):
-            gals = ptree[ptree['timestep'] == iout]
+        def load_cell_snap(iout, targets):
             snap = ts[iout]
-            cpulist = snap.get_halos_cpulist(gals, radius=max_radius*1.25, radius_name=radius_name)
+            cpulist = snap.get_halos_cpulist(targets, radius=max_radius*1.25, radius_name=radius_name)
             snap.get_cell(cpulist=cpulist)
-            return gals, snap
+            return targets, snap
 
         def measure_rgas(gas, gal, rgal):
             """
@@ -749,7 +749,7 @@ class PhantomTree:
             return cgas, wgas, hgas, ogas, rgas
 
         def set_gas_properties(gal, gas, phase):
-            # phase is a pointer from ptree array that represents specific phase of the gas
+            # gal_gas is a pointer from ptree array that represents specific phase of the gas
             vgal = get_vector(gal, 'v') * snap.unit['km/s']
             pgal = get_vector(gal)
             gal_gas = gal[phase]
@@ -777,7 +777,9 @@ class PhantomTree:
 
         repo = snap.repo
         ptree = PhantomTree.load(repo, path_in_repo=path_in_repo, ptree_file=ptree_file)
-
+        sort_key = np.argsort(ptree['x'])
+        sort_key_rev = np.arange(ptree.size)[sort_key]
+        ptree = ptree[sort_key]
 
         # Some workarounds for adding fields
 
@@ -816,54 +818,60 @@ class PhantomTree:
         iouts = iouts[iouts>=iout_start]
         iouts.sort()
 
-        print("Measuring gas properties from iout = %d to %d..." % (iouts[0], iouts[-1]))
+        print("Measuring gas properties from iout = %d to %d..." % (iouts[-1], iouts[0]))
 
         uri.timer.verbose = 0
         uri.verbose = 0
 
         ts = uri.TimeSeries(snap)
 
-        for iout in tqdm(iouts):
-            gals, snap = load_cell_snap(iout)
+        for iout in tqdm(iouts[::-1]):
+            gals_total = ptree[ptree['timestep'] == iout]
+            if(gals_total.size > subload_limit):
+                nsubload = gals_total.size // subload_limit + 1
+            for isubload in np.arange(nsubload):
+                gals = gals_total[isubload*subload_limit:np.minimum(gals_total.size, (isubload+1)*subload_limit)]
+                gals, snap = load_cell_snap(iout, gals)
 
-            iterator = tqdm(gals)
-            for gal in iterator:
-                snap.set_box_halo(gal, max_radius, radius_name=radius_name)
-                cell = snap.get_cell()
-                cell = uri.cut_halo(cell, gal, max_radius, radius_name=radius_name)
-                if(cell.size == 0):
-                    continue
+                iterator = tqdm(gals)
+                for gal in iterator:
+                    snap.set_box_halo(gal, max_radius, radius_name=radius_name)
+                    cell = snap.get_cell()
+                    cell = uri.cut_halo(cell, gal, max_radius, radius_name=radius_name)
+                    if(cell.size == 0):
+                        continue
 
-                cgas, wgas, hgas, ogas, rgas = measure_rgas(cell, gal, gal[radius_name])
+                    cgas, wgas, hgas, ogas, rgas = measure_rgas(cell, gal, gal[radius_name])
 
-                gal['rgas'] = rgas
-                if(cgas.size>0):
-                    set_gas_properties(gal, cgas, 'cgas')
-                if(wgas.size>0):
-                    set_gas_properties(gal, wgas, 'wgas')
-                if(hgas.size>0):
-                    set_gas_properties(gal, hgas, 'hgas')
-                if(ogas.size > 0):
-                    set_gas_properties(gal, ogas, 'ogas')
-                    gal['pram'] = ss(get_vector(gal['ogas'], 'v')) * gal['ogas']['rho']
-            iterator.close()
+                    gal['rgas'] = rgas
+                    if(cgas.size>0):
+                        set_gas_properties(gal, cgas, 'cgas')
+                    if(wgas.size>0):
+                        set_gas_properties(gal, wgas, 'wgas')
+                    if(hgas.size>0):
+                        set_gas_properties(gal, hgas, 'hgas')
+                    if(ogas.size > 0):
+                        set_gas_properties(gal, ogas, 'ogas')
+                        gal['pram'] = ss(get_vector(gal['ogas'], 'v')) * gal['ogas']['rho']
+                iterator.close()
 
-            for phase in gas_phases:
-                fin_gas_propertiles(gals, phase)
+                for phase in gas_phases:
+                    fin_gas_propertiles(gals, phase)
 
-            gals['pram'] /= snap.unit['Ba']
+                gals['pram'] /= snap.unit['Ba']
 
-            ptree[gals['idx']] = gals
-            if(iout % backup_freq == 0):
-                PhantomTree.save(ptree, repo, path_in_repo, ptree_file=backup_file, msg=False)
-            snap.clear()
-            del cell, cgas, wgas, hgas, ogas, snap
-            gc.collect()
+                ptree[gals['idx']] = gals
+                if(iout % backup_freq == 0):
+                    PhantomTree.save(ptree, repo, path_in_repo, ptree_file=backup_file, msg=False)
+                snap.clear()
+                del cell, cgas, wgas, hgas, ogas, snap
+                gc.collect()
 
         uri.timer.verbose = 1
         uri.verbose = 1
 
         ptree = drop_fields(ptree, ['idx'], usemask=False)
+        ptree = ptree[sort_key_rev]
         os.remove(os.path.join(repo, path_in_repo, backup_file))
         PhantomTree.save(ptree, repo, path_in_repo, ptree_file=output_file)
 
