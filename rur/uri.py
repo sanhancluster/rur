@@ -669,7 +669,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 domain_slicing = True
             exact_box = False
 
-        if(self.box is None or not np.array_equal(self.box, self.box_part) or cpulist is not None):
+        if(self.box is None or not np.array_equal(self.box, self.box_cell) or cpulist is not None):
             if(cpulist is None):
                 cpulist = self.get_involved_cpu()
             else:
