@@ -5,6 +5,7 @@ from numpy.core.records import fromarrays as fromarrays
 
 from scipy.integrate import cumtrapz
 from collections.abc import Iterable
+from scipy.spatial import cKDTree as KDTree
 
 from rur.fortranfile import FortranFile
 from rur.hilbert3d import hilbert3d
@@ -1147,6 +1148,13 @@ def interpolate_part_pos(part1, part2, Gyr_interp, fraction=0.5):
 def interp_term(pos, vel, fraction, time_interval, vel_sign=1):
     fun = lambda x: -np.cos(x*np.pi)/2 + 0.5 # arbitrary blending function I just invented...
     return (pos + time_interval * fraction * vel * vel_sign) * fun(1-fraction)
+
+def sync_tracer(tracer, cell, n_jobs=-1, copy=False):
+    tree = KDTree(cell['pos'])
+    dists, idx = tree.query(tracer['pos'], n_jobs=n_jobs)
+    tracer = utool.set_vector(tracer, cell[idx]['vel'], prefix='v', copy=copy)
+    if(copy):
+        return tracer
 
 def time_series(repo, iouts, halo_table, mode='none', extent=None, unit=None):
     # returns multiple snapshots from repository and array of iouts
