@@ -67,7 +67,7 @@ def dump(data, path, msg=True, protocol=4):
         pkl.dump(data, opened, protocol=protocol)
     if(msg):
         filesize = os.path.getsize(path)
-        print("File %s dump complete (%.s): %.3f seconds elapsed" % (path, format_bytes(filesize), t.time()))
+        print("File %s dump complete (%s): %.3f seconds elapsed" % (path, format_bytes(filesize), t.time()))
 
 def load(path, msg=True):
     t = Timer()
@@ -76,7 +76,7 @@ def load(path, msg=True):
         data = pkl.load(opened, encoding='latin1')
     if(msg):
         filesize = os.path.getsize(path)
-        print("File %s load complete (%.s): %.3f seconds elapsed" % (path, format_bytes(filesize), t.time()))
+        print("File %s load complete (%s): %.3f seconds elapsed" % (path, format_bytes(filesize), t.time()))
     return data
 
 
