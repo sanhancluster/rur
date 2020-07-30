@@ -67,7 +67,7 @@ def dump(data, path, msg=True, protocol=4):
         pkl.dump(data, opened, protocol=protocol)
     if(msg):
         filesize = os.path.getsize(path)
-        print("File %s dump complete (%.2f MiB): %.3f seconds elapsed" % (path, filesize/1024**2, t.time()))
+        print("File %s dump complete (%.s): %.3f seconds elapsed" % (path, format_bytes(filesize), t.time()))
 
 def load(path, msg=True):
     t = Timer()
@@ -76,7 +76,7 @@ def load(path, msg=True):
         data = pkl.load(opened, encoding='latin1')
     if(msg):
         filesize = os.path.getsize(path)
-        print("File %s load complete (%.2f MiB): %.3f seconds elapsed" % (path, filesize/1024**2, t.time()))
+        print("File %s load complete (%.s): %.3f seconds elapsed" % (path, format_bytes(filesize), t.time()))
     return data
 
 
@@ -103,7 +103,8 @@ def set_vector(table, vector, prefix='', ndim=3, where=None, copy=False):
             table[prefix+dim_keys[idim]] = vector[..., idim]
         else:
             table[prefix+dim_keys[idim]][where] = vector[..., idim]
-    return table
+    if(copy):
+        return table
 
 def get_box(center, extent):
     center = np.array(center)
@@ -268,6 +269,14 @@ def discrete_hist2d(shape, hid_arr, use_long=False):
     hist = np.reshape(hist, shape)
     return hist
 
+def format_bytes(size, format='{:#.4g}'):
+    power = 1024
+    n = 0
+    power_labels = {0 : '', 1: 'Ki', 2: 'Mi', 3: 'Gi', 4: 'Ti'}
+    while size > power:
+        size /= power
+        n += 1
+    return (format.format(size)) + ' ' + power_labels[n]+'B'
 
 #not working for now
 def ugenfromtxt(fname, comments='#', delimeter=' ', skip_header=0, dtype_int='i4', dtype_float='f8', *kwargs):
