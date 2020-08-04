@@ -272,7 +272,7 @@ def discrete_hist2d(shape, hid_arr, use_long=False):
 def format_bytes(size, format='{:#.4g}'):
     power = 1024
     n = 0
-    power_labels = {0 : '', 1: 'Ki', 2: 'Mi', 3: 'Gi', 4: 'Ti'}
+    power_labels = {0 : '', 1: 'Ki', 2: 'Mi', 3: 'Gi', 4: 'Ti', 5: 'Pi'}
     while size > power:
         size /= power
         n += 1

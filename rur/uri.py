@@ -1,5 +1,5 @@
 
-from os.path import join, exists
+from os.path import join, exists, getsize
 from parse import parse
 from numpy.core.records import fromarrays as fromarrays
 
@@ -348,7 +348,11 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             cpulist = cpulist[np.isin(cpulist, self.cpulist_part, assume_unique=True, invert=True)]
 
         if (cpulist.size > 0):
-            timer.start('Reading %d part files in %s... ' % (cpulist.size, self.path), 1)
+            filesize = 0
+            for icpu in cpulist:
+                filesize += getsize(self.get_path('part', icpu))
+            timer.start('Reading %d part files (%s) in %s... ' % (cpulist.size, utool.format_bytes(filesize), self.path), 1)
+
             progress_bar = cpulist.size > progress_bar_limit and timer.verbose >= 1
             readr.read_part(self.snap_path, self.iout, cpulist, self.mode, progress_bar, self.longint)
             timer.record()
@@ -408,7 +412,11 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             cpulist = cpulist[np.isin(cpulist, self.cpulist_cell, assume_unique=True, invert=True)]
 
         if(cpulist.size > 0):
-            timer.start('Reading %d AMR & hydro files in %s... ' % (cpulist.size, self.path), 1)
+            filesize = 0
+            for icpu in cpulist:
+                filesize += getsize(self.get_path('amr', icpu))
+                filesize += getsize(self.get_path('hydro', icpu))
+            timer.start('Reading %d AMR & hydro files (%s) in %s... ' % (cpulist.size, utool.format_bytes(filesize), self.path), 1)
 
             progress_bar = cpulist.size > progress_bar_limit and timer.verbose >= 1
             readr.read_cell(self.snap_path, self.iout, cpulist, self.mode, progress_bar)
@@ -574,9 +582,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         -------
 
         """
-        self.box=None
+        self.box = None
+        self.pcmap = None
         if(part):
-
             self.part_data = None
             self.part = None
             self.cpulist_part = np.array([], dtype='i4')
@@ -781,10 +789,14 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         return np.unique(np.concatenate(cpulist))
 
     def get_pcmap_cpulist(self, ids, path_in_repo='pcmap', filename='part_cpumap_%05d.pkl'):
-        # reads particle-cpumap file (if there's any) and returns appropriate cpulist for id list of paritcles
-        path = join(self.repo, path_in_repo, filename % self.iout)
-        pcmap = utool.load(path)
-        return np.unique(pcmap[ids]).astype('i8')
+        """
+        reads particle-cpumap file (if there's any) and returns appropriate cpulist of domains
+        that encompass selected id list of paritcles
+        """
+        if(self.pcmap is not None):
+            path = join(self.repo, path_in_repo, filename % self.iout)
+            self.pcmap = utool.load(path)
+        return np.unique(self.pcmap[ids]).astype('i8')
 
     def diag(self):
         dm_tot = 0
@@ -858,8 +870,6 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 contam = 1.-np.sum(cell[cell['refmask']>0.01]['m'])/np.sum(cell['m'])
                 if(contam>0.):
                     print('Cell Contamination fraction within the box: %.3f %%' % (contam*100))
-            print('')
-
 
         if(self.cell is not None and self.part is not None):
             print('Baryonic fraction: %.3f' % ((gas_tot+star_tot+smbh_tot) / (dm_tot+gas_tot+star_tot+smbh_tot)))
