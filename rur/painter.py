@@ -10,6 +10,7 @@ from scipy.ndimage.filters import gaussian_filter1d
 from collections.abc import Iterable
 from itertools import repeat
 from PIL import Image
+from warnings import warn
 import os
 
 verbose = 1
@@ -886,36 +887,51 @@ def get_tickvalues(range, nticks=4):
         ticks = ticks.astype(int)
     return ticks
 
-def viewer(snap, hf='GalaxyMaker', rank=1, radius=10, mode='star',
-           savefile=None, part_method='hist', align=True, age_cut=None, center=None):
+def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_unit='kpc', mode='star', show_smbh=True,
+           savefile=None, part_method='hist', align=True, age_cut=None, center=None, projs=[[0, 1], [0, 2]], smbh_minmass=1E5):
+    # Simple galaxy viewer integrated with GalaxyMaker data.
     cell = None
 
-    if(hf == 'GalaxyMaker'):
-        gal = uhmi.HaloMaker.load(snap, path_in_repo='galaxy', galaxy=True)
-        gal = np.sort(gal, order='m')
-    else:
-        gal = None
+    if (source == 'GalaxyMaker'):
+        if(gal is not None):
+            warn("Getting data from %s, ignoring predefined gal..." % source)
+        gals = uhmi.HaloMaker.load(snap, path_in_repo='galaxy', galaxy=True)
+        gals = np.sort(gals, order='m')
+        if(hmid is not None):
+            gal = gals[gals['hmid']==hmid]
+        else:
+            gal = gals[-rank]
 
-    if (gal is None):
-        snap.set_box(center, radius * snap.unit['kpc'] * 2)
-    else:
-        snap.set_box_halo(gal[-rank], radius=radius * snap.unit['kpc'], use_halo_radius=False)
-    snap.get_part()
+    if (radius_unit in snap.unit):
+        radius = radius * snap.unit[radius_unit]
+    elif radius_unit is not None:
+        warn("Unknown radius_unit, assuming as code unit...")
+    if (gal is not None):
+        if(radius_unit in gal.dtype.names):
+            radius = radius * gal[radius_unit]
+        snap.set_box_halo(gal, radius=radius, use_halo_radius=False)
+    elif (center is not None):
+        snap.set_box(center, radius * 2)
+
+    if (mode == 'star' or mode == 'dm' or show_smbh == True):
+        snap.get_part()
+        if (gal is not None and align):
+            part = uri.align_axis(snap.part, gal)
+        else:
+            part = snap.part
     if (mode == 'gas' or mode == 'dust' or mode == 'metal' or mode == 'temp'):
         snap.get_cell()
         # cell = snap.cell
         if (gal is not None and align):
-            cell = uri.align_axis_cell(snap.cell, gal[-rank])
+            cell = uri.align_axis_cell(snap.cell, gal)
         else:
             cell = snap.cell
-    if (gal is not None and align):
-        part = uri.align_axis(snap.part, gal[-rank])
-    else:
-        part = snap.part
 
-    smbh = part['smbh']
+    if(show_smbh):
+        smbh = part['smbh']
+        smbh = smbh[smbh['m', 'Msol']>=smbh_minmass]
 
-    plt.figure(figsize=(20, 10))
+    plt.figure(figsize=(12, 6), dpi=200)
 
     plt.subplot(121)
     proj = [0, 1]
@@ -940,12 +956,13 @@ def viewer(snap, hf='GalaxyMaker', rank=1, radius=10, mode='star',
     elif (mode == 'metal'):
         draw_gasmap(cell, proj=proj, shape=1000, qscale=3, vmax=1E-1, mode='metal', cmap=ccm.lacerta,
                             interp_order=1)
-    draw_smbhs(smbh, proj=proj, labels=['%.3f' % m for m in np.log10(smbh['m', 'Msol'])], color='gray',
-                       fontsize=10, mass_range=[4, 8])
+    if(show_smbh):
+        draw_smbhs(smbh, proj=proj, labels=['%.3f' % m for m in np.log10(smbh['m', 'Msol'])], color='gray',
+                   fontsize=10, mass_range=[4, 8])
     set_ticks_unit(snap, proj, 'kpc')
     if (gal is not None):
-        dr.axlabel('M$_*$ = %.3e M$_{sol}$' % gal[i]['m'], 'left top', color='white', fontsize=20)
-    dr.axlabel('z = %.3f' % snap.z, 'right top', color='white', fontsize=20)
+        dr.axlabel('M$_*$ = %.3e M$_{sol}$' % gal['m'], 'left top', color='white', fontsize=12)
+    dr.axlabel('z = %.3f' % snap.z, 'right top', color='white', fontsize=12)
 
     plt.subplot(122)
     proj = [0, 2]
@@ -970,8 +987,9 @@ def viewer(snap, hf='GalaxyMaker', rank=1, radius=10, mode='star',
     elif (mode == 'metal'):
         draw_gasmap(cell, proj=proj, shape=1000, qscale=3, vmax=1E-1, mode='metal', cmap=ccm.lacerta,
                             interp_order=1)
-    draw_smbhs(smbh, proj=proj, labels=['%.3f' % m for m in np.log10(smbh['m', 'Msol'])], color='gray',
-                       fontsize=10, mass_range=[4, 8])
+    if(show_smbh):
+        draw_smbhs(smbh, proj=proj, labels=['%.3f' % m for m in np.log10(smbh['m', 'Msol'])], color='gray',
+                           fontsize=10, mass_range=[np.log10(smbh_minmass), 8])
     set_ticks_unit(snap, proj, 'kpc')
 
     if (savefile is not None):
