@@ -817,7 +817,7 @@ class PhantomTree:
             ptree = new
 
         iouts = np.unique(ptree['timestep'])
-        iouts = iouts[iouts>=iout_start]
+        iouts = iouts[iouts<=iout_start]
         iouts.sort()
 
         print("Measuring gas properties from iout = %d to %d..." % (iouts[-1], iouts[0]))
