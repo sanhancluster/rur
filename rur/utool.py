@@ -181,16 +181,29 @@ def append_rows(array, new_rows, idx=None):
         array[idx:idx+len_new_rows] = new_rows
     return array
 
-def expand_shape(arr, axis, ndim):
+def rank(arr):
+    temp = np.argsort(arr)
+    ranks = np.empty_like(temp)
+    ranks[temp] = np.arange(len(arr))
+    return ranks
+
+def expand_shape(arr, axes, ndim):
     # axis: array that has same size with current number of dimensions, positions of axis in the resulting array
     # ndim: number of dimensions of resulting array
-    axis = np.array(axis)
+    axes = np.array(axes)
     arr = np.array(arr)
-    if (arr.ndim != axis.size):
-        raise ValueError("Invalid axes")
+    if (arr.ndim != axes.size):
+        raise ValueError("Invalid axes, make sure arr.ndim == axes.size")
+
+    sources = np.arange(arr.ndim)
+    dests = rank(axes)
+    new_arr = np.moveaxis(arr, sources, dests)
+
     newshape = np.full(ndim, 1, dtype=np.int)
-    newshape[np.array(axis)] = np.array(arr.shape)[np.arange(axis.size)]
-    return np.reshape(arr, newshape)
+    newshape[np.array(axes)] = np.array(arr.shape)[np.arange(axes.size)]
+
+    return np.reshape(new_arr, newshape)
+
 
 def make_broadcastable(arr_tuple, axes, ndim=None):
     # makes two arrays to be able to broadcast with each other
