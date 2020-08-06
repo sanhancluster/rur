@@ -1159,12 +1159,22 @@ def interp_term(pos, vel, fraction, time_interval, vel_sign=1):
     fun = lambda x: -np.cos(x*np.pi)/2 + 0.5 # arbitrary blending function I just invented...
     return (pos + time_interval * fraction * vel * vel_sign) * fun(1-fraction)
 
-def sync_tracer(tracer, cell, n_jobs=-1, copy=False):
-    tree = KDTree(cell['pos'])
-    dists, idx = tree.query(tracer['pos'], n_jobs=n_jobs)
+def sync_tracer(tracer, cell, copy=False, **kwargs):
+    idx = match_tracer(tracer, cell, **kwargs)
     tracer = utool.set_vector(tracer, cell[idx]['vel'], prefix='v', copy=copy)
     if(copy):
         return tracer
+
+def match_tracer(tracer, cell, n_jobs=-1):
+    timer.start("Matching %d tracers and %d cells..." % (tracer.size, cell.size), 1)
+    tree = KDTree(cell['pos'])
+    dists, idx = tree.query(tracer['pos'], n_jobs=n_jobs)
+    mask = dists>0
+    idx = idx[mask]
+    print("%d / %d tracers are matched to %d / %d cells"
+          % (np.sum(mask), tracer.size, np.unique(idx).size, cell.size))
+    timer.record()
+    return idx
 
 def time_series(repo, iouts, halo_table, mode='none', extent=None, unit=None):
     # returns multiple snapshots from repository and array of iouts
