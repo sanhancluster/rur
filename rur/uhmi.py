@@ -17,6 +17,8 @@ if(type_of_script() == 'jupyter'):
 else:
     from tqdm import tqdm
 import warnings
+from multiprocessing import Process, Queue
+from time import sleep
 
 chars = string.ascii_lowercase
 
@@ -83,8 +85,11 @@ class HaloMaker:
         mass_unit = 1E11
         array['m'] *= mass_unit
         array['mvir'] *= mass_unit
-        boxsize_physical = snap['boxsize_physical']
+        array['Lx'] *= mass_unit
+        array['Ly'] *= mass_unit
+        array['Lz'] *= mass_unit
 
+        boxsize_physical = snap['boxsize_physical']
         pos = get_vector(array)
         append_fields(array, names=['xp', 'yp', 'zp'], data=pos.T, usemask=False)
         array['x'] = array['x'] / boxsize_physical + 0.5
@@ -668,7 +673,7 @@ class PhantomTree:
     def measure_gas_prop(snap, path_in_repo=path_in_repo, ptree_file=ptree_file,
                          backup_freq=30, min_radius=1., max_radius=4., radius_name='r90', iout_start=0,
                          measure_contam=True, output_file='ptree_RPS.pkl', backup_file='ptree_RPS.pkl.backup',
-                         subload_limit=10000):
+                         subload_limit=10000, n_jobs=8):
         def wgas_mask(cell):
             # Torrey et al. 2012
             return np.log10(cell['T', 'K']) < 6 + 0.25 * np.log10(cell['rho', 'Msol/kpc3'] * snap['h'] ** 2 / 10 ** 10)
@@ -763,7 +768,12 @@ class PhantomTree:
             pos = (gas['pos'] - pgal)
             vrad = np.sum(vel * pos, axis=-1) / rss(pos)
             gal_gas['vr'] = np.average(vrad, weights=gas['m'])
+
+            am = np.cross(pos, vel) * expand_shape(gas['m'], 0, 2)
+
             set_vector(gal_gas, np.average(vel, axis=0, weights=gas['m']), 'v')
+            set_vector(gal_gas, np.sum(am, axis=0), 'L')
+
             if('contam' in gal_gas.dtype.names):
                 gal_gas['contam'] = np.sum(gas[gas['refmask']<0.01]['m'])/gal_gas['m']
 
@@ -777,6 +787,34 @@ class PhantomTree:
             gal_gas['vy'] /= snap.unit['km/s']
             gal_gas['vz'] /= snap.unit['km/s']
 
+            am_unit = (snap.unit['km/s'] * snap.unit['Mpc'] * snap.unit['Msol'])
+            gal_gas['Lx'] /= am_unit
+            gal_gas['Ly'] /= am_unit
+            gal_gas['Lz'] /= am_unit
+
+        def measure_galaxy(i, q):
+            gal = gals[i]
+            snap.set_box_halo(gal, max_radius, radius_name=radius_name)
+            cell = snap.get_cell()
+            cell = uri.cut_halo(cell, gal, max_radius, radius_name=radius_name)
+            if(cell.size == 0):
+                return
+
+            cgas, wgas, hgas, ogas, rgas = measure_rgas(cell, gal, gal[radius_name])
+
+            gal['rgas'] = rgas
+            if(cgas.size>0):
+                set_gas_properties(gal, cgas, 'cgas')
+            if(wgas.size>0):
+                set_gas_properties(gal, wgas, 'wgas')
+            if(hgas.size>0):
+                set_gas_properties(gal, hgas, 'hgas')
+            if(ogas.size > 0):
+                set_gas_properties(gal, ogas, 'ogas')
+                gal['pram'] = ss(get_vector(gal['ogas'], 'v')) * gal['ogas']['rho']
+
+            q.put((i, gal))
+
         repo = snap.repo
         ptree = PhantomTree.load(repo, path_in_repo=path_in_repo, ptree_file=ptree_file)
         sort_key = np.argsort(ptree['x'])
@@ -788,7 +826,7 @@ class PhantomTree:
         gas_phases = ['cgas', 'wgas', 'hgas', 'ogas']
 
         if(iout_start == 0):
-            gas_names = ['m', 'vx', 'vy', 'vz', 'vr', 'rho', 'metal']
+            gas_names = ['m', 'vx', 'vy', 'vz', 'vr', 'Lx', 'Ly', 'Lz', 'rho', 'metal']
             if (measure_contam):
                 gas_names.append('contam')
 
@@ -815,6 +853,7 @@ class PhantomTree:
                 new[name] = ptree[name]
             new['idx'] = np.arange(ptree.size)
             ptree = new
+            iout_start = np.max(ptree['timestep'])
 
         iouts = np.unique(ptree['timestep'])
         iouts = iouts[iouts<=iout_start]
@@ -835,27 +874,31 @@ class PhantomTree:
                 gals = gals_total[isubload*subload_limit:np.minimum(gals_total.size, (isubload+1)*subload_limit)]
                 gals, snap = load_cell_snap(iout, gals)
 
-                iterator = tqdm(gals)
-                for gal in iterator:
-                    snap.set_box_halo(gal, max_radius, radius_name=radius_name)
-                    cell = snap.get_cell()
-                    cell = uri.cut_halo(cell, gal, max_radius, radius_name=radius_name)
-                    if(cell.size == 0):
-                        continue
-
-                    cgas, wgas, hgas, ogas, rgas = measure_rgas(cell, gal, gal[radius_name])
-
-                    gal['rgas'] = rgas
-                    if(cgas.size>0):
-                        set_gas_properties(gal, cgas, 'cgas')
-                    if(wgas.size>0):
-                        set_gas_properties(gal, wgas, 'wgas')
-                    if(hgas.size>0):
-                        set_gas_properties(gal, hgas, 'hgas')
-                    if(ogas.size > 0):
-                        set_gas_properties(gal, ogas, 'ogas')
-                        gal['pram'] = ss(get_vector(gal['ogas'], 'v')) * gal['ogas']['rho']
+                jobs = []
+                iterator = tqdm(np.arange(gals.size), ncols=100)
+                q = Queue()
+                for i in iterator:
+                    while (True):
+                        for idx in np.arange(len(jobs))[::-1]:
+                            if (not jobs[idx].is_alive()):
+                                jobs.pop(idx)
+                        if (len(jobs) >= n_jobs):
+                            sleep(0.1)
+                        else:
+                            break
+                    p = Process(target=measure_galaxy, args=(i, q))
+                    jobs.append(p)
+                    p.start()
+                    while not q.empty():
+                        i, gal = q.get()
+                        gals[i] = gal
                 iterator.close()
+
+                for job in jobs:
+                    job.join()
+                while not q.empty():
+                    i, gal = q.get()
+                    gals[i] = gal
 
                 for phase in gas_phases:
                     fin_gas_propertiles(gals, phase)
@@ -866,7 +909,7 @@ class PhantomTree:
                 if(iout % backup_freq == 0):
                     PhantomTree.save(ptree, repo, path_in_repo, ptree_file=backup_file, msg=False)
                 snap.clear()
-                del cell, cgas, wgas, hgas, ogas, snap
+                del snap
                 gc.collect()
 
         uri.timer.verbose = 1
