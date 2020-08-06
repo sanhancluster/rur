@@ -130,7 +130,7 @@ def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, sub
         image = np.nanmax([image, hist_map], axis=0)
 
         if(ilvl < maxlvl):
-            image = rescale(image, 2, order=0, multichannel=False, anti_aliasing=False)
+            image = rescale(image, 2, order=0, multichannel=False)
 
     crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
     if(subpx_crop):
@@ -195,7 +195,7 @@ def set_weights(mode, cell, unit, depth):
 
     return quantity, weights
 
-def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, anti_aliasing=False, interp_order=0):
+def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, interp_order=0):
     if(box is None and isinstance(cell, uri.RamsesSnapshot.Cell)):
         box = cell.snap.box
 
@@ -260,8 +260,8 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
         depth_map = depth_map_new
 
         if(ilvl < maxlvl):
-            image = rescale(image, 2, mode='constant', order=interp_order, multichannel=False, anti_aliasing=anti_aliasing)
-            depth_map = rescale(depth_map, 2, mode='constant', order=interp_order, multichannel=False, anti_aliasing=anti_aliasing)
+            image = rescale(image, 2, mode='constant', order=interp_order, multichannel=False)
+            depth_map = rescale(depth_map, 2, mode='constant', order=interp_order, multichannel=False)
 
     crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
     if(subpx_crop):
@@ -274,12 +274,107 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
     timer.record()
     return image.T
 
+def velmap(data, box=None, proj=[0, 1], shape=500, unit=None, minlvl=None, maxlvl=None, subpx_crop=True, interp_order=0):
+    if(box is None):
+        box = data.snap.box
 
-def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, anti_aliasing=False, interp_order=0, **kwargs):
+    if(isinstance(data, uri.RamsesSnapshot.Cell)):
+        cell = data
+
+        lvl = cell['level']
+
+        box_proj = get_box_proj(box, proj)
+
+        if (np.isscalar(shape)):
+            shape = np.repeat(shape, 2)
+
+        if(shape is not None):
+            shape = np.array(shape)
+
+        known_lvls = np.unique(lvl)
+        minlvl, maxlvl, basebin, edge = set_bins(known_lvls, minlvl, maxlvl, box_proj, shape)
+
+        known_lvls = np.arange(minlvl, np.max(known_lvls)+1)
+
+        if(verbose>=1):
+            print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl), basebin * 2**(maxlvl-minlvl))
+        timer.start('Drawing gas velocity map... ', 1)
+
+        ndim = cell['vel'].shape[-1]
+        if(shape is None):
+            shape = basebin * 2 ** (maxlvl - minlvl)
+
+        image = np.zeros((ndim,) + tuple(basebin))
+        depth_map = np.zeros(basebin)
+        depth = np.diff(box[los(proj)])
+
+        for ilvl in known_lvls:
+            mask = lvl==ilvl
+            cell_lvl = cell[mask]
+
+            xm = get_vector(cell_lvl)
+            wm = cell_lvl['rho']
+            qm = cell_lvl['vel']
+
+            binlvl = np.min([ilvl, maxlvl])
+            binsize = basebin * 2**(binlvl-minlvl)
+
+            # convert coordinates to map
+            hist_weight = np.histogram2d(xm[:, proj[0]], xm[:, proj[1]], bins=binsize, range=edge, weights=wm)[0]
+            hist_map = []
+            for idim in range(ndim):
+                hist_map.append(
+                    np.histogram2d(xm[:, proj[0]], xm[:, proj[1]], bins=binsize, range=edge, weights=qm[:, idim]*wm)[0])
+
+            # weighted average map of quantities
+            hist_map = np.array(hist_map)
+            hist_map = np.divide(hist_map, hist_weight, where=hist_weight!=0)
+
+            if (ilvl < maxlvl):
+                ibin = ilvl
+            else:
+                ibin = ilvl*3 - maxlvl*2
+
+            # additional depth
+            add_depth = hist_weight * 0.5 ** ibin
+
+            # new depth
+            depth_map_new = depth_map + add_depth
+            mask_active = (hist_weight > 0) & (depth_map_new > 0)
+
+            for idim in range(ndim):
+                image[idim, mask_active] = (np.divide(image[idim] * depth_map + hist_map[idim] * add_depth, depth_map_new,
+                                            where=mask_active))[mask_active]
+            depth_map = depth_map_new
+
+            if(ilvl < maxlvl):
+                image = np.moveaxis(image, 0, -1)
+                image = rescale(image, 2, mode='constant', order=interp_order, multichannel=True)
+                image = np.moveaxis(image, -1, 0)
+                depth_map = rescale(depth_map, 2, mode='constant', order=interp_order, multichannel=False)
+
+        crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
+
+        image_out = []
+        for idim in range(ndim):
+            if(subpx_crop):
+                image_out.append(crop_float(image[idim], crop_range, output_shape=shape))
+            else:
+                image_out.append(crop(image[idim], crop_range))
+                if(shape is not None):
+                    image_out[idim] = resize(image_out[idim], shape)
+        image_out = np.moveaxis(image_out, 0, -1)
+        image_out = np.swapaxes(image_out, 0, 1)
+    timer.record()
+    if(unit is not None):
+        image_out /= data.snap.unit[unit]
+    return image_out
+
+def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, interp_order=0, **kwargs):
     if(box is None and isinstance(cell, uri.RamsesSnapshot.Cell)):
         box = cell.snap.box
 
-    image = gasmap(cell, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl, subpx_crop=subpx_crop, anti_aliasing=anti_aliasing, interp_order=interp_order)
+    image = gasmap(cell, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl, subpx_crop=subpx_crop, interp_order=interp_order)
 
     box_proj = get_box_proj(box, proj)
     if extent is None:
@@ -287,7 +382,7 @@ def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho',
 
     return draw_image(image, extent=extent, **kwargs)
 
-def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, anti_aliasing=False):
+def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True):
     if(box is None and isinstance(tracer_part, uri.RamsesSnapshot.Particle)):
         box = tracer_part.snap.box
 
@@ -335,7 +430,7 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
         image += hist_map * 0.5 ** ibin
 
         if(ilvl < maxlvl):
-            image = rescale(image, 2, mode='constant', order=0, multichannel=False, anti_aliasing=anti_aliasing)
+            image = rescale(image, 2, mode='constant', order=0, multichannel=False)
     image /= depth
 
     crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
@@ -349,11 +444,11 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
     timer.record()
     return image.T
 
-def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, anti_aliasing=False, **kwargs):
+def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, **kwargs):
     if(box is None and isinstance(tracer_part, uri.RamsesSnapshot.Particle)):
         box = tracer_part.snap.box
 
-    image = tracermap(tracer_part, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl, subpx_crop=subpx_crop, anti_aliasing=anti_aliasing)
+    image = tracermap(tracer_part, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl, subpx_crop=subpx_crop)
 
     box_proj = get_box_proj(box, proj)
     if extent is None:
