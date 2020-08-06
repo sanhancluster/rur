@@ -184,14 +184,14 @@ def append_rows(array, new_rows, idx=None):
 def rank(arr):
     temp = np.argsort(arr)
     ranks = np.empty_like(temp)
-    ranks[temp] = np.arange(len(arr))
+    ranks[temp] = np.arange(arr.size)
     return ranks
 
 def expand_shape(arr, axes, ndim):
     # axis: array that has same size with current number of dimensions, positions of axis in the resulting array
     # ndim: number of dimensions of resulting array
-    axes = np.array(axes)
-    arr = np.array(arr)
+    axes = np.atleast_1d(axes)
+    arr = np.atleast_1d(arr)
     if (arr.ndim != axes.size):
         raise ValueError("Invalid axes, make sure arr.ndim == axes.size")
 
