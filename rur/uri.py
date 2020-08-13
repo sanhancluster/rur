@@ -183,7 +183,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         else:
             self.cosmo_table = snap.cosmo_table
 
-        self.params['age'] = np.interp(params['aexp'], self.cosmo_table['aexp'], self.cosmo_table['t'])
+        self.params['age'] = np.interp(params['time'], self.cosmo_table['u'], self.cosmo_table['t'])
         self.params['lookback_time'] = self.cosmo_table['t'][-1] - self.params['age']
 
         if(timer.verbose>=1):
@@ -194,6 +194,16 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
     def age_to_aexp(self, age):
         return np.interp(age, self.cosmo_table['t'], self.cosmo_table['aexp'])
+
+    def epoch_to_age(self, epoch):
+        table = self.cosmo_table
+        ages = self.params['age'] - np.interp(epoch, table['u'], table['t'])
+        return ages * self.unit['Gyr']
+
+    def epoch_to_aexp(self, epoch):
+        table = self.cosmo_table
+        aexp = np.interp(epoch, table['u'], table['aexp'])
+        return aexp
 
     def set_extra_fields(self, params=None):
         custom_extra_fields(self)
@@ -210,16 +220,6 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.box = get_box(center, extent)
         if(self.box.shape != (3, 2)):
             raise ValueError("Incorrect box shape: ", self.box.shape)
-
-    def epoch_to_age(self, epoch):
-        table = self.cosmo_table
-        ages = self.params['age'] - np.interp(epoch, table['u'], table['t'])
-        return ages * self.unit['Gyr']
-
-    def epoch_to_aexp(self, epoch):
-        table = self.cosmo_table
-        aexp = np.interp(epoch, table['u'], table['aexp'])
-        return aexp
 
     def set_box_halo(self, halo, radius=1, use_halo_radius=True, radius_name='rvir'):
         if(isinstance(halo, np.ndarray)):
