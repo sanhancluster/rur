@@ -673,7 +673,7 @@ class PhantomTree:
     def measure_gas_prop(snap, path_in_repo=path_in_repo, ptree_file=ptree_file,
                          backup_freq=30, min_radius=1., max_radius=4., radius_name='r90', iout_start=0,
                          measure_contam=True, output_file='ptree_RPS.pkl', backup_file='ptree_RPS.pkl.backup',
-                         subload_limit=10000, n_jobs=8):
+                         subload_limit=10000, n_jobs=8, nchunk=10):
         def wgas_mask(cell):
             # Torrey et al. 2012
             return np.log10(cell['T', 'K']) < 6 + 0.25 * np.log10(cell['rho', 'Msol/kpc3'] * snap['h'] ** 2 / 10 ** 10)
@@ -681,12 +681,22 @@ class PhantomTree:
         def cgas_mask(cell):
             return np.log10(cell['T', 'K']) < 3.5 + 0.25 * np.log10(cell['rho', 'Msol/kpc3'] * snap['h'] ** 2 / 10 ** 10)
 
-        def load_cell_snap(iout, targets):
-            snap = ts[iout]
+        def get_cpulist_max(snap, halos, radius=3., use_halo_radius=True, radius_name='rvir', n_divide=4):
+            cpulist_all = []
+            for halo in halos:
+                if(use_halo_radius):
+                    extent = halo[radius_name]*radius*2
+                else:
+                    extent = radius*2
+                box = uri.get_box(get_vector(halo), extent)
+                cpulist = uri.get_cpulist(box, None, snap.levelmax, snap.bound_key, snap.ndim, n_divide)
+                cpulist_all.append(np.max(cpulist))
+            return np.array(cpulist_all)
+
+        def load_cell_snap(snap, targets):
             cpulist = snap.get_halos_cpulist(targets, radius=max_radius*1.25, radius_name=radius_name)
             print("Number of domains to load = %d / %d" % (cpulist.size, snap.ncpu))
             snap.get_cell(cpulist=cpulist)
-            return targets, snap
 
         def measure_rgas(gas, gal, rgal):
             """
@@ -792,34 +802,35 @@ class PhantomTree:
             gal_gas['Ly'] /= am_unit
             gal_gas['Lz'] /= am_unit
 
-        def measure_galaxy(i, q):
-            gal = gals[i]
-            snap.set_box_halo(gal, max_radius, radius_name=radius_name)
-            cell = snap.get_cell()
-            cell = uri.cut_halo(cell, gal, max_radius, radius_name=radius_name)
-            if(cell.size == 0):
-                return
+        def measure_galaxy(st, ed, q):
+            mygal = gals[st:ed]
+            for gal in mygal:
+                snap.set_box_halo(gal, max_radius, radius_name=radius_name)
+                cell = snap.get_cell()
+                cell = uri.cut_halo(cell, gal, max_radius, radius_name=radius_name)
+                if(cell.size == 0):
+                    return
 
-            cgas, wgas, hgas, ogas, rgas = measure_rgas(cell, gal, gal[radius_name])
+                cgas, wgas, hgas, ogas, rgas = measure_rgas(cell, gal, gal[radius_name])
 
-            gal['rgas'] = rgas
-            if(cgas.size>0):
-                set_gas_properties(gal, cgas, 'cgas')
-            if(wgas.size>0):
-                set_gas_properties(gal, wgas, 'wgas')
-            if(hgas.size>0):
-                set_gas_properties(gal, hgas, 'hgas')
-            if(ogas.size > 0):
-                set_gas_properties(gal, ogas, 'ogas')
-                gal['pram'] = ss(get_vector(gal['ogas'], 'v')) * gal['ogas']['rho']
+                gal['rgas'] = rgas
+                if(cgas.size>0):
+                    set_gas_properties(gal, cgas, 'cgas')
+                if(wgas.size>0):
+                    set_gas_properties(gal, wgas, 'wgas')
+                if(hgas.size>0):
+                    set_gas_properties(gal, hgas, 'hgas')
+                if(ogas.size > 0):
+                    set_gas_properties(gal, ogas, 'ogas')
+                    gal['pram'] = ss(get_vector(gal['ogas'], 'v')) * gal['ogas']['rho']
 
-            q.put((i, gal))
+            q.put((st, ed, mygal))
 
         repo = snap.repo
         ptree = PhantomTree.load(repo, path_in_repo=path_in_repo, ptree_file=ptree_file)
-        sort_key = np.argsort(ptree['x'])
-        sort_key_rev = np.arange(ptree.size)[sort_key]
-        ptree = ptree[sort_key]
+        #ort_key = np.argsort(ptree['x'])
+        #sort_key_rev = np.arange(ptree.size)[sort_key]
+        #ptree = ptree[sort_key]
 
         # Some workarounds for adding fields
 
@@ -867,15 +878,21 @@ class PhantomTree:
         ts = uri.TimeSeries(snap)
 
         for iout in tqdm(iouts[::-1]):
+            snap = ts[iout]
             gals_total = ptree[ptree['timestep'] == iout]
+
+            # Sort halos according to max cpu id of their underlying domain
+            cpulist_max = get_cpulist_max(snap, gals_total, radius=max_radius*1.25, radius_name=radius_name)
+            gals_total = gals_total[np.argsort(cpulist_max)]
+
             if(gals_total.size > subload_limit):
                 nsubload = gals_total.size // subload_limit + 1
             for isubload in np.arange(nsubload):
                 gals = gals_total[isubload*subload_limit:np.minimum(gals_total.size, (isubload+1)*subload_limit)]
-                gals, snap = load_cell_snap(iout, gals)
+                load_cell_snap(snap, gals)
 
                 jobs = []
-                iterator = tqdm(np.arange(gals.size), ncols=100)
+                iterator = tqdm(np.arange(int(np.ceil(gals.size/nchunk))), ncols=100)
                 q = Queue()
                 for i in iterator:
                     while (True):
@@ -883,22 +900,30 @@ class PhantomTree:
                             if (not jobs[idx].is_alive()):
                                 jobs.pop(idx)
                         if (len(jobs) >= n_jobs):
-                            sleep(0.1)
+                            sleep(0.5)
                         else:
                             break
-                    p = Process(target=measure_galaxy, args=(i, q))
+                    st, ed = i*nchunk, np.minimum((i+1)*nchunk, gals.size)
+                    p = Process(target=measure_galaxy, args=(st, ed, q))
                     jobs.append(p)
                     p.start()
                     while not q.empty():
-                        i, gal = q.get()
-                        gals[i] = gal
+                        st, ed, procgal = q.get()
+                        gals[st:ed] = procgal
                 iterator.close()
 
-                for job in jobs:
-                    job.join()
-                while not q.empty():
-                    i, gal = q.get()
-                    gals[i] = gal
+                ok = False
+                while not ok:
+                    ok = True
+                    for idx in np.arange(len(jobs)):
+                        if (jobs[idx].is_alive()):
+                            ok = False
+                    if(not q.empty()):
+                        st, ed, procgal = q.get()
+                        gals[st:ed] = procgal
+                    else:
+                        sleep(0.5)
+
 
                 for phase in gas_phases:
                     fin_gas_propertiles(gals, phase)
@@ -906,17 +931,17 @@ class PhantomTree:
                 gals['pram'] /= snap.unit['Ba']
 
                 ptree[gals['idx']] = gals
-                if(iout % backup_freq == 0):
-                    PhantomTree.save(ptree, repo, path_in_repo, ptree_file=backup_file, msg=False)
                 snap.clear()
-                del snap
                 gc.collect()
+
+            if(iout % backup_freq == 0):
+                PhantomTree.save(ptree, repo, path_in_repo, ptree_file=backup_file, msg=True)
 
         uri.timer.verbose = 1
         uri.verbose = 1
 
         ptree = drop_fields(ptree, ['idx'], usemask=False)
-        ptree = ptree[sort_key_rev]
+        #ptree = ptree[sort_key_rev]
         os.remove(os.path.join(repo, path_in_repo, backup_file))
         PhantomTree.save(ptree, repo, path_in_repo, ptree_file=output_file)
 
