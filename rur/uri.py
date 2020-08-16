@@ -38,7 +38,7 @@ class TimeSeries(object):
 
     def set_box_halo(self, halo, radius=1, use_halo_radius=True, radius_name='rvir', iout_name='timestep'):
         snap = self.get_snap(halo[iout_name])
-        snap.set_box_halo(halo, radius=1, use_halo_radius=True, radius_name='rvir')
+        snap.set_box_halo(halo, radius=radius, use_halo_radius=use_halo_radius, radius_name=radius_name)
         return snap
 
 class RamsesSnapshot(object):
