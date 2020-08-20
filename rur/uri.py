@@ -130,6 +130,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.part = None
         self.cell = None
 
+        self.pcmap = None
+
         self.longint = longint
 
         if(self.longint is None):
@@ -793,7 +795,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         reads particle-cpumap file (if there's any) and returns appropriate cpulist of domains
         that encompass selected id list of paritcles
         """
-        if(self.pcmap is not None):
+        if(self.pcmap is None):
             path = join(self.repo, path_in_repo, filename % self.iout)
             self.pcmap = utool.load(path)
         return np.unique(self.pcmap[ids]).astype('i8')
