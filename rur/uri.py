@@ -1174,16 +1174,18 @@ def sync_tracer(tracer, cell, copy=False, **kwargs):
     if(copy):
         return tracer
 
-def match_tracer(tracer, cell, n_jobs=-1):
+def match_tracer(tracer, cell, n_jobs=-1, min_dist_pc=1):
     timer.start("Matching %d tracers and %d cells..." % (tracer.size, cell.size), 1)
-    tree = KDTree(cell['pos'])
-    dists, idx = tree.query(tracer['pos'], n_jobs=n_jobs)
-    mask = dists>0
-    idx = idx[mask]
+    tree = KDTree(tracer['pos'])
+    dists, idx_tracer = tree.query(cell['pos'], n_jobs=n_jobs)
+    mask = dists < min_dist_pc*cell.snap.unit['pc']
+    idx_cell = np.arange(cell.size)
+    idx_cell = idx_cell[mask]
+    idx_tracer = idx_tracer[mask]
     print("%d / %d tracers are matched to %d / %d cells"
-          % (np.sum(mask), tracer.size, np.unique(idx).size, cell.size))
+          % (np.sum(mask), tracer.size, np.unique(idx_cell).size, cell.size))
     timer.record()
-    return idx
+    return idx_tracer, idx_cell
 
 def time_series(repo, iouts, halo_table, mode='none', extent=None, unit=None):
     # returns multiple snapshots from repository and array of iouts
