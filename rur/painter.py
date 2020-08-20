@@ -583,9 +583,7 @@ def draw_points(points, box=None, proj=[0, 1], color=None, label=None, fontsize=
     mask = uri.box_mask(x, box)
     x = x[mask]
 
-    if(s is not None and not isinstance(s, Iterable)):
-        s = repeat(s)
-    else:
+    if(isinstance(s, Iterable)):
         s = np.array(s)[mask]
 
     plt.scatter(x[:, proj[0]], x[:, proj[1]], color=color, zorder=50, s=s, **kwargs)

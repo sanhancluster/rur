@@ -957,14 +957,21 @@ def write_snaps_rockstar(repo: str, start: int, end: int, mode='none',
 
             opened.write('MIN_HALO_PARTICLES = %d\n' % min_halo_particles)
 
-def save_part_cpumap(snap, full_box=False, icpu_dtype='u2', path_in_repo='pcmap', filename='part_cpumap_%05d.pkl'):
+def save_part_cpumap(snap, full_box=False, icpu_dtype='u2', path_in_repo='pcmap', mode='init', filename='%s_cpumap_%05d.pkl'):
     if(full_box):
         snap.box = None
     snap.get_part()
-    size = np.max(snap.part['id']) + 1
+    if(mode == 'init'):
+        part = snap.part['init']
+    elif(mode == 'star'):
+        part = snap.part['star']
+    else:
+        raise ValueError("Unknown mode: %s" % mode)
+
+    size = np.max(part['id']) + 1
     pcmap = np.zeros(size, dtype=icpu_dtype)
-    pcmap[snap.part['id']] = snap.part['cpu']
-    path = join(snap.repo, path_in_repo, filename % snap.iout)
+    pcmap[part['id']] = part['cpu']
+    path = join(snap.repo, path_in_repo, filename % (mode, snap.iout))
     utool.dump(pcmap, path)
 
 def cut_spherical(table, center, radius, prefix='', ndim=3, inverse=False):
@@ -1162,8 +1169,8 @@ def interp_term(pos, vel, fraction, time_interval, vel_sign=1):
     return (pos + time_interval * fraction * vel * vel_sign) * fun(1-fraction)
 
 def sync_tracer(tracer, cell, copy=False, **kwargs):
-    idx = match_tracer(tracer, cell, **kwargs)
-    tracer = utool.set_vector(tracer, cell[idx]['vel'], prefix='v', copy=copy)
+    tid, cid = match_tracer(tracer, cell, **kwargs)
+    tracer[tid] = utool.set_vector(tracer, cell[cid]['vel'], prefix='v', copy=copy)
     if(copy):
         return tracer
 

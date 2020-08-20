@@ -85,6 +85,7 @@ part_family = {
     'cloud': 3,
     'sink': 3,
     'tracer': [-3, -2, -1, 0],
+    'init': [-3, -2, -1, 0, 1],
 }
 
 dim_keys = ['x', 'y', 'z']
