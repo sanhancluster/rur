@@ -888,7 +888,7 @@ class PhantomTree:
             if(gals_total.size > subload_limit):
                 nsubload = int(np.ceil(gals_total.size/subload_limit))
             else:
-                nsubload = gals_total.size
+                nsubload = 1
             for isubload in np.arange(nsubload):
                 gals = gals_total[isubload*subload_limit:np.minimum(gals_total.size, (isubload+1)*subload_limit)]
                 load_cell_snap(snap, gals)
