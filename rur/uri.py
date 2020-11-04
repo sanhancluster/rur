@@ -22,6 +22,7 @@ class TimeSeries(object):
         self.snaps = {}
         self.basesnap = snap
         self.snaps[snap.iout] = snap
+        self.icoarse_table = None
 
     def get_snap(self, iout):
         if(iout in self.snaps):
@@ -40,6 +41,24 @@ class TimeSeries(object):
         snap = self.get_snap(halo[iout_name])
         snap.set_box_halo(halo, radius=radius, use_halo_radius=use_halo_radius, radius_name=radius_name)
         return snap
+
+    def icoarse_to_aexp(self, icoarse):
+        if(self.icoarse_table is None):
+            output_names = glob.glob(join(self.basesnap.snap_path, 'output_'+'[0-9]'*5))
+            iouts = [int(arr[-5:]) for arr in output_names]
+            iouts.sort()
+            self.iout_table = iouts
+            icoarses = []
+            aexps = []
+            for iout in iouts:
+                snap = self[iout]
+                icoarses.append(snap.nstep_coarse)
+                aexps.append(snap.aexp)
+            self.icoarse_table = np.array(icoarses)
+            self.aexp_table = np.array(aexps)
+
+        return np.interp(icoarse, self.icoarse_table, self.aexp_table)
+
 
 class RamsesSnapshot(object):
     """A handy object to store RAMSES AMR/Particle snapshot data.
@@ -206,6 +225,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         table = self.cosmo_table
         aexp = np.interp(epoch, table['u'], table['aexp'])
         return aexp
+
+    def aexp_to_dtdu(self, aexp):
+        return aexp**2 / (self['H0'] * km * Gyr / Mpc)
 
     def set_extra_fields(self, params=None):
         custom_extra_fields(self)
