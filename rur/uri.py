@@ -812,13 +812,13 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             cpulist.append(get_cpulist(box, None, self.levelmax, self.bound_key, self.ndim, n_divide))
         return np.unique(np.concatenate(cpulist))
 
-    def get_pcmap_cpulist(self, ids, path_in_repo='pcmap', filename='part_cpumap_%05d.pkl'):
+    def get_pcmap_cpulist(self, ids, path_in_repo='pcmap', mode='init', filename='%s_cpumap_%05d.pkl'):
         """
         reads particle-cpumap file (if there's any) and returns appropriate cpulist of domains
         that encompass selected id list of paritcles
         """
         if(self.pcmap is None):
-            path = join(self.repo, path_in_repo, filename % self.iout)
+            path = join(self.repo, path_in_repo, filename % (mode, self.iout))
             self.pcmap = utool.load(path)
         return np.unique(self.pcmap[ids]).astype('i8')
 
@@ -989,12 +989,14 @@ def save_part_cpumap(snap, full_box=False, icpu_dtype='u2', path_in_repo='pcmap'
         part = snap.part['star']
     else:
         raise ValueError("Unknown mode: %s" % mode)
-
-    size = np.max(part['id']) + 1
-    pcmap = np.zeros(size, dtype=icpu_dtype)
-    pcmap[part['id']] = part['cpu']
-    path = join(snap.repo, path_in_repo, filename % (mode, snap.iout))
-    utool.dump(pcmap, path)
+    if(part.size > 0):
+        size = np.max(part['id']) + 1
+        pcmap = np.zeros(size, dtype=icpu_dtype)
+        pcmap[part['id']] = part['cpu']
+        path = join(snap.repo, path_in_repo, filename % (mode, snap.iout))
+        utool.dump(pcmap, path)
+    else:
+        print("No particle detected, skipping..")
 
 def cut_spherical(table, center, radius, prefix='', ndim=3, inverse=False):
     distances = rss(center - get_vector(table, prefix, ndim))
