@@ -1305,36 +1305,3 @@ def compute_boundary(cpumap, cpulist):
     bound = np.searchsorted(cpumap, cpulist)
     return np.concatenate([bound, [cpumap.size]])
 
-
-def align_axis(part: RamsesSnapshot.Particle, gal: np.recarray, center_vel=False):
-    coo = get_vector(part)
-    vel = get_vector(part, prefix='v')
-    j = get_vector(gal, prefix='L')
-    coo_gal =  get_vector(gal)
-    vel_gal =  get_vector(gal, prefix='v')
-    coo = utool.rotate_vector(coo - coo_gal, j)
-    if(center_vel):
-        vel = vel - vel_gal * part.snap.unit['km/s']
-    vel = utool.rotate_vector(vel, j)
-
-    table = utool.set_vector(part.table, coo + coo_gal, copy=True)
-    utool.set_vector(table, vel, prefix='v', copy=False)
-    part = RamsesSnapshot.Particle(table, part.snap)
-    return part
-
-def align_axis_cell(cell: RamsesSnapshot.Cell, gal: np.recarray, center_vel=False):
-    # Experimental
-    coo = get_vector(cell)
-    vel = get_vector(cell, prefix='v')
-    j = get_vector(gal, prefix='L')
-    coo_gal =  get_vector(gal)
-    vel_gal =  get_vector(gal, prefix='v')
-    coo = utool.rotate_vector(coo - coo_gal, j)
-    if(center_vel):
-        vel = vel - vel_gal * cell.snap.unit['km/s']
-    vel = utool.rotate_vector(vel, j)
-
-    table = utool.set_vector(cell.table, coo + coo_gal, copy=True)
-    utool.set_vector(table, vel, prefix='v', copy=False)
-    cell = RamsesSnapshot.Cell(table, cell.snap)
-    return cell

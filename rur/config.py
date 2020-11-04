@@ -178,6 +178,7 @@ def custom_units(snap):
 
         # Flux
         'Msol/yr': Msol / yr / m * t,
+        'g/s': t / m,
 
         None  : 1
     }
