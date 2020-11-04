@@ -122,14 +122,14 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
     def __init__(self, repo, iout, mode='none', box=None, path_in_repo='', full_path=False, snap=None, longint=False):
         if(full_path):
-            self.snap_path = repo
+            self.path = repo
         else:
             self.repo = repo
             self.path_in_repo = path_in_repo
             self.snap_path = join(repo, path_in_repo)
 
         if(iout<0):
-            output_names = glob.glob(join(self.snap_path, 'output_[0-9][0-9][0-9][0-9][0-9]'))
+            output_names = glob.glob(join(self.snap_path, 'output_'+'[0-9]'*5))
             iouts = [int(arr[-5:]) for arr in output_names]
             iouts = np.sort(iouts)
             iout = iouts[iout]
