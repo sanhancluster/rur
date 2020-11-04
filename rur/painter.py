@@ -1006,13 +1006,16 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
     elif (center is not None):
         snap.set_box(center, radius * 2)
 
-    if (mode == 'star' or mode == 'dm' or show_smbh == True):
+    if(isinstance(mode, str)):
+        mode = np.repeat(mode, 2)
+
+    if ('star' in mode or 'dm' in mode or show_smbh == True):
         snap.get_part()
         if (gal is not None and align):
             part = uri.align_axis(snap.part, gal)
         else:
             part = snap.part
-    if (mode == 'gas' or mode == 'dust' or mode == 'metal' or mode == 'temp'):
+    if ('gas' in mode or 'dust' in mode or 'metal' in mode or 'temp' in mode):
         snap.get_cell()
         # cell = snap.cell
         if (gal is not None and align):
@@ -1024,29 +1027,30 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
         smbh = part['smbh']
         smbh = smbh[smbh['m', 'Msol']>=smbh_minmass]
 
-    plt.figure(figsize=(12, 6), dpi=200)
+    plt.figure(figsize=(10, 5), dpi=150)
 
     plt.subplot(121)
-    proj = [0, 1]
-    if (mode == 'star'):
+    proj = projs[0]
+    mode_now = mode[0]
+    if (mode_now == 'star'):
         star = part['star']
         if (age_cut is not None):
             star = star[star['age', 'Gyr'] < age_cut]
         draw_partmap(star, proj=proj, shape=1000, qscale=4, vmax=3E5, crho=True, method=part_method,
                              unit='Msol/pc2')
-    if (mode == 'dm'):
+    if (mode_now == 'dm'):
         dm = part['dm']
         draw_partmap(dm, proj=proj, shape=1000, qscale=4, vmax=1E4, crho=True, method=part_method,
                              unit='Msol/pc2')
-    elif (mode == 'gas'):
+    elif (mode_now == 'gas'):
         draw_gasmap(cell, proj=proj, shape=1000, qscale=4, vmax=3E3, mode='crho', cmap=ccm.hesperia,
                             interp_order=1, unit='Msol/pc2')
-    elif (mode == 'temp'):
+    elif (mode_now == 'temp'):
         draw_gasmap(cell, proj=proj, shape=1000, qscale=4, mode='T', cmap=ccm.hesperia, vmax=1E8, unit='K')
-    elif (mode == 'dust'):
+    elif (mode_now == 'dust'):
         draw_gasmap(cell, proj=proj, shape=1000, qscale=2, vmax=3E-2, mode='dust', cmap=ccm.lacerta,
                             interp_order=1)
-    elif (mode == 'metal'):
+    elif (mode_now == 'metal'):
         draw_gasmap(cell, proj=proj, shape=1000, qscale=3, vmax=1E-1, mode='metal', cmap=ccm.lacerta,
                             interp_order=1)
     if(show_smbh):
@@ -1058,26 +1062,27 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
     dr.axlabel('z = %.3f' % snap.z, 'right top', color='white', fontsize=12)
 
     plt.subplot(122)
-    proj = [0, 2]
-    if (mode == 'star'):
+    proj = projs[1]
+    mode_now = mode[1]
+    if (mode_now == 'star'):
         star = part['star']
         if (age_cut is not None):
             star = star[star['age', 'Gyr'] < age_cut]
         draw_partmap(star, proj=proj, shape=1000, qscale=4, vmax=3E5, crho=True, method=part_method,
                              unit='Msol/pc2')
-    if (mode == 'dm'):
+    if (mode_now == 'dm'):
         dm = part['dm']
         draw_partmap(dm, proj=proj, shape=1000, qscale=4, vmax=1E4, crho=True, method=part_method,
                              unit='Msol/pc2')
-    elif (mode == 'gas'):
-        draw_gasmap(cell, proj=proj, shape=1000, qscale=3, vmax=3E3, mode='crho', cmap=ccm.hesperia,
+    elif (mode_now == 'gas'):
+        draw_gasmap(cell, proj=proj, shape=1000, qscale=4, vmax=3E3, mode='crho', cmap=ccm.hesperia,
                             interp_order=1, unit='Msol/pc2')
-    elif (mode == 'temp'):
+    elif (mode_now == 'temp'):
         draw_gasmap(cell, proj=proj, shape=1000, qscale=4, mode='T', cmap=ccm.hesperia, vmax=1E8, unit='K')
-    elif (mode == 'dust'):
+    elif (mode_now == 'dust'):
         draw_gasmap(cell, proj=proj, shape=1000, qscale=2, vmax=3E-2, mode='dust', cmap=ccm.lacerta,
                             interp_order=1)
-    elif (mode == 'metal'):
+    elif (mode_now == 'metal'):
         draw_gasmap(cell, proj=proj, shape=1000, qscale=3, vmax=1E-1, mode='metal', cmap=ccm.lacerta,
                             interp_order=1)
     if(show_smbh):
