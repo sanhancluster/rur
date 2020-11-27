@@ -189,6 +189,7 @@ def custom_extra_fields(snap):
         'pos': lambda table: get_vector(table),  # position vector
         'vel': lambda table: get_vector(table, 'v'),  # velocity vector
         'dx': lambda table: 0.5 ** table['level'], # spatial resolution
+        'FeH': lambda table: 1.024*np.log10(table['metal']) + 1.739
     }
 
     # cell extra keys

@@ -1,4 +1,6 @@
 from rur.uri import *
+import pkg_resources
+from scipy.interpolate import LinearNDInterpolator
 
 # This module contains useful functions related to galaxy analysis.
 
@@ -87,3 +89,44 @@ def align_axis_cell(cell: RamsesSnapshot.Cell, gal: np.recarray, center_vel=Fals
 #    jrot = vrot * dists
 
 #    return jrot/jcire
+
+def read_YEPS_table(alpha=1):
+    yeps_dir = pkg_resources.resource_filename('rur', 'YEPS/')
+    if(alpha == 0):
+        path = join(yeps_dir, 'wHB_ABMAG.mag')
+    elif(alpha == 1):
+        path = join(yeps_dir, 'wHB_ABMAGa0.mag')
+    else:
+        path = join(yeps_dir, 'wHB_ABMAGa4.mag')
+    names = [
+        'age', 'FeH', 'J_Ux', 'J_B', 'J_Bx', 'J_V', 'J_R', 'J_I', 'J_J', 'J_H', 'J_K', 'J_L', 'J_M',
+        'W_C', 'W_M', 'W_T1', 'W_T2',
+        'SDSS_u', 'SDSS_g', 'SDSS_r', 'SDSS_i', 'SDSS_z',
+        'WF2_f336w', 'WF2_f547m', 'WF2_f555w', 'WF2_f606w', 'WF2_f814w', 'WF2f850lp',
+        'ACS_f475w', 'ACS_f555w', 'ACS_f606w', 'ACS_f814w', 'ACSf850lp',
+        'WF3_f336w', 'WF3_f465w', 'WF3_f547m', 'WF3_f555w', 'WF3_f606w', 'WF3_f814w', 'WF3f850lp',
+    ]
+    table = np.genfromtxt(path, skip_header=1, names=names)
+    return table
+
+def measure_magnitude(stars, filter_name, alpha=1, total=True):
+    table = read_YEPS_table(alpha)
+    ages = stars['age', 'Gyr']
+    FeHs = stars['FeH']
+
+    ages[ages<=1.] = 1.
+    FeHs[FeHs<=-2.5] = -2.5
+    FeHs[FeHs>=0.5] = 0.5
+
+    ages[ages<=1.] = 1.
+    FeHs[FeHs<=-2.5] = -2.5
+    FeHs[FeHs>=0.5] = 0.5
+
+    ip = LinearNDInterpolator(np.stack([table['age'], table['FeH']], axis=-1), table[filter_name], fill_value=np.nan)
+    mags = ip(ages, FeHs)
+    mags = mags - 2.5*np.log10(stars['m', 'Msol']/1E7)
+    if(total):
+        mags = mags[~np.isnan(mags)]
+        return -2.5*np.log10(np.sum(10**(0.4*-mags)))
+    else:
+        return mags
