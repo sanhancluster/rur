@@ -189,6 +189,7 @@ def custom_extra_fields(snap):
         'pos': lambda table: get_vector(table),  # position vector
         'vel': lambda table: get_vector(table, 'v'),  # velocity vector
         'dx': lambda table: 0.5 ** table['level'], # spatial resolution
+        'FeH': lambda table: 1.024*np.log10(table['metal']) + 1.739
     }
 
     # cell extra keys
@@ -196,6 +197,7 @@ def custom_extra_fields(snap):
         'T': lambda table: table['P'] / table['rho'], # temperature
         'vol': lambda table: table['dx'] ** 3, # cell volume
         'm': lambda table: table['vol'] * table['rho'], # cell mass
+        'cs' : lambda table: np.sqrt(gamma * table['P'] / table['rho']), # sound speed
         'mach': lambda table: rss(table['vel']) / np.sqrt(gamma * table['P'] / table['rho']), # mach number
         'e': lambda table: table['P'] / (gamma - 1) + 0.5 * table['rho'] * ss(table['vel']) ** 2, # total energy
     }
