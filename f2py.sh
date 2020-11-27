@@ -10,7 +10,7 @@ for f in $FILES
 do
     bn=$(basename "$f" .f90)
     $FORT -x f95-cpp-input -c $f
-    $F2PY -c $f -m $bn --opt='-O3 -x f95-cpp-input'
+    $F2PY -c --f90exec=$FORT $f -m $bn --opt='-O3 -x f95-cpp-input'
 done
 rm *.o *.mod
 
