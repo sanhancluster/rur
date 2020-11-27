@@ -196,6 +196,7 @@ def custom_extra_fields(snap):
         'T': lambda table: table['P'] / table['rho'], # temperature
         'vol': lambda table: table['dx'] ** 3, # cell volume
         'm': lambda table: table['vol'] * table['rho'], # cell mass
+        'cs' : lambda table: np.sqrt(gamma * table['P'] / table['rho']), # sound speed
         'mach': lambda table: rss(table['vel']) / np.sqrt(gamma * table['P'] / table['rho']), # mach number
         'e': lambda table: table['P'] / (gamma - 1) + 0.5 * table['rho'] * ss(table['vel']) ** 2, # total energy
     }

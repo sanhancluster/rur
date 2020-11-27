@@ -178,7 +178,7 @@ def set_weights(mode, cell, unit, depth):
     elif (mode == 'dust'):
         # average dust density along LOS
         weights = cell['rho']
-    elif (mode == 'zoom'):
+    elif (mode == 'refmask'):
         # cumulative refinement paramster along LOS
         weights = np.full(cell.size, 1)
     elif (mode == 'rho'):
