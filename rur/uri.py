@@ -129,14 +129,13 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.iout = iout
 
         if(full_path):
-            self.path = repo
+            self.snap_path = repo
         else:
             self.repo = repo
             self.path_in_repo = path_in_repo
             self.snap_path = join(repo, path_in_repo)
 
-            self.path = join(self.snap_path, output_format.format(snap=self))
-
+        self.path = join(self.snap_path, output_format.format(snap=self))
         self.params = {}
 
         self.mode = mode
@@ -229,7 +228,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
     def aexp_to_dtdu(self, aexp):
         return aexp**2 / (self['H0'] * km * Gyr / Mpc)
 
-    def set_extra_fields(self, params=None):
+    def set_extra_fields(self):
         custom_extra_fields(self)
 
     def set_unit(self):
@@ -1092,7 +1091,7 @@ def box_mask(coo, box, size=None, exclusive=False):
         size = 0
     if(exclusive):
         size *= -1
-
+    box = np.array(box)
     box_mask = np.all((box[:, 0] <= coo+size/2) & (coo-size/2 <= box[:, 1]), axis=-1)
     return box_mask
 
