@@ -189,7 +189,7 @@ def set_weights(mode, cell, unit, depth):
         weights = np.full(cell.size, 1)
         quantity = cell['rho', unit] * depth
     else:
-        raise ValueError('Unknown gasmap mode.')
+        weights = np.full(cell.size, 1)
     if(quantity is None):
         quantity = cell[mode, unit]
 
