@@ -176,9 +176,15 @@ def custom_units(snap):
         # Pressure
         'Ba'  : t**2 * l / m,
 
-        # Flux
+        # Mass Flux
         'Msol/yr': Msol / yr / m * t,
         'g/s': t / m,
+
+        # Energy
+        'erg': t**2 / l**2 / m,
+
+        # Energy Density
+        'erg/cc': t ** 2 * l / m,
 
         None  : 1
     }
@@ -199,7 +205,7 @@ def custom_extra_fields(snap):
         'm': lambda table: table['vol'] * table['rho'], # cell mass
         'cs' : lambda table: np.sqrt(gamma * table['P'] / table['rho']), # sound speed
         'mach': lambda table: rss(table['vel']) / np.sqrt(gamma * table['P'] / table['rho']), # mach number
-        'e': lambda table: table['P'] / (gamma - 1) + 0.5 * table['rho'] * ss(table['vel']) ** 2, # total energy
+        'e': lambda table: table['P'] / (gamma - 1) + 0.5 * table['rho'] * ss(table['vel']), # total energy density
     }
 
     # particle extra keys
