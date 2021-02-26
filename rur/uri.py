@@ -309,7 +309,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 elif (self.mode == 'yzics'):
                     self.part_dtype = part_dtype['yzics_dm_only']
             if(self.longint):
-                if(self.mode == 'iap' or self.mode == 'gem' or self.mode == 'fornax'):
+                if(self.mode == 'iap' or self.mode == 'gem' or self.mode == 'fornax' or self.mode == 'y2'):
                     self.part_dtype = part_dtype['gem_longint']
         else:
             self.params['star'] = True
@@ -573,6 +573,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             dtype = sink_prop_dtype
         if(self.mode == 'fornax'):
             dtype = sink_prop_dtype_drag_fornax
+        if(self.mode == 'y2'):
+            dtype = sink_prop_dtype_drag_y2
         if(len(arr) != len(dtype)):
             readr.close()
             raise ValueError('Number of fields mismatch\n'
@@ -1325,3 +1327,32 @@ def compute_boundary(cpumap, cpulist):
     bound = np.searchsorted(cpumap, cpulist)
     return np.concatenate([bound, [cpumap.size]])
 
+def part_density(part, reso, mode='m'):
+    snap = part.snap
+    if(not isinstance(reso, Iterable)):
+        reso = np.repeat(reso, 3)
+    mhist = np.histogramdd(part['pos'], weights=part['m'], bins=reso, range=snap.box)[0]
+    vol = np.prod((snap.box[:, 1] - snap.box[:, 0]) / reso)
+    if(mode == 'm'):
+        hist = mhist / vol
+    elif(mode == 'sig'):
+        vel = part['vel']
+        sig2 = np.zeros(shape=reso, dtype='f8')
+        for idim in np.arange(0, 2):
+            mom1 = np.histogramdd(part['pos'], weights=part['m']*vel[:, idim], bins=reso, range=snap.box)[0]
+            mom2 = np.histogramdd(part['pos'], weights=part['m']*vel[:, idim]**2, bins=reso, range=snap.box)[0]
+            sig2 += mom2/mhist - (mom1/mhist)**2
+        hist = np.sqrt(sig2)
+    return hist
+
+def read_grafic(fname):
+    header = {}
+
+    grafic_file = FortranFile(fname)
+    for dtype in grafic_header_dtype:
+        name = dtype[0]
+        grafic_file.read_record()
+
+
+    graic
+    fortranfile.read_ints()
