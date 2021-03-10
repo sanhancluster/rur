@@ -212,4 +212,8 @@ def custom_extra_fields(snap):
     snap.part_extra.update(common_extra)
 
 
-
+grafic_header_dtype = np.dtype([('nx', 'i4'), ('ny', 'i4'), ('nz', 'i4'),
+                                ('dx', 'f4'),
+                                ('xoff', 'f4'), ('yoff', 'f4'), ('zoff', 'f4'),
+                                ('aexp_start', 'f4'),
+                                ('Om', 'f4'), ('Ol', 'f4'), ('H0', 'f4')])
