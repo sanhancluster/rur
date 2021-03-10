@@ -219,10 +219,14 @@ contains
       galaxy = galaxy_ini
       dp = dp_ini
 
-      iout_format='(I0.3)'
 
 
       do iout=start,end-1
+         if(iout <= 999) then
+            iout_format='(I0.3)'
+         else
+            iout_format='(I0.4)'
+         end if
          write(snout,TRIM(iout_format)) iout
          halofile = TRIM(repository)//'/tree_bricks'//snout
          inquire(file=halofile,exist=ok_exist)

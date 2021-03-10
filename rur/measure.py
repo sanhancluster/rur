@@ -37,41 +37,41 @@ def align_axis_cell(cell: RamsesSnapshot.Cell, gal: np.recarray, center_vel=Fals
     cell = RamsesSnapshot.Cell(table, cell.snap)
     return cell
 
-def circularity(part, radius_kpc=None):
-    G = 6.674E-8
-    x0 = np.median(part['pos', 'cm'], axis=0)
-    v0 = np.average(part['vel', 'cm/s'], axis=0, weights=part['m'])
-
-    xr = part['pos', 'cm'] - x0
-    vr = part['vel', 'cm/s'] - v0
-    m = part['m', 'g']
-
-    dists = rss(xr)
-    key = np.argsort(dists)
-
-    dists = dists[key]
-    xr = xr[key]
-    vr = vr[key]
-    m = m[key]
-
-    if(radius_kpc is not None):
-        print(dists / kpc)
-        mask = dists < radius_kpc*kpc
-        dists = dists[mask]
-        xr = xr[mask]
-        vr = vr[mask]
-        m = m[mask]
-
-    j = np.cross(xr, vr)
-    jtot = np.sum(j, axis=0)
-    jax = jtot/rss(jtot)
-
-    mcum = np.cumsum(m)
-    mtot = np.sum(m)
-    rmax = np.max(dists)
-
-    drs = np.diff(dists)
-
+#def circularity(part, radius_kpc=None):
+#    G = 6.674E-8
+#    x0 = np.median(part['pos', 'cm'], axis=0)
+#    v0 = np.average(part['vel', 'cm/s'], axis=0, weights=part['m'])
+#
+#    xr = part['pos', 'cm'] - x0
+#    vr = part['vel', 'cm/s'] - v0
+#    m = part['m', 'g']
+#
+#    dists = rss(xr)
+#    key = np.argsort(dists)
+#
+#    dists = dists[key]
+#    xr = xr[key]
+#    vr = vr[key]
+#    m = m[key]
+#
+#    if(radius_kpc is not None):
+#        print(dists / kpc)
+#        mask = dists < radius_kpc*kpc
+#        dists = dists[mask]
+#        xr = xr[mask]
+#        vr = vr[mask]
+#        m = m[mask]
+#
+#    j = np.cross(xr, vr)
+#    jtot = np.sum(j, axis=0)
+#    jax = jtot/rss(jtot)
+#
+#    mcum = np.cumsum(m)
+#    mtot = np.sum(m)
+#    rmax = np.max(dists)
+#
+#    drs = np.diff(dists)
+#
 #    ebin = G * mcum / dists**2 * drs
 #    ebin_cum = G*mtot/rmax + np.cumsum(ebin[::-1])[::-1]
 #
@@ -113,6 +113,10 @@ def measure_magnitude(stars, filter_name, alpha=1, total=True):
     table = read_YEPS_table(alpha)
     ages = stars['age', 'Gyr']
     FeHs = stars['FeH']
+
+    ages[ages<=1.] = 1.
+    FeHs[FeHs<=-2.5] = -2.5
+    FeHs[FeHs>=0.5] = 0.5
 
     ages[ages<=1.] = 1.
     FeHs[FeHs<=-2.5] = -2.5

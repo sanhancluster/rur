@@ -6,6 +6,7 @@ from numpy.core.records import fromarrays as fromarrays
 from scipy.integrate import cumtrapz
 from collections.abc import Iterable
 from scipy.spatial import cKDTree as KDTree
+from numpy.lib.recfunctions import append_fields
 
 from rur.fortranfile import FortranFile
 from rur.hilbert3d import hilbert3d
@@ -121,19 +122,16 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
     """
 
     def __init__(self, repo, iout, mode='none', box=None, path_in_repo='', full_path=False, snap=None, longint=False):
+        self.repo = repo
+        self.path_in_repo = path_in_repo
+        self.snap_path = join(repo, path_in_repo)
+
         if(iout<0):
             output_names = glob.glob(join(self.snap_path, 'output_'+'[0-9]'*5))
             iouts = [int(arr[-5:]) for arr in output_names]
             iouts = np.sort(iouts)
             iout = iouts[iout]
         self.iout = iout
-
-        if(full_path):
-            self.snap_path = repo
-        else:
-            self.repo = repo
-            self.path_in_repo = path_in_repo
-            self.snap_path = join(repo, path_in_repo)
 
         self.path = join(self.snap_path, output_format.format(snap=self))
         self.params = {}
@@ -312,7 +310,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 elif (self.mode == 'yzics'):
                     self.part_dtype = part_dtype['yzics_dm_only']
             if(self.longint):
-                if(self.mode == 'iap' or self.mode == 'gem' or self.mode == 'fornax'):
+                if(self.mode == 'iap' or self.mode == 'gem' or self.mode == 'fornax' or self.mode == 'y2'):
                     self.part_dtype = part_dtype['gem_longint']
         else:
             self.params['star'] = True
@@ -576,6 +574,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             dtype = sink_prop_dtype
         if(self.mode == 'fornax'):
             dtype = sink_prop_dtype_drag_fornax
+        if(self.mode == 'y2'):
+            dtype = sink_prop_dtype_drag_y2
         if(len(arr) != len(dtype)):
             readr.close()
             raise ValueError('Number of fields mismatch\n'
@@ -1409,7 +1409,6 @@ class GraficLevel(object):
         idxarr = np.stack(np.meshgrid(np.arange(ny)+0.5, np.arange(nx)+0.5, np.arange(nz)+0.5), axis=-1)
         self.coo = ((idxarr + off_arr / self.header['dx']) * dx)[:, :, :, [1, 0, 2]]
 
-
     def read_file(self, fname):
         ff = FortranFile(join(self.repo, fname))
         header = ff.read_record(grafic_header_dtype)
@@ -1454,3 +1453,22 @@ class GraficIC(object):
 
     def __getitem__(self, key):
         return self.ic[key]
+
+
+def part_density(part, reso, mode='m'):
+    snap = part.snap
+    if(not isinstance(reso, Iterable)):
+        reso = np.repeat(reso, 3)
+    mhist = np.histogramdd(part['pos'], weights=part['m'], bins=reso, range=snap.box)[0]
+    vol = np.prod((snap.box[:, 1] - snap.box[:, 0]) / reso)
+    if(mode == 'm'):
+        hist = mhist / vol
+    elif(mode == 'sig'):
+        vel = part['vel']
+        sig2 = np.zeros(shape=reso, dtype='f8')
+        for idim in np.arange(0, 2):
+            mom1 = np.histogramdd(part['pos'], weights=part['m']*vel[:, idim], bins=reso, range=snap.box)[0]
+            mom2 = np.histogramdd(part['pos'], weights=part['m']*vel[:, idim]**2, bins=reso, range=snap.box)[0]
+            sig2 += mom2/mhist - (mom1/mhist)**2
+        hist = np.sqrt(sig2)
+    return hist
