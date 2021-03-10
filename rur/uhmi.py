@@ -235,6 +235,7 @@ class PhantomTree:
         part_pool = np.full((lookup, max_part_size), -1, dtype='i4')
         sizes = np.zeros(lookup, dtype='i4')
         halo_ids = []
+        buffer = 0
 
         iterator = tqdm(snap_iouts, unit='snapshot')
         for iout in iterator:
@@ -270,8 +271,6 @@ class PhantomTree:
             part_pool[0, part_ids] = halo_idx
             sizes[0] = halo.size
 
-            buffer = max_iout - iout
-
             desc_ids = np.empty(shape=((lookup-1)*rankup, halo.size), dtype='i4')
             npass = np.empty(shape=((lookup-1)*rankup, halo.size), dtype='i4')
 
@@ -288,6 +287,7 @@ class PhantomTree:
                 else:
                     desc_ids[rank_range] = -1
                     npass[rank_range] = 0
+            buffer += 1
 
             halo_ids = [halo['id']] + halo_ids
             if(len(halo_ids)>lookup-1):
