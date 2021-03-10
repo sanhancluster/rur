@@ -831,7 +831,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             print('=============================================')
             print('Description of the snapshot %05d (%s)' % (self.iout, self.repo))
             print('---------------------------------------------')
-            print('Redshift (z) = %.5f, Age of the Universe = %.4f Gyr' % (self.z, self.params['age']))
+            print('Redshift (z) = %.5f (a = %.5f), Age of the Universe = %.4f Gyr' % (self.z, self.aexp, self.params['age']))
             print('Comoving volume of the box: %.3e (Mpc/h)^3' % (volume))
         if(self.part is not None):
             part = self.part
@@ -1328,3 +1328,129 @@ def compute_boundary(cpumap, cpulist):
     bound = np.searchsorted(cpumap, cpulist)
     return np.concatenate([bound, [cpumap.size]])
 
+class GraficLevel(object):
+    def __init__(self, level_repo, level=None, read_pos=True):
+        self.repo = level_repo
+        self.read_pos = read_pos
+        if(level is None):
+            self.level = int(level_repo[-3:])
+        else:
+            self.level = level
+        self.read_header('ic_deltab')
+        self.set_coo()
+
+    def read_ic(self):
+        vel = []
+        if(self.read_pos):
+            pos = []
+        else:
+            self.pos = None
+        self.rho = self.read_file(join(self.repo, 'ic_deltab'))
+        if(exists(join(self.repo, 'ic_refmap'))):
+            self.ref = self.read_file(join(self.repo, 'ic_refmap'))
+        else:
+            self.ref = None
+        for dim in ['x', 'y', 'z']:
+            vel_dim = self.read_file(join(self.repo, 'ic_velc%s' % dim))
+            vel.append(vel_dim)
+            if(self.read_pos):
+                pos_dim = self.read_file(join(self.repo, 'ic_posc%s' % dim))
+                pos.append(pos_dim)
+
+        self.pvar = []
+        for idx in self.pvar_idxs:
+            self.pvar.append(self.read_file(join(self.repo, 'ic_pvar_%05d' % idx)))
+
+        self.vel = np.stack(vel, axis=-1)
+        if(self.read_pos):
+            self.pos = np.stack(pos, axis=-1)
+
+    def get_table(self):
+        table_dtype = [('coo', 'f4', 3), ('vel', 'f4', 3), ('pos', 'f4', 3), ('rho', 'f4'), ('ref', 'f4')]
+        table_dtype += [('pvar%03d' % idx, 'f4') for idx in self.pvar_idxs]
+        table = np.zeros(self.rho.size, dtype=table_dtype)
+        coo = []
+        vel = []
+        if(self.read_pos):
+            pos = []
+        for idim in [0, 1, 2]:
+            coo.append(self.coo[:, :, :, idim].flatten())
+            vel.append(self.vel[:, :, :, idim].flatten())
+            if(self.read_pos):
+                pos.append(self.pos[:, :, :, idim].flatten())
+        coo = np.stack(coo, axis=-1)
+        table['coo'] = coo
+
+        vel = np.stack(vel, axis=-1)
+        table['vel'] = vel
+
+        if(self.read_pos):
+            pos = np.stack(pos, axis=-1)
+            table['pos'] = pos
+
+        table['rho'] = self.rho.flatten()
+        if(self.ref is not None):
+            table['ref'] = self.ref.flatten()
+        for (idx, pvar_idx) in zip(np.arange(len(self.pvar)), self.pvar_idxs):
+            table['pvar%03d' % pvar_idx] = self.pvar[idx].flatten()
+        return table
+
+    def read_header(self, fname):
+        ff = FortranFile(join(self.repo, fname))
+        self.header = ff.read_record(grafic_header_dtype)
+
+        pvar_fnames = glob.glob(join(self.repo, 'ic_pvar_'+'[0-9]'*5))
+        self.pvar_idxs = [int(pvar_fname[-5:]) for pvar_fname in pvar_fnames]
+
+    def set_coo(self):
+        nx, ny, nz = self.header['nx'], self.header['ny'], self.header['nz']
+        dx = 0.5**self.level
+        off_arr = np.array([self.header['%soff' % dim ][0] for dim in ['y', 'x', 'z']])
+        idxarr = np.stack(np.meshgrid(np.arange(ny)+0.5, np.arange(nx)+0.5, np.arange(nz)+0.5), axis=-1)
+        self.coo = ((idxarr + off_arr / self.header['dx']) * dx)[:, :, :, [1, 0, 2]]
+
+
+    def read_file(self, fname):
+        ff = FortranFile(join(self.repo, fname))
+        header = ff.read_record(grafic_header_dtype)
+
+        nx = int(header['nx'])
+        ny = int(header['ny'])
+        nz = int(header['nz'])
+        data = np.zeros((nx,ny,nz), dtype='f4')
+
+        for i in range(nz):
+            data[:, :, i] = ff.read_record('f4').reshape(nx, ny, order='F')
+        ff.close()
+        return data
+
+    def __getitem__(self, key):
+        return self.header[key]
+
+class GraficIC(object):
+    def __init__(self, repo=None, level_repos=None, levels=None, read_pos=True):
+        self.repo = repo
+        self.ic = []
+        if(level_repos is None and repo is not None):
+            level_repos = glob.glob(join(self.repo, 'level_'+'[0-9]'*3))
+        if(levels is None):
+            levels = [int(level_repo[-3:]) for level_repo in level_repos]
+        self.levels = levels
+        for level, level_repo in zip(self.levels, level_repos):
+            ic = GraficLevel(level_repo, level, read_pos=read_pos)
+            self.ic.append(ic)
+
+    def read_ic(self):
+        for ic in self.ic:
+            ic.read_ic()
+
+    def get_table(self):
+        tables = []
+        for ic, level in zip(self.ic, self.levels):
+            table = ic.get_table()
+            table = append_fields(table, 'level', np.full(table.size, level), usemask=False)
+            tables.append(table)
+        return np.concatenate(tables)
+
+    def __getitem__(self, key):
+        return self.ic[key]
