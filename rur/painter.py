@@ -996,6 +996,8 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
         ncols = len(mode)
     elif(proj.ndim==2):
         ncols = proj.shape[0]
+    else:
+        ncols = 1
 
     vmax_dict = {
         'star':  3E5,
@@ -1007,8 +1009,8 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
     }
 
     qscale_dict = {
-        'star':  4,
-        'gas':   4,
+        'star':  5,
+        'gas':   3,
         'dm':    4,
         'metal': 3,
         'dust':  2,

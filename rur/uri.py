@@ -309,7 +309,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 elif (self.mode == 'yzics'):
                     self.part_dtype = part_dtype['yzics_dm_only']
             if(self.longint):
-                if(self.mode == 'iap' or self.mode == 'gem' or self.mode == 'fornax' or self.mode == 'y2' or self.mode == 'y3'):
+                if(self.mode == 'iap' or self.mode == 'gem' or self.mode == 'fornax' or self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4'):
                     self.part_dtype = part_dtype['gem_longint']
         else:
             self.params['star'] = True
@@ -573,7 +573,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             dtype = sink_prop_dtype
         if(self.mode == 'fornax'):
             dtype = sink_prop_dtype_drag_fornax
-        if(self.mode == 'y2' or self.mode == 'y3'):
+        if(self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4'):
             dtype = sink_prop_dtype_drag_y2
         if(len(arr) != len(dtype)):
             readr.close()
