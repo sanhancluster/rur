@@ -267,7 +267,7 @@ contains
         integer :: npart, nstar_int, nsink
         integer(kind=8) :: npart_tot, nstar, npart_c
 
-        integer :: part_n, nreal, nint, nbyte, nlong
+        integer :: part_n, nreal, nint, nbyte, nlong, nchem
         integer :: pint
         logical :: ok
 
@@ -334,6 +334,16 @@ contains
             nreal = 2*ndim + 12
             nint = 4
             nbyte = 2
+        elseif(mode == 'y3') then ! New RAMSES version that includes family, tag
+            nreal = 2*ndim + 13
+            nint = 4
+            nbyte = 2
+            nchem = 8
+        elseif(mode == 'y4') then ! New RAMSES version that includes family, tag
+            nreal = 2*ndim + 14
+            nint = 4
+            nbyte = 2
+            nchem = 9
         end if
 
         if(longint) then
@@ -392,7 +402,8 @@ contains
                 ! Add CPU information
                 integer_table(npart_c:npart_c+npart-1, pint) = icpu
 
-            elseif(mode == 'iap' .or. mode == 'gem' .or. mode == 'none' .or. mode == 'fornax' .or. mode == 'y2') then
+            elseif(mode == 'iap' .or. mode == 'gem' .or. mode == 'none' .or. mode == 'fornax' &
+                & .or. mode == 'y2' .or. mode == 'y3' .or. mode == 'y4') then
                 ! family, tag
                 read(part_n) byte_table(npart_c:npart_c+npart-1, 1)
                 read(part_n) byte_table(npart_c:npart_c+npart-1, 2)
@@ -401,18 +412,22 @@ contains
                 if(nstar > 0 .or. nsink > 0) then
                     read(part_n) real_table(npart_c:npart_c+npart-1, 2*ndim+2)
                     read(part_n) real_table(npart_c:npart_c+npart-1, 2*ndim+3)
-                    if(mode == 'y2') then
+                    if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4') then
                         ! Initial mass
                         read(part_n) real_table(npart_c:npart_c+npart-1, 2*ndim+4)
                         ! Chemical elements
-                        do j=1,8
+                        do j=1,nchem
                             read(part_n) real_table(npart_c:npart_c+npart-1, 2*ndim+4+j)
                         end do
+                    end if
+                    if(mode == 'y3' .or. mode == 'y4') then
+                        ! Stellar densities
+                        read(part_n) real_table(npart_c:npart_c+npart-1, 2*ndim+nchem+5)
                     end if
                 else
                     real_table(npart_c:npart_c+npart-1, 2*ndim+2:2*ndim+3) = 0d0
                 end if
-                if(mode == 'y2') then
+                if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4') then
                     read(part_n) integer_table(npart_c:npart_c+npart-1, pint+1)
                 end if
 
@@ -454,7 +469,7 @@ contains
             nint = 1
         end if
         if(mode == 'fornax') nreal = nreal + 1
-        if(mode == 'y2') nreal = nreal + 4
+        if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4') nreal = nreal + 4
         allocate(real_table(1:nsink, 1:nreal))
         allocate(integer_table(1:nsink, 1:nint))
 
@@ -467,7 +482,7 @@ contains
             read(sink_n) real_table(:, ireal)
             ireal = ireal + 1
         end do
-        if(mode == 'fornax' .or. mode == 'y2') then
+        if(mode == 'fornax' .or. mode == 'y2' .or. mode == 'y3' .or. mode == 'y4') then
             read(sink_n) real_table(:, ireal)
             ireal = ireal + 1
         end if
@@ -485,7 +500,7 @@ contains
                 ireal = ireal + 1
             end do
         end if
-        if(mode == 'y2') then
+        if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4') then
             do i=1,3
                 read(sink_n) real_table(:, ireal)
                 ireal = ireal + 1

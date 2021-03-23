@@ -982,17 +982,22 @@ def get_tickvalues(range, nticks=4):
         ticks = ticks.astype(int)
     return ticks
 
-def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_unit='kpc', mode='star', show_smbh=True,
-           savefile=None, part_method='hist', align=True, age_cut=None, center=None, projs=None, smbh_minmass=1E4,
+def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_unit='kpc', mode=['star', 'gas'], show_smbh=True,
+           savefile=None, part_method='hist', align=True, age_cut=None, center=None, proj=[0, 1], smbh_minmass=1E4,
            smbh_labels=True, figsize=(10, 5), dpi=150, vmaxs=None, qscales=None):
     # Simple galaxy viewer integrated with GalaxyMaker data.
-    if projs is None:
-        projs = [[0, 1], [0, 2]]
 
     cell = None
     part = None
     smbh = None
-    ncols = len(projs)
+
+    proj = np.array(proj)
+    if(isinstance(mode, Iterable)):
+        ncols = len(mode)
+    elif(proj.ndim==2):
+        ncols = proj.shape[0]
+    else:
+        ncols = 1
 
     vmax_dict = {
         'star':  3E5,
@@ -1004,8 +1009,8 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
     }
 
     qscale_dict = {
-        'star':  4,
-        'gas':   4,
+        'star':  5,
+        'gas':   3,
         'dm':    4,
         'metal': 3,
         'dust':  2,
@@ -1035,11 +1040,13 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
         snap.set_box(center, radius * 2)
 
     if(isinstance(mode, str)):
-        mode = np.repeat(mode, 2)
+        mode = np.repeat(mode, ncols)
+    if(proj.ndim == 1):
+        proj = np.repeat(proj, ncols)
     if(isinstance(show_smbh, bool)):
-        show_smbh = np.repeat(show_smbh, 2)
+        show_smbh = np.repeat(show_smbh, ncols)
     if(isinstance(smbh_labels, bool)):
-        smbh_labels = np.repeat(smbh_labels, 2)
+        smbh_labels = np.repeat(smbh_labels, ncols)
 
     if ('star' in mode or 'dm' in mode or True in show_smbh):
         snap.get_part()
@@ -1062,7 +1069,7 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
 
     for icol in np.arange(ncols):
         plt.sca(axes[icol])
-        proj = projs[icol]
+        proj_now = proj[icol]
         mode_now = mode[icol]
 
         if(vmaxs is not None):
@@ -1079,47 +1086,43 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
             star = part['star']
             if (age_cut is not None):
                 star = star[star['age', 'Gyr'] < age_cut]
-            draw_partmap(star, proj=proj, shape=1000, qscale=qscale, vmax=vmax, crho=True, method=part_method,
+            draw_partmap(star, proj=proj_now, shape=1000, qscale=qscale, vmax=vmax, crho=True, method=part_method,
                                  unit='Msol/pc2')
-        if (mode_now == 'dm'):
+            mode_label = 'Stars'
+        elif (mode_now == 'dm'):
             dm = part['dm']
-            draw_partmap(dm, proj=proj, shape=1000, qscale=qscale, vmax=vmax, crho=True, method=part_method,
+            draw_partmap(dm, proj=proj_now, shape=1000, qscale=qscale, vmax=vmax, crho=True, method=part_method,
                                  unit='Msol/pc2')
-        elif (mode_now == 'gas'):
-            draw_gasmap(cell, proj=proj, shape=1000, qscale=qscale, vmax=vmax, mode='crho', cmap=ccm.hesperia,
+            mode_label = 'DM'
+        elif (mode_now == 'gas' or mode_now == 'rho'):
+            draw_gasmap(cell, proj=proj_now, shape=1000, qscale=qscale, vmax=vmax, mode='crho', cmap=ccm.hesperia,
                                 interp_order=1, unit='Msol/pc2')
-        elif (mode_now == 'temp'):
-            draw_gasmap(cell, proj=proj, shape=1000, qscale=qscale, vmax=vmax, mode='T', cmap=ccm.hesperia, unit='K')
+            mode_label = 'Gas - Density'
+        elif (mode_now == 'temp' or mode_now == 'T'):
+            draw_gasmap(cell, proj=proj_now, shape=1000, qscale=qscale, vmax=vmax, mode='T', cmap=ccm.hesperia, unit='K')
+            mode_label = 'Gas - Temperature'
         elif (mode_now == 'dust'):
-            draw_gasmap(cell, proj=proj, shape=1000, qscale=qscale, vmax=vmax, mode='dust', cmap=ccm.lacerta,
+            draw_gasmap(cell, proj=proj_now, shape=1000, qscale=qscale, vmax=vmax, mode='dust', cmap=ccm.lacerta,
                                 interp_order=1)
+            mode_label = 'Gas - Dust'
         elif (mode_now == 'metal'):
-            draw_gasmap(cell, proj=proj, shape=1000, qscale=qscale, vmax=vmax, mode='metal', cmap=ccm.lacerta,
+            draw_gasmap(cell, proj=proj_now, shape=1000, qscale=qscale, vmax=vmax, mode='metal', cmap=ccm.lacerta,
                                 interp_order=1)
+            mode_label = 'Gas - Metallicity'
+        else:
+            raise ValueError('Unknown mode: ', mode_now)
         if(show_smbh[icol]):
             if(smbh_labels[icol]):
                 labels = ['%.2f' % m for m in np.log10(smbh['m', 'Msol'])]
             else:
                 labels = None
-            draw_smbhs(smbh, proj=proj, labels=labels, color='gray',
+            draw_smbhs(smbh, proj=proj_now, labels=labels, color='gray',
                        fontsize=7, mass_range=[4, 8])
-        set_ticks_unit(snap, proj, 'kpc')
+        set_ticks_unit(snap, proj_now, 'kpc')
         if(icol == 0):
             if (gal is not None):
                 dr.axlabel('M$_*$ = %.3e M$_{sol}$' % gal['m'], 'left top', color='white', fontsize=10)
             dr.axlabel('z = %.3f' % snap.z, 'right top', color='white', fontsize=10)
-        if(mode_now == 'dm'):
-            mode_label = 'DM'
-        elif(mode_now == 'star'):
-            mode_label = 'Stars'
-        elif(mode_now == 'gas'):
-            mode_label = 'Gas - Density'
-        elif(mode_now == 'temp'):
-            mode_label = 'Gas - Temperature'
-        elif(mode_now == 'temp'):
-            mode_label = 'Gas - Metallicity'
-        else:
-            mode_label = None
         if(mode_label is not None):
             dr.axlabel(mode_label, 'left bottom', color='white', fontsize=10)
 
