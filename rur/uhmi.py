@@ -19,6 +19,7 @@ else:
 import warnings
 from multiprocessing import Process, Queue
 from time import sleep
+import h5py
 
 chars = string.ascii_lowercase
 
@@ -381,8 +382,13 @@ class PhantomTree:
         lookup, rankup = ptree['desc'].shape[-2:]
         lookup += 1
 
+        iouts = np.unique(ptree['timestep'])
+        np.sort(iouts)
+
         for ilook in np.arange(1, lookup):
-            ptree['desc'][:, ilook-1] = pairing(expand_shape(ptree['timestep'] + ilook, 0, 2), ptree['desc'][:, ilook-1], ignore=-1)
+            idxs = np.searchsorted(iouts, ptree['timestep']) + ilook
+            iout_desc = np.select([idxs<iouts.size, True], [iouts[np.minimum(idxs, iouts.size-1)], -1])
+            ptree['desc'][:, ilook-1] = pairing(expand_shape(iout_desc, 0, 2), ptree['desc'][:, ilook-1], ignore=-1)
         ptree['id'] = halo_uid
         return ptree
 
@@ -538,9 +544,14 @@ class PhantomTree:
         return load(path, msg=msg)
 
     @staticmethod
-    def save(ptree, repo, path_in_repo=path_in_repo, ptree_file=ptree_file, msg=True):
+    def save(ptree, repo, path_in_repo=path_in_repo, ptree_file=ptree_file, msg=True, format='pkl'):
         path = os.path.join(repo, path_in_repo, ptree_file)
-        return dump(ptree, path, msg=msg)
+        if(format == 'pkl'):
+            return dump(ptree, path, msg=msg)
+        elif(format == 'ascii'):
+            with h5py.File(path, 'w') as f:
+                f.create_dataset('table', data=ptree)
+            return
 
     @staticmethod
     def count_snapshots(repo, path_in_repo):
