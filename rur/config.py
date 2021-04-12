@@ -3,6 +3,7 @@ import numpy as np
 
 # avaiable modes: none, ng, nh
 output_format = 'output_{snap.iout:05d}'
+output_regex = r'output_(?P<iout>\d{5})'
 
 info_format = {
     'ng': 'info.txt',

@@ -11,7 +11,6 @@ from numpy.lib.recfunctions import append_fields, drop_fields, merge_arrays
 import gc
 import string
 from glob import glob
-from parse import parse
 if(type_of_script() == 'jupyter'):
     from tqdm import tqdm_notebook as tqdm
 else:
@@ -552,14 +551,6 @@ class PhantomTree:
             with h5py.File(path, 'w') as f:
                 f.create_dataset('table', data=ptree)
             return
-
-    @staticmethod
-    def count_snapshots(repo, path_in_repo):
-        ptree_filenames = [os.path.basename(filename) for filename in glob(os.path.join(repo, path_in_repo, 'ptree_*.pkl'))]
-        parsed = [parse('ptree_{iout:d}.pkl', ptree_filename) for ptree_filename in ptree_filenames]
-        iouts = [par['iout'] for par in parsed]
-        iouts = np.sort(iouts)
-        return iouts
 
     @staticmethod
     def measure_star_prop(snap, path_in_repo=path_in_repo, halomaker_repo='galaxy', ptree_file=ptree_file,

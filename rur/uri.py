@@ -1,6 +1,5 @@
 
 from os.path import join, exists, getsize
-from parse import parse
 from numpy.core.records import fromarrays as fromarrays
 
 from scipy.integrate import cumtrapz
@@ -17,6 +16,7 @@ from rur import utool
 import numpy as np
 import warnings
 import glob
+import re
 
 class TimeSeries(object):
     def __init__(self, snap):
@@ -45,7 +45,7 @@ class TimeSeries(object):
 
     def icoarse_to_aexp(self, icoarse):
         if(self.icoarse_table is None):
-            output_names = glob.glob(join(self.basesnap.snap_path, 'output_'+'[0-9]'*5))
+            output_names = glob.glob(join(self.basesnap.snap_path, output_regex))
             iouts = [int(arr[-5:]) for arr in output_names]
             iouts.sort()
             self.iout_table = iouts
@@ -121,13 +121,13 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
     """
 
-    def __init__(self, repo, iout, mode='none', box=None, path_in_repo='', full_path=False, snap=None, longint=False):
+    def __init__(self, repo, iout, mode='none', box=None, path_in_repo='', snap=None, longint=False):
         self.repo = repo
         self.path_in_repo = path_in_repo
         self.snap_path = join(repo, path_in_repo)
 
         if(iout<0):
-            output_names = glob.glob(join(self.snap_path, 'output_'+'[0-9]'*5))
+            output_names = glob.glob(join(self.snap_path, output_regex))
             iouts = [int(arr[-5:]) for arr in output_names]
             iouts = np.sort(iouts)
             iout = iouts[iout]
@@ -257,21 +257,29 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
         opened = open(self.info_path, mode='r')
 
-        format1 = '{name:<12}={data:>11d}\n'
-        format2 = '{name:<12}={data:>2.15e}\n'
-        format3 = '{:14}{ordering:10}'
-        format4 = '{domain:>8d} {ind_min:>2.15e} {ind_max:>2.15e}'
+        int_regex = re.compile(r'(?P<name>\w+)\s*=\s*(?P<data>\d+)')
+        float_regex = re.compile(r'(?P<name>\w+)\s*=\s*(?P<data>.+)')
+        str_regex = re.compile(r'(?P<name>\w+)\s*=\s*(?P<data>.+)')
+        domain_regex = re.compile(r'(?P<domain>.+)\s+(?P<ind_min>.+)\s+(?P<ind_max>.+)')
 
         params = {}
+        # read integer data
         for _ in range(6):
-            parsed = parse(format1, opened.readline())
-            params[parsed['name'].strip()] = parsed['data']
+            line = opened.readline().strip()
+            matched = int_regex.search(line)
+            if(not matched):
+                raise ValueError("A line in the info file not recognized: %s" % line)
+            params[matched.group('name')] = int(matched.group('data'))
 
         opened.readline()
 
+        # read float data
         for _ in range(11):
-            parsed = parse(format2, opened.readline())
-            params[parsed['name'].strip()] = parsed['data']
+            line = opened.readline().strip()
+            matched = float_regex.search(line)
+            if(not matched):
+                raise ValueError("A line in the info file not recognized: %s" % line)
+            params[matched.group('name')] = float(matched.group('data'))
 
         # some cosmological calculations
         params['unit_m'] = params['unit_d'] * params['unit_l']**3
@@ -286,13 +294,14 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
         if(self.classic_format):
             opened.readline()
-            params['ordering'] = parse(format3, opened.readline())['ordering'].strip()
-            opened.readlines(2)
+            line = opened.readline().strip()
+            params['ordering'] = str_regex.search(line).group('data')
+            opened.readline()
             if(params['ordering'] == 'hilbert'):
                 bound_key = []
                 for icpu in np.arange(1, params['ncpu']):
-                    parsed = parse(format4, opened.readline())
-                    bound_key.append(parsed['ind_max'])
+                    line = opened.readline()
+                    bound_key.append(float(domain_regex.search(line).group('ind_max')))
                 self.bound_key = np.array(bound_key)
 
             if(exists(self.get_path('part', 1))):
