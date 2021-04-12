@@ -14,6 +14,15 @@ def sig_rad(part: RamsesSnapshot.Particle, gal):
     vrad = np.sum(vrel * rrel, axis=-1) / utool.rss(rrel)
     return np.std(vrad)
 
+def measure_amon(part: RamsesSnapshot.Particle, gal):
+    vcen = get_vector(gal, 'v')
+    rcen = get_vector(gal)
+
+    vrel = part['vel', 'km/s'] - vcen
+    rrel = part['pos', 'km/s'] - rcen
+
+    return np.cross(rrel, vrel) * part['m']
+
 def align_axis(part: RamsesSnapshot.Particle, gal: np.recarray, center_vel=False):
     coo = get_vector(part)
     vel = get_vector(part, prefix='v')
@@ -120,7 +129,7 @@ def measure_shell(snap, z_target=[0.25, 0.5, 1.0], nbins=20, gal_minmass=1E8, ma
         'formats': ['f8'] * len(profile_names),
     }
     dtype = {
-        'names': ['profile'] + extras
+        'names': ['profile'] + extras,
         'formats': [(profile_dtype, nbins)] + ['f8'] * len(extras)
     }
     dtype = np.dtype(dtype)
@@ -128,6 +137,7 @@ def measure_shell(snap, z_target=[0.25, 0.5, 1.0], nbins=20, gal_minmass=1E8, ma
     iouts_target = []
     for aexp in aexp_target:
         idx = np.argmin(aexps - aexp)
+        print(idx, np.min(aexps-aexp))
         iout = iouts[idx]
         iouts_target.append(iout)
 
@@ -136,11 +146,14 @@ def measure_shell(snap, z_target=[0.25, 0.5, 1.0], nbins=20, gal_minmass=1E8, ma
 
     output_table = merge_arrays([ptree_target, output_table], usemask=False, flatten=True)
     np.sort(output_table, order='id')
+    print('nouts = ', len(iouts_target))
+    print('aexps = ', aexp_target)
 
     for iout in iouts_target:
         mask = ptree_target['timestep'] == iout
         gals = ptree_target[mask]
         gals = gals[gals['m']>gal_minmass]
+        print('iout = %d, ngals = %d' % (iout, gals.size))
         if(gals.size == 0):
             continue
         gals.sort(order='hmid')
@@ -220,4 +233,10 @@ def measure_shell(snap, z_target=[0.25, 0.5, 1.0], nbins=20, gal_minmass=1E8, ma
                 profile['age'][ibin] = np.average(slice_star['age', 'Gyr'], weights=slice_star['m'])
                 profile['tform'][ibin] = np.median(snap.age-slice_star['age', 'Gyr'])
                 profile['metal'][ibin] = np.average(slice_star['metal'], weights=slice_star['m'])
+                amon = measure_amon(slice_star, gal)
+                profile['Lx'][ibin] = np.sum(amon[:, 0])
+                profile['Ly'][ibin] = np.sum(amon[:, 1])
+                profile['Lz'][ibin] = np.sum(amon[:, 2])
+
+    return output_table
 
