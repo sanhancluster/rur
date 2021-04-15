@@ -6,7 +6,7 @@ from numpy.lib.recfunctions import append_fields
 # This module contains useful functions related to galaxy photometry.
 
 def set_boundaries(data, range):
-    data[data<=range[0]] = range[0]
+    data[(data<=range[0]) | np.isnan(data)] = range[0]
     data[data>range[1]] = range[1]
     return data
 
@@ -53,7 +53,7 @@ def measure_magnitude(stars, filter_name, alpha=1, total=True, model='cb07'):
     if(model == 'cb07'):
         table = read_cb07_table()
         log_ages = np.log10(stars['age', 'yr'])
-        log_metals = stars['metal']
+        log_metals = np.log10(stars['metal'])
 
         grid1 = table['log_age']
         grid2 = np.log10(table['metal'])
@@ -93,3 +93,18 @@ def measure_magnitude(stars, filter_name, alpha=1, total=True, model='cb07'):
         return -2.5*np.log10(np.sum(10**(0.4*-mags)))
     else:
         return mags
+
+def ellipse_fit(coo, weights):
+    # compute ellipse fitting, returns a, b, position angle
+    x, y = coo[..., 0], coo[..., 1]
+
+    xb, yb = np.average(x, weights=weights), np.average(y, weights=weights)
+    x2b = np.average(x**2, weights=weights)
+    y2b = np.average(y**2, weights=weights)
+    xyb = np.average(x*y, weights=weights) - xb*yb
+
+    a = np.sqrt((x2b + y2b)/2 + np.sqrt(((x2b-y2b)/2)**2 + xyb**2))
+    b = np.sqrt((x2b + y2b)/2 - np.sqrt(((x2b-y2b)/2)**2 + xyb**2))
+    phi = np.arctan2(2*xyb, x2b-y2b)/2
+
+    return a, b, phi

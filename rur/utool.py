@@ -7,6 +7,7 @@ from scipy.stats import norm
 from scipy.spatial import Delaunay
 from scipy.interpolate import LinearNDInterpolator
 from numpy.linalg import det
+from rur.sci.geometry import rss, ss, rms
 
 import warnings
 
@@ -138,19 +139,6 @@ def shift(table, vec, ndim=3, periodic=True):
         table[dim_keys[idim]] += vec[idim]
         if(periodic):
             table[dim_keys[idim]] %= 1
-
-def rss(coo, axis=-1):
-    # root sum square
-    return np.sqrt(ss(coo, axis))
-
-def ss(coo, axis=-1):
-    # square sum
-    return np.sum(coo ** 2, axis=axis)
-
-def rms(coo, axis=-1):
-    # root mean square
-    return np.sqrt(np.mean(coo**2, axis=axis))
-
 
 def pairing(a, b, ignore=None):
     # cantor pairing function
