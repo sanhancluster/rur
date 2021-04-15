@@ -211,6 +211,13 @@ class HaloMaker:
 
         part.table = append_fields(part.table, names='halo_id', data=part_halo_ids, usemask=False)
 
+    @staticmethod
+    def get_member_star(snap, table, part_ids, hmid):
+        halo = table[table['id'] == hmid][0]
+        snap.set_box_halo(halo, radius_name='r', use_halo_radius=True)
+        snap.get_part()
+        star = snap.part['star']
+
 
 class PhantomTree:
     path_in_repo = 'ptree'
