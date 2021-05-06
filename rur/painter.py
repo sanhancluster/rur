@@ -11,6 +11,7 @@ from collections.abc import Iterable
 from itertools import repeat
 from PIL import Image
 from warnings import warn
+from rur.sci import geometry as geo
 import os
 
 verbose = 1
@@ -456,13 +457,17 @@ def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, m
 
     return draw_image(image, extent=extent, **kwargs)
 
-def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, method='hist', x=None, smooth=16, crho=False, **kwargs):
+def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, method='hist', x=None, smooth=16, crho=False, angles=None, **kwargs):
     if(box is None and isinstance(part, uri.RamsesSnapshot.Particle)):
         box = part.snap.box
 
     # Compute the column density map along the LOS
     if(x is None):
         x = get_vector(part)
+    if(angles is not None):
+        focus = np.mean(box, axis=-1)
+        x = x - focus
+        x = geo.euler_angle(x, angles) + focus
 
     box_proj = get_box_proj(box, proj)
 
@@ -506,11 +511,11 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
     return image.T
 
 
-def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=None, unit=None, method='hist', smooth=16, crho=False, **kwargs):
+def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=None, unit=None, method='hist', smooth=16, crho=False, angles=None, **kwargs):
     if(box is None and isinstance(part, uri.RamsesSnapshot.Particle)):
         box = part.snap.box
 
-    image = partmap(part, box, proj, shape, weights, unit, method, smooth=smooth, crho=crho)
+    image = partmap(part, box, proj, shape, weights, unit, method, smooth=smooth, crho=crho, angles=None)
 
     box_proj = get_box_proj(box, proj)
 
