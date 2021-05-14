@@ -463,6 +463,8 @@ def medplot(x, y, binarr, minnum=1, xyinv=False, face=True, err=False, **kwargs)
     else:
         plt.plot(xbet, med, **kwargs)
 
+    return xbet, med
+
 
 
 def avgplot(x, y, binarr, minnum=1, stdmean=False, face=True, **kwargs):
