@@ -204,7 +204,7 @@ def make_broadcastable(arr_tuple, axes, ndim=None):
         out += (expand_shape(arr, axis, ndim), )
     return out
 
-def find_cross(x1, y1, x2, y2):
+def find_intersect(x1, y1, x2, y2):
     """
     :param x1, y1: ndarray of coordinates 1, larger at initial
     :param x2, y2: ndarray of coordnitaes 2, smaller at initial
@@ -375,6 +375,17 @@ def rotate_vector(r, J):
     R = (rotate*r.T).T
 
     return np.array(R)
+
+def weighted_std(values, weights, axis=0):
+    """
+    Return the weighted average and standard deviation.
+
+    values, weights -- Numpy ndarrays with the same shape.
+    """
+    average = np.average(values, weights=weights, axis=axis)
+    # Fast and numerically precise:
+    variance = np.average((values-average)**2, weights=weights, axis=axis)
+    return np.sqrt(variance)
 
 class dtfe(object):
 
