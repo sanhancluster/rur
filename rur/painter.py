@@ -4,6 +4,7 @@ from skimage.transform import rescale, resize, warp, EuclideanTransform, AffineT
 from rur import drawer as dr, utool
 from rur.drawer import ccm
 from rur import uri, uhmi, measure
+from rur.sci import photometry as phot
 from rur.utool import Timer, get_vector, bin_centers, rss, los
 from matplotlib.patches import RegularPolygon, Rectangle
 from scipy.ndimage.filters import gaussian_filter1d
@@ -996,13 +997,10 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
     part = None
     smbh = None
 
-    proj = np.array(proj)
+    proj = np.atleast_2d(proj)
     if(isinstance(mode, Iterable)):
         ncols = len(mode)
-    elif(proj.ndim==2):
-        ncols = proj.shape[0]
-    else:
-        ncols = 1
+    ncols = proj.shape[0]
 
     vmax_dict = {
         'star':  3E5,
@@ -1046,8 +1044,6 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
 
     if(isinstance(mode, str)):
         mode = np.repeat(mode, ncols)
-    if(proj.ndim == 1):
-        proj = np.repeat(proj, ncols)
     if(isinstance(show_smbh, bool)):
         show_smbh = np.repeat(show_smbh, ncols)
     if(isinstance(smbh_labels, bool)):
@@ -1093,6 +1089,15 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
                 star = star[star['age', 'Gyr'] < age_cut]
             draw_partmap(star, proj=proj_now, shape=1000, qscale=qscale, vmax=vmax, crho=True, method=part_method,
                                  unit='Msol/pc2')
+            mode_label = 'Stars'
+        elif (mode_now == 'SDSS_r'):
+            star = part['star']
+            if (age_cut is not None):
+                star = star[star['age', 'Gyr'] < age_cut]
+                mags = phot.measure_magnitude(star, filter_name='SDSS_r', total=False)
+                lums = 10**(-mags/2.5)
+            draw_partmap(star, proj=proj_now, shape=1000, qscale=qscale, vmax=vmax, crho=True, method=part_method,
+                         weights=lums)
             mode_label = 'Stars'
         elif (mode_now == 'dm'):
             dm = part['dm']
