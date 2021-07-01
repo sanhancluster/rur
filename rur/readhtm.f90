@@ -219,14 +219,28 @@ contains
       galaxy = galaxy_ini
       dp = dp_ini
 
-
+      iout_format='(I0.3)'
+      do iout=start,end-1
+         write(snout,TRIM(iout_format)) iout
+         halofile = TRIM(repository)//'/tree_bricks'//snout
+         inquire(file=halofile,exist=ok_exist)
+         if(ok_exist)then
+            nout = nout + 1
+         end if
+      end do
+      if(nout == 0) then
+         iout_format='(I0.5)'
+         do iout=start,end-1
+            write(snout,TRIM(iout_format)) iout
+            halofile = TRIM(repository)//'/tree_bricks'//snout
+            inquire(file=halofile,exist=ok_exist)
+            if(ok_exist)then
+               nout = nout + 1
+            end if
+         end do
+      end if
 
       do iout=start,end-1
-         if(iout <= 999) then
-            iout_format='(I0.3)'
-         else
-            iout_format='(I0.4)'
-         end if
          write(snout,TRIM(iout_format)) iout
          halofile = TRIM(repository)//'/tree_bricks'//snout
          inquire(file=halofile,exist=ok_exist)
@@ -235,7 +249,6 @@ contains
             call skip_read(55, 5)
             read(55) nb_of_halos, nb_of_subhalos
             nhalo = nhalo + nb_of_subhalos + nb_of_halos
-            nout = nout + 1
             close(55)
          end if
       end do

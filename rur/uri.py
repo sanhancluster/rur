@@ -227,7 +227,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         return aexp**2 / (self['H0'] * km * Gyr / Mpc)
 
     def set_extra_fields(self):
-        custom_extra_fields(self)
+        self.cell_extra, self.part_extra = custom_extra_fields(self)
 
     def set_unit(self):
         custom_units(self)

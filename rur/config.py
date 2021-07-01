@@ -237,7 +237,7 @@ def custom_extra_fields(snap):
     }
 
     # cell extra keys
-    snap.cell_extra = {
+    cell_extra = {
         'T': lambda table: table['P'] / table['rho'], # temperature
         'vol': lambda table: table['dx'] ** 3, # cell volume
         'm': lambda table: table['vol'] * table['rho'], # cell mass
@@ -247,15 +247,15 @@ def custom_extra_fields(snap):
     }
 
     # particle extra keys
-    snap.part_extra = {
+    part_extra = {
         'age': lambda table: snap.epoch_to_age(table['epoch']), # stellar age
         'aform': lambda table: snap.epoch_to_aexp(table['epoch']),  # formation epoch
         'zform': lambda table: 1./table['aform']-1,  # formation epoch
     }
 
-    snap.cell_extra.update(common_extra)
-    snap.part_extra.update(common_extra)
-
+    cell_extra.update(common_extra)
+    part_extra.update(common_extra)
+    return cell_extra, part_extra
 
 grafic_header_dtype = np.dtype([('nx', 'i4'), ('ny', 'i4'), ('nz', 'i4'),
                                 ('dx', 'f4'),

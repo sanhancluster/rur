@@ -229,14 +229,14 @@ class PhantomTree:
     @staticmethod
     def from_halomaker(snap, lookup, rankup=1, path_in_repo=path_in_repo, max_part_size=None,
                        ptree_file_format=ptree_file_format, nparts_min=None,
-                       part_array_buffer=1.1, skip_jumps=False, start_on_middle=False, **kwargs):
+                       part_array_buffer=1.1, skip_jumps=False, start_on_middle=False, path_in_repo_halomaker='galaxy', **kwargs):
         print('Building PhantomTree from HaloMaker data in %s' % snap.repo)
         max_iout = snap.iout
         uri.timer.verbose = 0
         snap_iouts = np.arange(snap.iout, 0, -1)
 
         if (max_part_size is None):
-            halo, part_ids = HaloMaker.load(snap, load_parts=True, **kwargs)
+            halo, part_ids = HaloMaker.load(snap, path_in_repo=path_in_repo_halomaker, load_parts=True, **kwargs)
             max_part_size = int(np.max(part_ids) * part_array_buffer)
 
         part_pool = np.full((lookup, max_part_size), -1, dtype='i4')
@@ -255,7 +255,7 @@ class PhantomTree:
                     iterator.close()
                     break
 
-            halo, part_ids = HaloMaker.load(snap, load_parts=True, **kwargs)
+            halo, part_ids = HaloMaker.load(snap, load_parts=True, path_in_repo=path_in_repo_halomaker, **kwargs)
             if(halo.size == 0):
                 if(skip_jumps):
                     continue
