@@ -45,7 +45,7 @@ class TimeSeries(object):
 
     def icoarse_to_aexp(self, icoarse):
         if(self.icoarse_table is None):
-            output_names = glob.glob(join(self.basesnap.snap_path, output_regex))
+            output_names = glob.glob(join(self.basesnap.snap_path, output_glob))
             iouts = [int(arr[-5:]) for arr in output_names]
             iouts.sort()
             self.iout_table = iouts
@@ -127,7 +127,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.snap_path = join(repo, path_in_repo)
 
         if(iout<0):
-            output_names = glob.glob(join(self.snap_path, output_regex))
+            output_names = glob.glob(join(self.snap_path, output_glob))
             iouts = [int(arr[-5:]) for arr in output_names]
             iouts = np.sort(iouts)
             iout = iouts[iout]

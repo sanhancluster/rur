@@ -4,6 +4,7 @@ import numpy as np
 # avaiable modes: none, ng, nh
 output_format = 'output_{snap.iout:05d}'
 output_regex = r'output_(?P<iout>\d{5})'
+output_glob = 'output_[0-9][0-9][0-9][0-9][0-9]'
 
 info_format = {
     'ng': 'info.txt',
