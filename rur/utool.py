@@ -17,6 +17,8 @@ import os
 import time
 from numpy.linalg import inv
 
+from multiprocessing import Process, cpu_count, Manager
+from time import sleep
 
 def type_of_script():
     """
@@ -31,6 +33,11 @@ def type_of_script():
             return 'ipython'
     except:
         return 'terminal'
+
+if(type_of_script() == 'jupyter'):
+    from tqdm.notebook import tqdm
+else:
+    from tqdm import tqdm
 
 
 class Table:
@@ -850,5 +857,53 @@ class Timer:
         result = func(**kwargs)
         self.record()
         return result
+
+def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, ncols_tqdm=None):
+    # a simple multiprocessing tool.
+    # # similar to joblib, but much simpler and independent to picklability.
+    if(n_proc is None):
+        n_proc = cpu_count()
+
+    def worker(param_slice, idx_slice, output_arr):
+        output_slice = []
+        for param in param_slice:
+            output_slice.append(func(param))
+        output_arr[idx_slice] = output_slice
+
+    #def empty_queue():
+    #    while not q.empty(): # both of them need to be checked, idk why
+    #        output_slice, idx_slice = q.get_nowait()
+    #        output_arr[idx_slice] = output_slice
+
+    def finalize():
+        for proc in procs:
+            proc.join()
+
+    procs = []
+    output_size = len(param_arr)
+    manager = Manager()
+    output_arr = manager.list([None, ] * output_size)
+    head_idxs = np.arange(0, output_size, n_chunk)
+    idx_proc = 0
+    iterator = tqdm(head_idxs, ncols=ncols_tqdm)
+    for head_idx in iterator:
+        idx_slice = slice(head_idx, np.minimum(head_idx+n_chunk, output_size))
+        wait = 0.
+        while (len(procs) >= n_proc):
+            sleep(wait)
+            #empty_queue()
+            for idx in np.arange(len(procs))[::-1]:
+                if not procs[idx].is_alive():
+                    procs.pop(idx)
+            wait = wait_period_sec
+
+        p = Process(target=worker, args=(param_arr[idx_slice], idx_slice, output_arr))
+        procs.append(p)
+        p.start()
+        idx_proc += 1
+        #empty_queue()
+    finalize()
+    return list(output_arr)
+
 
 
