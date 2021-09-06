@@ -52,7 +52,13 @@ def measure_magnitude(stars, filter_name, alpha=1, total=True, model='cb07'):
     # measure magnitude from star data and population synthesis model.
     if(model == 'cb07'):
         table = read_cb07_table()
-        log_ages = np.log10(stars['age', 'yr'])
+
+        log_ages = np.zeros(stars.size, 'f8')
+        ages = stars['age', 'yr']
+        valid = ages>0.
+        log_ages[valid] = np.log10(ages)[valid]
+        log_ages[~valid] = -np.inf
+
         log_metals = np.log10(stars['metal'])
 
         grid1 = table['log_age']
