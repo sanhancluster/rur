@@ -12,7 +12,7 @@ import gc
 import string
 from glob import glob
 if(type_of_script() == 'jupyter'):
-    from tqdm import tqdm_notebook as tqdm
+    from tqdm.notebook import tqdm
 else:
     from tqdm import tqdm
 import warnings
@@ -552,12 +552,7 @@ class PhantomTree:
     @staticmethod
     def save(ptree, repo, path_in_repo=path_in_repo, ptree_file=ptree_file, msg=True, format='pkl'):
         path = os.path.join(repo, path_in_repo, ptree_file)
-        if(format == 'pkl'):
-            return dump(ptree, path, msg=msg)
-        elif(format == 'ascii'):
-            with h5py.File(path, 'w') as f:
-                f.create_dataset('table', data=ptree)
-            return
+        dump(ptree, path, msg=msg, format=format)
 
     @staticmethod
     def measure_star_prop(snap, path_in_repo=path_in_repo, halomaker_repo='galaxy', ptree_file=ptree_file,

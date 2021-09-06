@@ -7,6 +7,7 @@ from scipy.stats import norm
 from scipy.spatial import Delaunay
 from scipy.interpolate import LinearNDInterpolator
 from numpy.linalg import det
+import h5py
 from rur.sci.geometry import rss, ss, rms
 
 import warnings
@@ -60,26 +61,43 @@ def uopen(path, mode):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     return open(path, mode)
 
-def dump(data, path, msg=True, protocol=4):
+def dump(data, path, msg=True, format='pkl'):
     t = Timer()
     path = os.path.expanduser(path)
 
-    with uopen(path, 'wb') as opened:
-        pkl.dump(data, opened, protocol=protocol)
+    if(format == 'pkl'):
+        with uopen(path, 'wb') as opened:
+            pkl.dump(data, opened, protocol=4)
+
+    elif(format == 'hdf5'):
+        with h5py.File(path, 'w') as f:
+            f.create_dataset('table', data=data)
+
+    else:
+        raise ValueError("Unknown format: %s" % format)
+
     if(msg):
         filesize = os.path.getsize(path)
         print("File %s dump complete (%s): %.3f seconds elapsed" % (path, format_bytes(filesize), t.time()))
 
-def load(path, msg=True):
+def load(path, msg=True, format=None):
     t = Timer()
+    if(format is None):
+        ext = os.path.splitext(os.path.basename(path))[1]
+        format = ext[1:]
     path = os.path.expanduser(path)
-    with open(path, 'rb') as opened:
-        data = pkl.load(opened, encoding='latin1')
+    if(format == 'pkl'):
+        with open(path, 'rb') as opened:
+            data = pkl.load(opened, encoding='latin1')
+    elif(format == 'hdf5'):
+        f = h5py.File(path, 'r')
+        data = f['table']
+    else:
+        raise ValueError("Unknown format: %s" % format)
     if(msg):
         filesize = os.path.getsize(path)
         print("File %s load complete (%s): %.3f seconds elapsed" % (path, format_bytes(filesize), t.time()))
     return data
-
 
 # Some RAMSES-related stuff
 dim_keys = ['x', 'y', 'z']
