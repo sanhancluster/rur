@@ -858,7 +858,7 @@ class Timer:
         self.record()
         return result
 
-def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, ncols_tqdm=None):
+def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, ncols_tqdm=None, direct_input=True):
     # a simple multiprocessing tool.
     # # similar to joblib, but much simpler and independent to picklability.
     if(n_proc is None):
@@ -867,7 +867,11 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
     def worker(param_slice, idx_slice, output_arr):
         output_slice = []
         for param in param_slice:
-            output_slice.append(func(param))
+            if(direct_input):
+                output_slice.append(func(*param))
+            else:
+                output_slice.append(func(param))
+
         output_arr[idx_slice] = output_slice
 
     #def empty_queue():
