@@ -5,6 +5,7 @@ import numpy as np
 output_format = 'output_{snap.iout:05d}'
 output_regex = r'output_(?P<iout>\d{5})'
 output_glob = 'output_[0-9][0-9][0-9][0-9][0-9]'
+sinkprop_glob = 'sink_[0-9][0-9][0-9][0-9][0-9].dat'
 
 info_format = {
     'ng': 'info.txt',

@@ -588,7 +588,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         if(len(arr) != len(dtype)):
             readr.close()
             raise ValueError('Number of fields mismatch\n'
-                             'Recieved: %d, Allocated: %d' % (len(arr), len(dtype)))
+                             'Received: %d, Allocated: %d' % (len(arr), len(dtype)))
         sink = fromarrays(arr, dtype=dtype)
         timer.record()
         aexp = np.copy(readr.aexp)
@@ -598,6 +598,74 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             return sink, aexp
         else:
             return sink
+
+    def read_sinkprops(self, path_in_repo='SINKPROPS', drag_part=True, use_cache=False, cache_name='sinkprops.pkl',
+                       reset_cache=False, cache_format='pkl'):
+        sinkprop_regex = re.compile(r'sink_\s*(?P<icoarse>\d+).dat')
+        path = join(self.repo, path_in_repo)
+        sinkprop_names = glob.glob(join(path, sinkprop_glob))
+        if(timer.verbose>=1):
+            print('Found %d sinkprop files' % len(sinkprop_names))
+
+        icoarses = []
+        for name in sinkprop_names:
+            matched = sinkprop_regex.search(name)
+            icoarses.append(int(matched.group('icoarse')))
+
+        if(use_cache and not reset_cache):
+            cache_file =join(path, cache_name)
+            if(exists(cache_file)):
+                cache = utool.load(cache_file, format=cache_format)
+                if(np.all(np.isin(icoarses, np.unique(cache['icoarse'])))):
+                    print('Found cached file: %s' % cache_file)
+                    return cache
+
+        int_table = []
+        real_table = []
+        nsinks = []
+        aexps = []
+
+        for icoarse in icoarses:
+            readr.read_sinkprop(path, icoarse, drag_part, self.mode)
+            nsink = readr.integer_table.shape[0]
+            nsinks.append(nsink)
+
+            int_table.append(np.copy(readr.integer_table))
+            real_table.append(np.copy(readr.real_table))
+            aexps.append(np.copy(readr.aexp))
+
+        int_table = np.concatenate(int_table)
+        real_table = np.concatenate(real_table)
+
+        aexp_table = np.repeat(aexps, nsinks)
+        icoarse_table = np.repeat(icoarses, nsinks)
+
+        arr = [*int_table.T, *real_table.T]
+
+        if(drag_part):
+            dtype = sink_prop_dtype_drag
+        else:
+            dtype = sink_prop_dtype
+        if(self.mode == 'fornax'):
+            dtype = sink_prop_dtype_drag_fornax
+        if(self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4'):
+            dtype = sink_prop_dtype_drag_y2
+        if(len(arr) != len(dtype)):
+            readr.close()
+            raise ValueError('Number of fields mismatch\n'
+                             'Received: %d, Allocated: %d' % (len(arr), len(dtype)))
+
+        sink = fromarrays(arr, dtype=dtype)
+        sink = append_fields(sink, ['aexp', 'icoarse'], [aexp_table, icoarse_table], usemask=False)
+
+        timer.record()
+        readr.close()
+
+        if(reset_cache or use_cache):
+            cache_file =join(path, cache_name)
+            utool.dump(sink, cache_file, format=cache_format)
+
+        return sink
 
 
     def clear(self, part=True, cell=True):
@@ -1206,16 +1274,39 @@ def sync_tracer(tracer, cell, copy=False, **kwargs):
     if(copy):
         return tracer
 
-def match_tracer(tracer, cell, n_jobs=-1, min_dist_pc=1):
+def match_part_to_cell(part, cell, n_search=16):
+    tree = KDTree(cell['pos'])
+    dists, idx_cell = tree.query(part['pos'], k=n_search, n_jobs=-1, p=np.inf)
+
+    star_pos = utool.expand_shape(part['pos'], [0, 2], 3)
+    dists_cand = np.max(np.abs(cell[idx_cell]['pos'] - star_pos), axis=-1) / cell[idx_cell]['dx']
+
+    min_idxs = np.argmin(dists_cand, axis=-1)
+    min_dists = np.min(dists_cand, axis=-1)
+    if(np.any(min_dists>0.5)):
+        print(min_dists)
+        raise RuntimeWarning("%d particles are not matched corretly. Try increasing n_search. If it doesn't work, it could mean your cell data is incomplete." % np.sum(min_dists>0.5))
+
+    idx_cell = idx_cell[(np.arange(part.size), min_idxs)]
+
+    return idx_cell
+
+def match_tracer(tracer, cell, n_jobs=-1, min_dist_pc=1, use_cell_size=False):
     timer.start("Matching %d tracers and %d cells..." % (tracer.size, cell.size), 1)
     tree = KDTree(tracer['pos'])
-    dists, idx_tracer = tree.query(cell['pos'], n_jobs=n_jobs)
-    mask = dists < min_dist_pc*cell.snap.unit['pc']
+    dists, idx_tracer = tree.query(cell['pos'], p=1, n_jobs=n_jobs)
+
+    if(use_cell_size):
+        mask = dists < min_dist_pc*cell.snap.unit['pc']
+    else:
+        mask = dists < cell['dx']
+
     idx_cell = np.arange(cell.size)
     idx_cell = idx_cell[mask]
     idx_tracer = idx_tracer[mask]
+
     print("%d / %d tracers are matched to %d / %d cells"
-          % (np.sum(mask), tracer.size, np.unique(idx_cell).size, cell.size))
+          % (np.unique(idx_tracer).size, tracer.size, np.unique(idx_cell).size, cell.size))
     timer.record()
     return idx_tracer, idx_cell
 
