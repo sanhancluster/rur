@@ -426,44 +426,76 @@ def linear_regression(x, y, err=None, xarr=[-1000, 1000], invert=False, **kwargs
         plt.plot(xarr, chisq(xarr, *cof), **kwargs)
 
 
-def medplot(x, y, binarr, minnum=1, xyinv=False, face=True, err=False, **kwargs):
+def medplot(x, y, binarr, minnum=1, xyinv=False, line='med', face='qua', errbar=None, **kwargs):
     if(xyinv):
         x, y = np.array(y), np.array(x)
     else:
         x, y = np.array(x), np.array(y)
-    med, usig, lsig = [], [], []
-    xbet = []
+    table = []
     for bot, top in zip(binarr[:-1], binarr[1:]):
         mask = (bot <= x) & (x < top)
         if(np.sum(mask)>=minnum):
+            xbet = (bot+top)/2
             yseg = y[mask]
-            med.append(np.percentile(yseg, 50))
-            usig.append(np.percentile(yseg, 75))
-            lsig.append(np.percentile(yseg, 25))
-            xbet.append((bot+top)/2)
+            med = np.median(yseg)
+            mean = np.mean(yseg)
 
-    med, usig, lsig, xbet = np.array(med), np.array(usig), np.array(lsig), np.array(xbet)
+            std = np.std(yseg)
+            stdm = std / np.sqrt(np.sum(mask))
 
-    if(face):
+            uqua = np.percentile(yseg, 75)
+            lqua = np.percentile(yseg, 25)
+
+            table.append([xbet, med, mean, uqua, lqua, std, stdm])
+
+    table = np.array(table).T
+
+    if(line == 'med'):
+        c = table[1]
+    elif(line == 'mean'):
+        c = table[2]
+    else:
+        raise ValueError("Unknown line mode: ", line)
+    xc = table[0]
+
+    if face is not None:
+        if(face == 'qua'):
+            le, ue = table[3], table[4]
+        elif(face == 'std'):
+            le, ue = c - table[5], c + table[5]
+        elif(face == 'stdm'):
+            le, ue = c - table[6], c + table[6]
+        else:
+            raise ValueError("Unknown face mode:", face)
+
         kwargs_cen = remove_keys(kwargs, ['alpha', 'lw', 'label', 'zorder'])
         if(xyinv):
-            plt.fill_betweenx(xbet, lsig, usig, alpha=0.2, lw=0, zorder=-10, **kwargs_cen)
+            plt.fill_betweenx(xc, le, ue, alpha=0.2, lw=0, zorder=-10, **kwargs_cen)
         else:
-            plt.fill_between(xbet, lsig, usig, alpha=0.2, lw=0, zorder=-10, **kwargs_cen)
+            plt.fill_between(xc, le, ue, alpha=0.2, lw=0, zorder=-10, **kwargs_cen)
 
-    if(err):
-        #kwargs_cen = remove_keys(kwargs, [])
-        if(xyinv):
-            plt.errorbar(med, xbet, yerr=None, xerr=[med-lsig, usig-med], **kwargs)
+    if errbar is not None:
+        if(errbar == 'qua'):
+            le, ue = c - table[3], table[4] - c
+        elif(errbar == 'std'):
+            le, ue = table[5], table[5]
+        elif(errbar == 'stdm'):
+            le, ue = table[6], table[6]
         else:
-            plt.errorbar(xbet, med, yerr=[med-lsig, usig-med], **kwargs)
+            raise ValueError("Unknown errorbar mode:", errbar)
+
+        kwargs_cen = remove_keys(kwargs, ['alpha', 'lw', 'label', 'zorder'])
+        if(xyinv):
+            plt.errorbar(c, xc, yerr=None, xerr=[le, ue], **kwargs_cen)
+        else:
+            plt.errorbar(xc, c, yerr=[le, ue], **kwargs_cen)
 
     if(xyinv):
-        plt.plot(med, xbet, **kwargs)
+        plt.plot(c, xc, **kwargs)
     else:
-        plt.plot(xbet, med, **kwargs)
+        plt.plot(xc, c, **kwargs)
 
-    return xbet, med
+    return xc, c
 
 
 
