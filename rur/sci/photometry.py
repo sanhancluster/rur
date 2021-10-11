@@ -2,8 +2,11 @@ from rur.uri import *
 import pkg_resources
 from scipy.interpolate import LinearNDInterpolator
 from numpy.lib.recfunctions import append_fields
+from numpy.lib.recfunctions import merge_arrays
+from collections import defaultdict
 
 # This module contains useful functions related to galaxy photometry.
+cb07_table = None
 
 def set_boundaries(data, range):
     data[(data<=range[0]) | np.isnan(data)] = range[0]
@@ -30,27 +33,89 @@ def read_YEPS_table(alpha=1):
     return table
 
 def read_cb07_table():
+    global cb07_table
+    if(cb07_table is not None):
+        return cb07_table
+
+    tags = ['1ABmag', '1color']
+    mtags = [22, 32, 42, 52, 62, 72, 82]
+    zarr = [0.0001, 0.0004, 0.004, 0.008, 0.02, 0.05, 0.1]
     cb07_dir = pkg_resources.resource_filename('rur', 'cb07/')
 
-    zarr = [0.0001, 0.0004, 0.004, 0.008, 0.02, 0.05, 0.1]
+    tables = []
 
-    names = ['log_age', 'SDSS_u', 'SDSS_g', 'SDSS_r', 'SDSS_i', 'SDSS_z',
-             'CFHT_u', 'CFHT_g', 'CFHT_r', 'CFHT_i', 'CFHT_y', 'CFHT_z', 'CFHT_Ks',
-             'GALEX_FUV', 'GALEX_NUV', 'GALEX_F(FUV)', 'GALEX_F(NUV)', 'GALEX_F(1500A)']
-    mtags = [22, 32, 42, 52, 62, 72, 82]
-    table = []
+    for tag in tags:
+        table = []
+        for mtag, z in zip(mtags, zarr):
+            path = join(cb07_dir, 'cb2007_lr_BaSeL_m%02d_chab_ssp.%s' % (mtag, tag))
+            with open(path, mode='r') as f:
+                lines = f.readlines()
 
-    for z, mtag in zip(zarr, mtags):
-        path = join(cb07_dir, 'cb2007_lr_BaSeL_m%02d_chab_ssp.1ABmag' % mtag)
-        subtable = np.genfromtxt(path, names=names)
-        subtable = append_fields(subtable, names='metal', data=np.full(subtable.size, z), usemask=False)
-        table.append(subtable)
-    table = np.concatenate(table)
-    return table
+            i = 0
+            while lines[i+1][0] == '#':
+                i += 1
+            names = lines[i][1:].split()
 
-def measure_magnitude(stars, filter_name, alpha=1, total=True, model='cb07'):
+            subtable = np.genfromtxt(path, names=names)
+            subtable = append_fields(subtable, names='metal', data=np.full(subtable.size, z), usemask=False)
+            table.append(subtable)
+        table = np.concatenate(table)
+        tables.append(table)
+
+    names_all = []
+    tables_out = []
+    for table in tables:
+        names = table.dtype.names
+        names_out = []
+        for name in names:
+            if(name not in names_all):
+                names_out.append(name)
+        names_all += names_out
+        tables_out.append(table[names_out])
+    tables = merge_arrays(tables_out, flatten=True)
+    cb07_table = tables
+
+    return tables
+
+#    names = {}
+#    names['1ABmag'] = [
+#        'log_age', 'Mbol', 'Umag', 'Bmag', 'Vmag', 'Kmag',
+#        '14-V', 'CFHT_g', 'CFHT_r', 'CFHT_i', 'CFHT_y', 'CFHT_z', 'CFHT_Ks',
+#        'GALEX_FUV', 'GALEX_NUV', 'GALEX_F(FUV)', 'GALEX_F(NUV)', 'GALEX_F(1500A)']
+#
+#    names['1color'] = [
+#    ]
+#
+#    zarr = [0.0001, 0.0004, 0.004, 0.008, 0.02, 0.05, 0.1]
+#
+#    table = []
+#
+#    for z, mtag in zip(zarr, mtags):
+#        path = join(cb07_dir, 'cb2007_lr_BaSeL_m%02d_chab_ssp.1ABmag' % mtag)
+#        subtable = np.genfromtxt(path, names=names)
+#        subtable = append_fields(subtable, names='metal', data=np.full(subtable.size, z), usemask=False)
+#        table.append(subtable)
+#    table = np.concatenate(table)
+#    return table
+
+def measure_magnitude(stars, filter_name, alpha=1, total=False, model='cb07'):
+    filter_aliases = alias_dict()
+    filter_aliases.update({
+        'SDSS_u': 'u',
+        'SDSS_g': 'g',
+        'SDSS_r': 'r',
+        'SDSS_i': 'i',
+        'SDSS_z': 'z',
+        'CFHT_u': 'u_1',
+        'CFHT_g': 'g_1',
+        'CFHT_r': 'r_1',
+        'CFHT_i': 'i_1',
+        'CFHT_y': 'y',
+        'CFHT_z': 'z_1',
+    })
     # measure magnitude from star data and population synthesis model.
     if(model == 'cb07'):
+
         table = read_cb07_table()
 
         log_ages = np.zeros(stars.size, 'f8')
@@ -61,7 +126,7 @@ def measure_magnitude(stars, filter_name, alpha=1, total=True, model='cb07'):
 
         log_metals = np.log10(stars['metal'])
 
-        grid1 = table['log_age']
+        grid1 = table['logageyr']
         grid2 = np.log10(table['metal'])
 
         log_ages = set_boundaries(log_ages, [np.min(grid1), np.max(grid1)])
@@ -91,7 +156,7 @@ def measure_magnitude(stars, filter_name, alpha=1, total=True, model='cb07'):
     else:
         raise ValueError("Unknown model '%s'" % model)
 
-    ip = LinearNDInterpolator(np.stack([grid1, grid2], axis=-1), table[filter_name], fill_value=np.nan)
+    ip = LinearNDInterpolator(np.stack([grid1, grid2], axis=-1), table[filter_aliases[filter_name]], fill_value=np.nan)
     mags = ip(arr1, arr2)
     mags = mags - 2.5*np.log10(stars['m', 'Msol']/m_unit)
     if(total):

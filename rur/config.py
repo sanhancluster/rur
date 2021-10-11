@@ -1,6 +1,10 @@
 from rur.utool import get_vector, rotate_vector, rss, ss, Timer, get_box, expand_shape, Table
 import numpy as np
 
+class alias_dict(dict):
+    def __missing__(self, key):
+        return key
+
 # avaiable modes: none, ng, nh
 output_format = 'output_{snap.iout:05d}'
 output_regex = r'output_(?P<iout>\d{5})'
