@@ -3,7 +3,7 @@ from pylab import *
 from scipy.optimize import curve_fit
 from scipy.ndimage.filters import gaussian_filter
 from rur.utool import *
-from scipy.spatial import Delaunay
+from scipy.spatial import Delaunay, cKDTree as KDTree
 from scipy.interpolate import LinearNDInterpolator
 from scipy.stats import norm
 from scipy.signal import convolve2d
@@ -339,6 +339,9 @@ def kde_scatter(x, y, bw_method='silverman', cmap=plt.cm.jet, xlog=False, ylog=F
 
     return plt.scatter(*coo, color=cmap(density/maxd), **kwargs)
 
+def voronoi_img(centers, lims, reso=500):
+    f = lambda x: find_closest(centers, x)
+    return fun_img(f, lims, reso, axis=-1)
 
 def dtfe_img(x, y, lims, reso=100, weights=None, smooth=0):
     if (np.isscalar(reso)):
@@ -426,7 +429,7 @@ def linear_regression(x, y, err=None, xarr=[-1000, 1000], invert=False, **kwargs
         plt.plot(xarr, chisq(xarr, *cof), **kwargs)
 
 
-def medplot(x, y, binarr, minnum=1, xyinv=False, line='med', face='qua', errbar=None, **kwargs):
+def medplot(x, y, binarr, minnum=1, xyinv=False, line='med', face='qua', errbar=None, color=None, **kwargs):
     if(xyinv):
         x, y = np.array(y), np.array(x)
     else:
@@ -449,14 +452,21 @@ def medplot(x, y, binarr, minnum=1, xyinv=False, line='med', face='qua', errbar=
             table.append([xbet, med, mean, uqua, lqua, std, stdm])
 
     table = np.array(table).T
+    if line is not None:
+        if(line == 'med'):
+            c = table[1]
+        elif(line == 'mean'):
+            c = table[2]
+        else:
+            raise ValueError("Unknown line mode: ", line)
+        xc = table[0]
 
-    if(line == 'med'):
-        c = table[1]
-    elif(line == 'mean'):
-        c = table[2]
-    else:
-        raise ValueError("Unknown line mode: ", line)
-    xc = table[0]
+        if(xyinv):
+            p = plt.plot(c, xc, color=color, **kwargs)
+        else:
+            p = plt.plot(xc, c, color=color, **kwargs)
+        if(color is None):
+            color = p[0].get_color()
 
     if face is not None:
         if(face == 'qua'):
@@ -468,11 +478,13 @@ def medplot(x, y, binarr, minnum=1, xyinv=False, line='med', face='qua', errbar=
         else:
             raise ValueError("Unknown face mode:", face)
 
-        kwargs_cen = remove_keys(kwargs, ['alpha', 'lw', 'label', 'zorder'])
+        kwargs_cen = remove_keys(kwargs, ['alpha', 'lw', 'marker', 'label', 'zorder'])
         if(xyinv):
-            plt.fill_betweenx(xc, le, ue, alpha=0.2, lw=0, zorder=-10, **kwargs_cen)
+            p = plt.fill_betweenx(xc, le, ue, alpha=0.2, lw=0, zorder=-10, color=color, **kwargs_cen)
         else:
-            plt.fill_between(xc, le, ue, alpha=0.2, lw=0, zorder=-10, **kwargs_cen)
+            p = plt.fill_between(xc, le, ue, alpha=0.2, lw=0, zorder=-10, color=color, **kwargs_cen)
+
+        color = p[0].get_color()
 
     if errbar is not None:
         if(errbar == 'qua'):
@@ -486,14 +498,11 @@ def medplot(x, y, binarr, minnum=1, xyinv=False, line='med', face='qua', errbar=
 
         kwargs_cen = remove_keys(kwargs, ['alpha', 'lw', 'label', 'zorder'])
         if(xyinv):
-            plt.errorbar(c, xc, yerr=None, xerr=[le, ue], **kwargs_cen)
+            p = plt.errorbar(c, xc, yerr=None, xerr=[le, ue], color=color, **kwargs_cen)
         else:
-            plt.errorbar(xc, c, yerr=[le, ue], **kwargs_cen)
-
-    if(xyinv):
-        plt.plot(c, xc, **kwargs)
-    else:
-        plt.plot(xc, c, **kwargs)
+            p = plt.errorbar(xc, c, yerr=[le, ue], color=color, **kwargs_cen)
+        if(color is None):
+            color = p[0].get_color()
 
     return xc, c
 

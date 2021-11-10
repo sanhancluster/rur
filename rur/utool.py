@@ -4,7 +4,7 @@ from scipy.spatial.distance import cdist
 import numpy as np
 from scipy.linalg import expm
 from scipy.stats import norm
-from scipy.spatial import Delaunay
+from scipy.spatial import Delaunay, cKDTree as KDTree
 from scipy.interpolate import LinearNDInterpolator
 from numpy.linalg import det
 import h5py
@@ -287,13 +287,338 @@ def cartesian(*arrays):
     return arr.reshape(-1, la)
 
 
-def discrete_hist2d(shape, hid_arr, use_long=False):
+def discrete_hist2d(shape, idx, use_long=False):
     if (use_long):
-        hid_arr = hid_arr.astype('i8')
-    idxs = hid_arr[0] * shape[1] + hid_arr[1]
+        idx = idx.astype('i8')
+    idxs = idx[0] * shape[1] + idx[1]
     hist = np.bincount(idxs, minlength=shape[0] * shape[1])
     hist = np.reshape(hist, shape)
     return hist
+
+class discrete_stat(object):
+    def __init__(self, y, idx, size=None, weights=1.):
+        if(y.shape[0] != idx.size):
+            raise ValueError("Size mismatch: %d != %d" % (y.size, idx.size))
+
+        self.y = y
+        self.idx = idx
+        self.shape = (size,)+y.shape[1:]
+
+        if(size is None):
+            self.size = np.max(idx)+1
+        else:
+            self.size = size
+
+        self.weights = expand_shape(weights, 0, len(y.shape))
+        weights_sums = np.zeros(size, dtype='f8')
+        np.add.at(weights_sums, idx, weights)
+        self.weights_sums = expand_shape(weights_sums, 0, len(y.shape))
+        self.clear()
+
+    def clear(self):
+        self.sum = None
+        self.mean = None
+        self.var = None
+        self.skew = None
+        self.kurt = None
+
+    def evaluate(self, mode='mean', *args):
+        if(mode == 'num'):
+            return self.eval_num()
+        elif(mode == 'mean'):
+            return self.eval_mean()
+        elif(mode == 'sum'):
+            return self.eval_sum()
+        elif(mode == 'std'):
+            return self.eval_std()
+        elif(mode == 'var'):
+            return self.eval_var()
+        elif(mode == 'skew'):
+            return self.eval_skew()
+        elif(mode == 'kurt'):
+            return self.eval_kurt()
+        elif(mode == 'moment' or mode == 'mom'):
+            return self.eval_moment(*args)
+        elif(mode == 'quantile'):
+            return self.eval_quantile(*args)
+        else:
+            raise ValueError("Unknown mode: ", mode)
+
+    def eval_num(self):
+        idx = self.idx
+        shape = self.shape
+
+        nums = np.zeros(shape, dtype='f8')
+        to_add = 1.
+        np.add.at(nums, idx, to_add)
+        return nums
+
+    def eval_sum(self):
+        if(self.sum is None):
+            idx = self.idx
+            y = self.y
+            weights = self.weights
+            shape = self.shape
+
+            sums = np.zeros(shape, dtype='f8')
+            to_add = weights*y
+            np.add.at(sums, idx, to_add)
+            self.sum = sums
+        return self.sum
+
+    def eval_mean(self):
+        if(self.mean is None):
+            sums = self.eval_sum()
+            self.mean = sums/self.weights_sums
+        return self.mean
+
+    def eval_var(self):
+        if(self.var is None):
+            idx = self.idx
+            y = self.y
+            weights = self.weights
+            shape = self.shape
+
+            means = self.eval_mean()
+
+            vars = np.zeros(shape, dtype='f8')
+            to_add = weights*(y-means[idx])**2
+            np.add.at(vars, idx, to_add)
+            vars = vars/self.weights_sums
+
+            self.var = vars
+        return self.var
+
+    def eval_std(self):
+        vars = self.eval_var()
+        return np.sqrt(vars)
+
+    def eval_moment(self, k=1):
+        idx = self.idx
+        y = self.y
+        weights = self.weights
+        shape = self.shape
+
+        means = self.eval_mean()
+        stds = self.eval_std()
+
+        moments = np.zeros(shape, dtype='f8')
+        to_add = weights*((y-means[idx])/stds[idx])**k
+        np.add.at(moments, idx, to_add)
+        moments = moments/self.weights_sums
+
+        return moments
+
+
+    def eval_skew(self):
+        if(self.skew is None):
+            self.skew = self.eval_moment(k=3)
+        return self.skew
+
+    def eval_kurt(self):
+        if(self.kurt is None):
+            self.kurt = self.eval_moment(k=4)
+        return self.kurt
+
+    def eval_quantile(self, q):
+        pass
+
+    def eval_pdf(self, bins_arr):
+        idx = self.idx
+        y = self.y
+        weights = self.weights
+        shape = self.shape
+        # shape should be equal or smaller than 2d
+
+        bins_arr = np.array(bins_arr)
+
+        nvar = shape[1]
+        pdf = np.zeros((bins_arr.shape[-1]-1,)+shape, dtype='f8')
+
+        for i in range(nvar):
+            idx_pdf = np.digitize(y[:, i], bins=bins_arr[i])-1
+            np.add.at(pdf[..., i], (idx_pdf, idx), weights[..., 0])
+        return pdf
+
+    __call__ = evaluate
+
+
+class kde_stat(object):
+
+    def __init__(self, points, value, coord, bandwidth, weights=None, sigma_limit=2.):
+        self.value = value
+        self.coord = np.atleast_2d(coord)
+        self.points = np.atleast_2d(points)
+        self.tree_data = KDTree(self.coord)
+        self.tree_points = KDTree(self.coord)
+        self.shape = points.shape[:1]+value.shape[1:]
+
+        if not self.coord.size > 1:
+            raise ValueError("`dataset` input should have multiple elements.")
+        self.d, self.n = self.coord.shape
+
+        if weights is not None:
+            self.weights = weights / np.sum(weights)
+        else:
+            self.weights = np.ones(self.n) / self.n
+
+
+        # compute the normalised residuals
+        self.chi2 = cdist(points, self.coord) ** 2
+        self.bandwidth = bandwidth
+        self.norm_factor = (2*np.pi*bandwidth**2)**-0.5
+        self.kde_weights = np.exp(-.5 * self.chi2/bandwidth**2) * self.weights / self._norm_factor
+        # compute the pdf
+        self.weights_sums = np.sum(self.kde_weights, axis=-1)
+
+        self.clear()
+
+    def kernel(self, dist):
+        return self.norm_factor * np.exp(-0.5*dist**2/self.bandwidth**2)
+
+    def clear(self):
+        self.sum = None
+        self.mean = None
+        self.var = None
+
+    def evaluate(self):
+        pass
+
+    def eval_sum(self):
+        if self.sum is None:
+            points = self.points
+            self.sum = np.sum(self.kde_weights * self.var, axis=-1)
+        return self.sum
+
+    def eval_mean(self):
+        if self.mean is None:
+            self.mean = self.eval_sum()/self.weights_sums
+        return self.mean
+
+    def eval_var(self):
+        mean = self.eval_mean()
+        var = np.sum()
+
+    def eval_std(self):
+        pass
+
+
+    __call__ = evaluate
+
+
+def k_partitioning(centers_init, points, weights,
+                   gamma=2.0, scale=1.0, iterations=10, target_std=0.,
+                   fail_threshold=5, n_nei=6, n_jobs=-1, verbose=False):
+    # voronoi binning with equal weights
+    def replace(centers):
+        centers = centers.copy()
+        tree = KDTree(centers)
+        dists, idx_closest = tree.query(points, k=1, n_jobs=n_jobs)
+        sums = np.zeros(centers.shape[0], dtype='f8')
+        np.add.at(sums, idx_closest, weights)
+
+        idx_min = np.argmin(sums)
+        pidx_max = np.argmax(dists*sums[idx_closest])
+        centers[idx_min] = points[pidx_max]
+
+        return centers
+
+    def relax(centers):
+        centers = centers.copy()
+        tree = KDTree(centers)
+        dists, idx = tree.query(points, k=n_nei, n_jobs=n_jobs)
+        idx_closest = idx[:, 0]
+
+        sums = np.zeros(centers.shape[0], dtype='f8')
+        np.add.at(sums, idx_closest, weights)
+
+        multiplier = ((sums[idx]/(np.sum(sums)/centers.shape[0]))**gamma)
+        idx_assign = idx[np.arange(points.shape[0]), np.argmin(dists*multiplier, axis=-1)]
+
+        vectors = np.zeros(centers.shape, dtype='f8')
+        np.add.at(vectors, idx_assign, expand_shape(weights, [0], 2)*points)
+
+        sums = np.zeros(centers.shape[0], dtype='f8')
+        np.add.at(sums, idx_assign, weights)
+
+        centers[sums>0] = (vectors[sums>0]/expand_shape(sums[sums>0], [0], 2))
+        return centers
+
+    def perturb(centers):
+        centers = centers.copy()
+        tree = KDTree(centers)
+        dists, idx_closest = tree.query(points, n_jobs=n_jobs)
+
+        sums = np.zeros(centers.shape[0], dtype='f8')
+        np.add.at(sums, idx_closest, weights)
+
+        mdists = np.zeros(centers.shape[0], dtype='f8')
+        np.add.at(mdists, idx_closest, weights*np.sqrt(np.sum((points-centers[idx_closest])**2, axis=-1)))
+        mdists = mdists/sums
+        mdists[sums==0] = 0.
+
+        offset = np.random.normal(size=centers.shape, scale=1.)
+        centers += offset * expand_shape(mdists, [0], 2) * scale
+
+        return centers
+
+    centers_min = centers_init
+    sums_min = voronoi_binning(centers_min, points)
+    std_min = np.std(sums_min)/np.mean(sums_min)
+
+    for niter in range(iterations):
+        if(niter > 0):
+            centers = perturb(centers_min)
+        else:
+            centers = centers_min
+
+        sums = voronoi_binning(centers, points)
+        std = np.std(sums)/np.mean(sums)
+
+        nfail = 0
+        centers_new = centers
+        while(nfail<fail_threshold):
+            centers_new = relax(centers_new)
+            while(True):
+                sums_new = voronoi_binning(centers_new, points)
+                std_new = np.std(sums_new)/np.mean(sums_new)
+                if(np.all(sums_new > 0.)):
+                    break
+                centers_new = replace(centers_new)
+                print('replace', std_new)
+
+            if(std_new < std):
+                centers = centers_new
+                std = std_new
+                if(std < target_std):
+                    break
+                if(verbose):
+                    print('iter', std)
+            else:
+                nfail += 1
+
+        if(std < std_min):
+            std_min = std
+            centers_min = centers
+            if(verbose):
+                print('best', std)
+            if(std_min < target_std):
+                break
+
+    return centers_min, std_min
+
+def voronoi_binning(centers, points, weights=1., n_jobs=-1):
+    idx_closest = find_closest(centers, points, n_jobs=n_jobs)
+
+    sums = np.zeros(centers.shape[0], dtype='f8')
+    np.add.at(sums, idx_closest, weights)
+
+    return sums
+
+def find_closest(centers, points, n_jobs=-1):
+    tree = KDTree(centers)
+    idx_closest = tree.query(points, k=1, n_jobs=n_jobs)[1]
+    return idx_closest
 
 def format_bytes(size, format='{:#.4g}'):
     power = 1024
@@ -456,7 +781,6 @@ class dtfe(object):
         return self.lip(*points)
 
     __call__ = evaluate
-
 
 class gaussian_kde(object):
     """Representation of a kernel-density estimate using Gaussian kernels.
