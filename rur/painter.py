@@ -14,6 +14,7 @@ from PIL import Image
 from warnings import warn
 from rur.sci import geometry as geo
 import os
+from astropy.visualization import make_lupton_rgb
 
 verbose = 1
 timer = Timer(verbose=verbose)
@@ -1145,3 +1146,25 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
 
     if (savefile is not None):
         save_figure(savefile)
+
+def SDSS_rgb(star, filename=None, **kwargs):
+    mags = phot.measure_magnitude(star, 'SDSS_g')
+    lums = 10**(-mags/2.5)
+    g = partmap(star, weights=lums, **kwargs)
+
+    mags = phot.measure_magnitude(star, 'SDSS_r')
+    lums = 10**(-mags/2.5)
+    r = partmap(star, weights=lums, **kwargs)
+
+    mags = phot.measure_magnitude(star, 'SDSS_i')
+    lums = 10**(-mags/2.5)
+    i = partmap(star, weights=lums, **kwargs)
+
+    maxi = np.max([np.quantile(g, 0.99), np.quantile(r, 0.99), np.quantile(i, 0.99)])
+
+    g = g / maxi
+    r = r / maxi
+    i = i / maxi
+
+    rgb_default = make_lupton_rgb(i, r, g, Q=10, stretch=0.5, filename=filename)
+    return rgb_default
