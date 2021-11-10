@@ -166,6 +166,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.box = np.array(box)
         else:
             self.box = default_box
+        self.region = BoxRegion(self.box)
         self.box_cell = None
         self.box_part = None
 
@@ -241,6 +242,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.box = get_box(center, extent)
         if(self.box.shape != (3, 2)):
             raise ValueError("Incorrect box shape: ", self.box.shape)
+        self.region = BoxRegion(self.box)
 
     def set_box_halo(self, halo, radius=1, use_halo_radius=True, radius_name='rvir'):
         if(isinstance(halo, np.ndarray)):
@@ -1554,6 +1556,60 @@ class GraficIC(object):
     def __getitem__(self, key):
         return self.ic[key]
 
+class Region():
+    def evaluate(self, data):
+        if(isinstance(data, np.ndarrray) and data.shape[-1] == 3):
+            return self.isin(data)
+        elif(isinstance(data, Table)):
+            return self.isin(data['pos'])
+    def isin(self, points):
+        pass
+
+    def get_bounding_box(self):
+        pass
+
+    __call__ = evaluate
+
+class BoxRegion(Region):
+    def __init__(self, box):
+        self.box = box
+
+    def set_center(self, center, extent=None):
+        center = np.array(center)
+        if(extent is None):
+            extent = self.get_extent()
+        elif(not np.isscalar(extent)):
+            extent = np.array(extent)
+        self.box = np.stack([center-extent/2, center+extent/2], axis=-1)
+
+    def get_extent(self):
+        return self.box[:, 1] - self.box[:, 0]
+
+    def get_center(self):
+        return np.mean(self.box, axis=-1)
+
+    def get_bounding_box(self):
+        return self
+
+    def isin(self, points, size=0):
+        box = self.box
+        mask = np.all((box[:, 0] <= points+size/2) & (points-size/2 <= box[:, 1]), axis=-1)
+        return mask
+
+class SphereRegion(Region):
+    def __init__(self, center, radius):
+        self.center = center
+        self.radius = radius
+
+    def get_bounding_box(self):
+        box = BoxRegion(None)
+        box.set_center(self.center, self.radius*2)
+        return box
+
+    def isin(self, points, size=0):
+        center = self.center
+        radius = self.radius
+        return rss(points-center) <= radius - size
 
 def part_density(part, reso, mode='m'):
     snap = part.snap
