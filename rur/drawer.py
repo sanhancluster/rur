@@ -430,6 +430,7 @@ def linear_regression(x, y, err=None, xarr=[-1000, 1000], invert=False, **kwargs
 
 
 def medplot(x, y, binarr, minnum=1, xyinv=False, line='med', face='qua', errbar=None, color=None, **kwargs):
+    # outdated, use binned_plot
     if(xyinv):
         x, y = np.array(y), np.array(x)
     else:
@@ -506,7 +507,115 @@ def medplot(x, y, binarr, minnum=1, xyinv=False, line='med', face='qua', errbar=
 
     return xc, c
 
+def binned_plot(x, y, weights=None, bins=10, weighted_binning=False, mode=['median', 'line'], xmode='mean', errmode=['quatile', 'face'], xerrmode=None, error_dict={}, **kwargs):
+    if(weights is None):
+        weights = np.full_like(y, 1.)
+    key = np.argsort(x)
+    x = x[key]
+    y = y[key]
+    weights = weights[key]
 
+    if(isinstance(bins, int)):
+        q = np.linspace(0, 1, bins+1)
+        if(weighted_binning):
+            bins = utool.weighted_quantile(x, q, sample_weight=None)
+        else:
+            bins = np.quantile(x, q)
+
+    bins = np.array(bins)
+    nbins = bins.size-1
+
+    bins_idx = np.searchsorted(x, bins)
+    bins_idx[-1] += 1
+
+    xarr, yarr = [], []
+    xerr, yerr = [], []
+    for ibin, ibot, itop in zip(np.arange(0, nbins), bins_idx[:-1], bins_idx[1:]):
+        if(itop - ibot < 1):
+            continue
+        x_slice = x[ibot:itop]
+        y_slice = y[ibot:itop]
+        w_slice = weights[ibot:itop]
+
+        if(xmode == 'mean'):
+            xbin = np.average(x_slice, weights=w_slice)
+        elif(xmode == 'center'):
+            xbin = (bins[ibin] + bins[ibin+1])/2
+        else:
+            raise ValueError("Unknown xmode: ", xmode)
+        xarr.append(xbin)
+
+        if(mode[0] == 'mean'):
+            ybin = np.average(y_slice, weights=w_slice)
+        elif(mode[0] == 'median'):
+            ybin = utool.weighted_quantile(y_slice, 0.5, sample_weight=w_slice)
+        else:
+            ybin = None
+            raise ValueError("Unknown mode: ", mode[0])
+        yarr.append(ybin)
+
+        if(xerrmode == 'quatile'):
+            xqua = utool.weighted_quantile(x_slice, [0.25, 0.75], sample_weight=w_slice)
+            xe = np.abs(xqua - xbin)
+        elif(xerrmode == 'sigma'):
+            sig = 0.68269
+            xqua = utool.weighted_quantile(x_slice, [0.5-sig/2, 0.5+sig/2], sample_weight=w_slice)
+            xe = np.abs(xqua - xbin)
+        elif(xerrmode == 'std'):
+            xstd = utool.weighted_std(x_slice, weights=w_slice)
+            xe = [xstd, xstd]
+        else:
+            xe = None
+        if(xe is not None):
+            xerr.append(xe)
+        else:
+            xerr = None
+
+        if(errmode[0] == 'quatile'):
+            yqua = utool.weighted_quantile(y_slice, [0.25, 0.75], sample_weight=w_slice)
+            ye = np.abs(yqua - ybin)
+        elif(errmode[0] == 'sigma'):
+            sig = 0.68269
+            yqua = utool.weighted_quantile(y_slice, [0.5-sig/2, 0.5+sig/2], sample_weight=w_slice)
+            ye = np.abs(yqua - ybin)
+        elif(errmode[0] == 'std'):
+            ystd = utool.weighted_std(y_slice, weights=w_slice)
+            ye = [ystd, ystd]
+        else:
+            ye = None
+
+        if(ye is not None):
+            yerr.append(ye)
+        else:
+            yerr = None
+
+    xarr = np.array(xarr)
+    yarr = np.array(yarr)
+    if(xerr is not None):
+        xerr = np.array(xerr).T
+    if(yerr is not None):
+        yerr = np.array(yerr).T
+
+    if(mode[1] == 'line'):
+        p0 = plt.plot(xarr, yarr, **kwargs)
+    elif(mode[1] == 'marker'):
+        p0 = plt.scatter(xarr, yarr, **kwargs)
+    else:
+        p0 = None
+
+    if(p0 is not None):
+        color = p0[0].get_color()
+    else:
+        color = None
+
+    if(errmode[1] == 'face'):
+        plt.fill_between(xarr, yarr-yerr[0], yarr+yerr[1], color=color, alpha=0.25, linewidth=0, **error_dict)
+    elif(errmode[1] == 'bar'):
+        plt.errorbar(xarr, yarr, yerr=yerr, xerr=xerr, color=color, linewidth=1., **error_dict)
+    elif(errmode[1] == 'line'):
+        plt.plot(xarr, yarr-yerr[0], color=color, linewidth=0.5, **error_dict)
+        plt.plot(xarr, yarr+yerr[1], color=color, linewidth=0.5, **error_dict)
+    return p0
 
 def avgplot(x, y, binarr, minnum=1, stdmean=False, face=True, **kwargs):
     x, y = np.array(x), np.array(y)

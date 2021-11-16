@@ -508,7 +508,7 @@ class kde_stat(object):
 
 def k_partitioning(centers_init, points, weights,
                    gamma=2.0, scale=1.0, iterations=10, target_std=0.,
-                   fail_threshold=5, n_nei=6, n_jobs=-1, verbose=False):
+                   fail_threshold=(0.05, 5), n_nei=6, n_jobs=-1, verbose=False):
     # voronoi binning with equal weights
     def replace(centers):
         centers = centers.copy()
@@ -577,7 +577,7 @@ def k_partitioning(centers_init, points, weights,
 
         nfail = 0
         centers_new = centers
-        while(nfail<fail_threshold):
+        while(nfail<fail_threshold[1]):
             centers_new = relax(centers_new)
             while(True):
                 sums_new = voronoi_binning(centers_new, points)
@@ -588,10 +588,10 @@ def k_partitioning(centers_init, points, weights,
                 print('replace', std_new)
 
             if(std_new < std):
+                if(std_new > std*(1-fail_threshold[0])):
+                    nfail += 1
                 centers = centers_new
                 std = std_new
-                if(std < target_std):
-                    break
                 if(verbose):
                     print('iter', std)
             else:
@@ -714,11 +714,11 @@ def rotation_matrix(angles):
 def rotate_vector(r, J):
     # Thank to MJ
     r = np.array(r)
-    z = J/np.sqrt(sum(J*J))
+    z = J/np.sqrt(np.sum(J*J))
     x = np.cross(np.array([0,0,1]),z)
-    x = x/np.sqrt(sum(x*x))
+    x = x/np.sqrt(np.sum(x*x))
     y = np.cross(z,x)
-    y = y/np.sqrt(sum(y*y))
+    y = y/np.sqrt(np.sum(y*y))
     rotate = np.vstack((x,y,z)).T
     rotate = np.matrix(rotate)
     rotate = inv(rotate)
@@ -1230,6 +1230,7 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
         p.start()
         idx_proc += 1
         #empty_queue()
+    iterator.close()
     finalize()
     return list(output_arr)
 

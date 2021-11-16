@@ -184,3 +184,6 @@ def absmag_to_mass(mag, filter_name='K'):
     if(filter_name == 'K'):
         # Cappellari 2013, eq2
         return 10**(10.58 - 0.44 * (mag+23))
+
+def surface_brightness(absmag, area_pc2):
+    return absmag + 2.5*np.log10(area_pc2) - 5 + 5 * np.log10(3600*180/np.pi)
