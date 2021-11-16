@@ -1182,7 +1182,8 @@ class Timer:
         self.record()
         return result
 
-def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, ncols_tqdm=None, direct_input=True):
+def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, ncols_tqdm=None,
+              direct_input=True, priorities=None):
     # a simple multiprocessing tool.
     # # similar to joblib, but much simpler and independent to picklability.
     if(n_proc is None):
@@ -1198,19 +1199,23 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
 
         output_arr[idx_slice] = output_slice
 
-    #def empty_queue():
-    #    while not q.empty(): # both of them need to be checked, idk why
-    #        output_slice, idx_slice = q.get_nowait()
-    #        output_arr[idx_slice] = output_slice
-
     def finalize():
         for proc in procs:
             proc.join()
+        for proc in procs:
+            proc.close()
 
     procs = []
     output_size = len(param_arr)
     manager = Manager()
     output_arr = manager.list([None, ] * output_size)
+
+    if(priorities is not None):
+        keys = np.argsort(priorities)
+    else:
+        keys = np.arange(output_size)
+    param_arr = param_arr[keys]
+
     head_idxs = np.arange(0, output_size, n_chunk)
     idx_proc = 0
     iterator = tqdm(head_idxs, ncols=ncols_tqdm)
@@ -1219,7 +1224,6 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
         wait = 0.
         while (len(procs) >= n_proc):
             sleep(wait)
-            #empty_queue()
             for idx in np.arange(len(procs))[::-1]:
                 if not procs[idx].is_alive():
                     procs.pop(idx)
@@ -1229,10 +1233,9 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
         procs.append(p)
         p.start()
         idx_proc += 1
-        #empty_queue()
-    iterator.close()
     finalize()
-    return list(output_arr)
+    iterator.close()
 
+    return np.array(output_arr)[keys]
 
 
