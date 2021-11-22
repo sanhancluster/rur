@@ -346,9 +346,8 @@ class discrete_stat(object):
 
     def eval_num(self):
         idx = self.idx
-        shape = self.shape
 
-        nums = np.zeros(shape, dtype='f8')
+        nums = np.zeros(self.size, dtype='f8')
         to_add = 1.
         np.add.at(nums, idx, to_add)
         return nums
@@ -585,7 +584,8 @@ def k_partitioning(centers_init, points, weights,
                 if(np.all(sums_new > 0.)):
                     break
                 centers_new = replace(centers_new)
-                print('replace', std_new)
+                if(verbose):
+                    print('replace', std_new)
 
             if(std_new < std):
                 if(std_new > std*(1-fail_threshold[0])):
@@ -1184,8 +1184,26 @@ class Timer:
 
 def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, ncols_tqdm=None,
               direct_input=True, priorities=None):
-    # a simple multiprocessing tool.
-    # # similar to joblib, but much simpler and independent to picklability.
+    """
+    A simple multiprocessing tool similar to joblib, but independent to picklability.
+    This runs function 'func' with parameters 'param_arr'.
+
+    Parameters
+    ----------
+    param_arr : list of tuples
+    func : function
+    n_proc : int
+    n_chunk : int
+    wait_period_sec
+    ncols_tqdm
+    direct_input : bool
+    priorities
+
+    Returns
+    -------
+    list that stores returned value of each function result.
+
+    """
     if(n_proc is None):
         n_proc = cpu_count()
 
@@ -1212,9 +1230,11 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
 
     if(priorities is not None):
         keys = np.argsort(priorities)
+        keys_inv = np.argsort(keys)
     else:
         keys = np.arange(output_size)
-    param_arr = param_arr[keys]
+        keys_inv = keys
+    param_arr = [param_arr[key] for key in keys]
 
     head_idxs = np.arange(0, output_size, n_chunk)
     idx_proc = 0
@@ -1236,6 +1256,7 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
     finalize()
     iterator.close()
 
-    return np.array(output_arr)[keys]
+    return [output_arr[key] for key in keys_inv]
+
 
 
