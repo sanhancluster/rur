@@ -548,21 +548,21 @@ def binned_plot(x, y, weights=None, bins=10, weighted_binning=False, mode=['medi
         if(mode[0] == 'mean'):
             ybin = np.average(y_slice, weights=w_slice)
         elif(mode[0] == 'median'):
-            ybin = utool.weighted_quantile(y_slice, 0.5, sample_weight=w_slice)
+            ybin = weighted_quantile(y_slice, 0.5, sample_weight=w_slice)
         else:
             ybin = None
             raise ValueError("Unknown mode: ", mode[0])
         yarr.append(ybin)
 
         if(xerrmode == 'quatile'):
-            xqua = utool.weighted_quantile(x_slice, [0.25, 0.75], sample_weight=w_slice)
+            xqua = weighted_quantile(x_slice, [0.25, 0.75], sample_weight=w_slice)
             xe = np.abs(xqua - xbin)
         elif(xerrmode == 'sigma'):
             sig = 0.68269
-            xqua = utool.weighted_quantile(x_slice, [0.5-sig/2, 0.5+sig/2], sample_weight=w_slice)
+            xqua = weighted_quantile(x_slice, [0.5-sig/2, 0.5+sig/2], sample_weight=w_slice)
             xe = np.abs(xqua - xbin)
         elif(xerrmode == 'std'):
-            xstd = utool.weighted_std(x_slice, weights=w_slice)
+            xstd = weighted_std(x_slice, weights=w_slice)
             xe = [xstd, xstd]
         else:
             xe = None
@@ -572,14 +572,14 @@ def binned_plot(x, y, weights=None, bins=10, weighted_binning=False, mode=['medi
             xerr = None
 
         if(errmode[0] == 'quatile'):
-            yqua = utool.weighted_quantile(y_slice, [0.25, 0.75], sample_weight=w_slice)
+            yqua = weighted_quantile(y_slice, [0.25, 0.75], sample_weight=w_slice)
             ye = np.abs(yqua - ybin)
         elif(errmode[0] == 'sigma'):
             sig = 0.68269
-            yqua = utool.weighted_quantile(y_slice, [0.5-sig/2, 0.5+sig/2], sample_weight=w_slice)
+            yqua = weighted_quantile(y_slice, [0.5-sig/2, 0.5+sig/2], sample_weight=w_slice)
             ye = np.abs(yqua - ybin)
         elif(errmode[0] == 'std'):
-            ystd = utool.weighted_std(y_slice, weights=w_slice)
+            ystd = weighted_std(y_slice, weights=w_slice)
             ye = [ystd, ystd]
         else:
             ye = None
