@@ -99,6 +99,7 @@ def read_cb07_table():
 #    return table
 
 def measure_magnitude(stars, filter_name, alpha=1, total=False, model='cb07'):
+    # measures absolute magnitude from stellar ages & metallicities
     filter_aliases = alias_dict()
     filter_aliases.update({
         'SDSS_u': 'u',
@@ -112,6 +113,7 @@ def measure_magnitude(stars, filter_name, alpha=1, total=False, model='cb07'):
         'CFHT_i': 'i_1',
         'CFHT_y': 'y',
         'CFHT_z': 'z_1',
+        'CFHT_Ks': 'Ks',
     })
     # measure magnitude from star data and population synthesis model.
     if(model == 'cb07'):
@@ -121,7 +123,7 @@ def measure_magnitude(stars, filter_name, alpha=1, total=False, model='cb07'):
         log_ages = np.zeros(stars.size, 'f8')
         ages = stars['age', 'yr']
         valid = ages>0.
-        log_ages[valid] = np.log10(ages)[valid]
+        log_ages[valid] = np.log10(ages[valid])
         log_ages[~valid] = -np.inf
 
         log_metals = np.log10(stars['metal'])
@@ -165,8 +167,13 @@ def measure_magnitude(stars, filter_name, alpha=1, total=False, model='cb07'):
     else:
         return mags
 
+def measure_luminosity(stars, filter_name, **kwargs):
+    mags = measure_magnitude(stars, filter_name, **kwargs)
+    return 10**(-mags/2.5)
+
 def ellipse_fit(coo, weights):
-    # compute ellipse fitting, returns a, b, position angle
+    # applies an ellipse fitting on the given set of data
+    # returns a, b, position angle
     x, y = coo[..., 0], coo[..., 1]
 
     xb, yb = np.average(x, weights=weights), np.average(y, weights=weights)
