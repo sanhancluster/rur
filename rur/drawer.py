@@ -518,7 +518,7 @@ def binned_plot(x, y, weights=None, bins=10, weighted_binning=False, mode=['medi
     if(isinstance(bins, int)):
         q = np.linspace(0, 1, bins+1)
         if(weighted_binning):
-            bins = utool.weighted_quantile(x, q, sample_weight=None)
+            bins = weighted_quantile(x, q, sample_weight=None)
         else:
             bins = np.quantile(x, q)
 
