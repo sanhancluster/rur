@@ -9,6 +9,7 @@ from scipy.interpolate import LinearNDInterpolator
 from numpy.linalg import det
 import h5py
 from rur.sci.geometry import rss, ss, rms
+from collections.abc import Iterable
 
 import warnings
 
@@ -124,7 +125,7 @@ def set_vector(table, vector, prefix='', ndim=3, where=None, copy=False):
         table = table.table
     if(copy):
         table = table.copy()
-    for idim in np.arange(ndim):
+    for idim in range(ndim):
         if(where is None):
             table[prefix+dim_keys[idim]] = vector[..., idim]
         else:
@@ -160,7 +161,7 @@ def get_polar_coord(coo, pos=[0.5, 0.5, 0.5]):
 def shift(table, vec, ndim=3, periodic=True):
     if(isinstance(table, Table)):
         table = table.table
-    for idim in np.arange(ndim):
+    for idim in range(ndim):
         table[dim_keys[idim]] += vec[idim]
         if(periodic):
             table[dim_keys[idim]] %= 1
@@ -286,7 +287,6 @@ def cartesian(*arrays):
         arr[...,i] = a
     return arr.reshape(-1, la)
 
-
 def discrete_hist2d(shape, idx, use_long=False):
     if (use_long):
         idx = idx.astype('i8')
@@ -294,39 +294,119 @@ def discrete_hist2d(shape, idx, use_long=False):
     hist = np.bincount(idxs, minlength=shape[0] * shape[1])
     hist = np.reshape(hist, shape)
     return hist
+def set_bins(bins, lims=None):
+    if(lims is not None):
+        binarr = []
+        lims = np.atleast_2d(lims)
+        bins = np.atleast_1d(bins)
+        for lim, nbin in zip(lims, bins):
+            binarr.append(np.linspace(*lim, nbin+1))
+        bins = binarr
+    elif(not isinstance(bins[0], Iterable)):
+        bins = np.atleast_2d(bins)
+    return bins
+
+def digitize(points, bins, lims=None, single_idx=False):
+    points = np.array(points)
+    ndim = points.ndim
+    bins = set_bins(bins, lims)
+    if(ndim == 1):
+        return np.digitize(points, bins[0])
+
+    points = points.T
+    idx = []
+    shape = []
+    for idim in range(len(bins)):
+        bin = bins[idim]
+        idx.append(np.digitize(points[idim], bin))
+        shape.append(len(bin)-1)
+    idx = np.array(idx)
+    if(single_idx):
+        idx = np.ravel_multi_index(idx, shape)
+    return idx
+
+def binned_stat(x, y, bins, lims=None, weights=1.):
+    multi_idx = digitize(x, bins, lims)-1
+    bins = set_bins(bins, lims)
+    grid_shape = [len(bin)-1 for bin in bins]
+
+    return discrete_stat(y, multi_idx, grid_shape, weights)
+
+def add_dims(arr, ndim, axis=-1):
+    return np.expand_dims(arr, list(np.arange(axis, axis-ndim, -1)))
 
 class discrete_stat(object):
-    def __init__(self, y, idx, size=None, weights=1.):
-        if(y.shape[0] != idx.size):
-            raise ValueError("Size mismatch: %d != %d" % (y.size, idx.size))
+    # A class to manage discrete set of data y (e.g. binned data, etc...)
+    # idx indicates the bin position of the data should be integer that gets within size
+    # statistics (such as mean, median, quantile, etc..) can be computed in binned data
+    # any idx outside (0, size) will be ignored
+
+    def __init__(self, y, multi_idx, grid_shape=None, weights=1.):
+        if(y.shape[0] != multi_idx.shape[-1]):
+            raise ValueError("Size mismatch: %d != %d" % (y.shape[0], multi_idx.shape[-1]))
+
+        multi_idx = np.atleast_2d(multi_idx)
+        if(grid_shape is None):
+            grid_shape = np.max(multi_idx, axis=-1) + 1
 
         self.y = y
-        self.idx = idx
-        self.shape = (size,)+y.shape[1:]
+        self.n = y.shape[0]
 
-        if(size is None):
-            self.size = np.max(idx)+1
+        self.grid_shape = tuple(grid_shape)
+        self.ndim_grid = len(self.grid_shape)
+
+        if(self.ndim_grid>1):
+            self.idx = np.ravel_multi_index(multi_idx, self.grid_shape)
         else:
-            self.size = size
+            self.idx = multi_idx[0]
 
-        self.weights = expand_shape(weights, 0, len(y.shape))
-        weights_sums = np.zeros(size, dtype='f8')
-        np.add.at(weights_sums, idx, weights)
-        self.weights_sums = expand_shape(weights_sums, 0, len(y.shape))
+        self.single_shape = y.shape[1:]
+        self.ndim_single = len(self.single_shape)
+
+        self.output_shape = tuple(self.grid_shape) + self.single_shape
+
+        weights = np.atleast_1d(weights)
+        if(weights.size == 1):
+            weights = np.full(y.shape[0], weights[0])
+        self.weights = add_dims(weights, self.ndim_single)
+        self.init_boundary()
         self.clear()
 
+    def init_boundary(self):
+        keys = np.argsort(self.idx)
+        self.idx = self.idx[keys]
+        self.bounds = np.searchsorted(self.idx, np.arange(np.prod(self.grid_shape)+1))
+        self.idx = self.idx[self.bounds[0]:self.bounds[-1]]
+
+        keys = keys[self.bounds[0]:self.bounds[-1]]
+        self.y = self.y[keys]
+        if(self.weights.shape[0] == self.y.shape[0]):
+            self.weights = self.weights[keys]
+
+
     def clear(self):
+        self.wsum = None
         self.sum = None
         self.mean = None
         self.var = None
         self.skew = None
         self.kurt = None
 
-    def evaluate(self, mode='mean', *args):
+    def apply_at_idx(self, value, func=np.add, dtype='f8'):
+        value = np.atleast_1d(value)
+        shape = self.grid_shape + value.shape[1:]
+        out = np.zeros(shape, dtype=dtype)
+        multi_idx = np.unravel_index(self.idx, self.grid_shape)
+        func.at(out, multi_idx, value)
+        return out
+
+    def evaluate(self, mode='mean', *args, **kwargs):
         if(mode == 'num'):
             return self.eval_num()
         elif(mode == 'mean'):
             return self.eval_mean()
+        elif(mode == 'wsum'):
+            return self.eval_wsum()
         elif(mode == 'sum'):
             return self.eval_sum()
         elif(mode == 'std'):
@@ -338,37 +418,29 @@ class discrete_stat(object):
         elif(mode == 'kurt'):
             return self.eval_kurt()
         elif(mode == 'moment' or mode == 'mom'):
-            return self.eval_moment(*args)
+            return self.eval_moment(*args, **kwargs)
         elif(mode == 'quantile'):
-            return self.eval_quantile(*args)
+            return self.eval_quantile(*args, **kwargs)
+        elif(mode == 'median'):
+            return self.eval_quantile(*args, q=0.5, **kwargs)
         else:
             raise ValueError("Unknown mode: ", mode)
+    def eval_wsum(self):
+        if(self.wsum is None):
+            self.wsum = self.apply_at_idx(self.weights)
+        return self.wsum
 
     def eval_num(self):
-        idx = self.idx
-
-        nums = np.zeros(self.size, dtype='f8')
-        to_add = 1.
-        np.add.at(nums, idx, to_add)
-        return nums
+        return self.apply_at_idx(1.)
 
     def eval_sum(self):
         if(self.sum is None):
-            idx = self.idx
-            y = self.y
-            weights = self.weights
-            shape = self.shape
-
-            sums = np.zeros(shape, dtype='f8')
-            to_add = weights*y
-            np.add.at(sums, idx, to_add)
-            self.sum = sums
+            self.sum = self.apply_at_idx(self.weights*self.y)
         return self.sum
 
     def eval_mean(self):
         if(self.mean is None):
-            sums = self.eval_sum()
-            self.mean = sums/self.weights_sums
+            self.mean = self.eval_sum() / self.eval_wsum()
         return self.mean
 
     def eval_var(self):
@@ -376,16 +448,10 @@ class discrete_stat(object):
             idx = self.idx
             y = self.y
             weights = self.weights
-            shape = self.shape
 
             means = self.eval_mean()
-
-            vars = np.zeros(shape, dtype='f8')
             to_add = weights*(y-means[idx])**2
-            np.add.at(vars, idx, to_add)
-            vars = vars/self.weights_sums
-
-            self.var = vars
+            self.var = self.apply_at_idx(to_add) / self.eval_wsum()
         return self.var
 
     def eval_std(self):
@@ -396,18 +462,14 @@ class discrete_stat(object):
         idx = self.idx
         y = self.y
         weights = self.weights
-        shape = self.shape
 
         means = self.eval_mean()
         stds = self.eval_std()
 
-        moments = np.zeros(shape, dtype='f8')
         to_add = weights*((y-means[idx])/stds[idx])**k
-        np.add.at(moments, idx, to_add)
-        moments = moments/self.weights_sums
+        moments = self.apply_at_idx(to_add) / self.eval_wsum()
 
         return moments
-
 
     def eval_skew(self):
         if(self.skew is None):
@@ -419,14 +481,29 @@ class discrete_stat(object):
             self.kurt = self.eval_moment(k=4)
         return self.kurt
 
-    def eval_quantile(self, q):
-        pass
+    def eval_quantile(self, q, use_weights=True):
+        y = self.y
+        weights = self.weights
+        slices = [slice(low, upp) for low, upp in zip(self.bounds[:-1], self.bounds[1:])]
+        out = []
+        for sl in slices:
+            if(use_weights):
+                qua = np.empty(np.prod(self.single_shape))
+                for sidx in range(qua.size):
+                    target_value = y[(sl,) + np.unravel_index(sidx, self.single_shape)]
+                    target_weights = weights[(sl,) + np.unravel_index(0, self.single_shape)]
+                    qua[sidx] = weighted_quantile(target_value, q, target_weights)
+                qua = np.reshape(qua, self.single_shape)
+            else:
+                qua = np.quantile(y[sl], q, axis=0)
+            out.append(qua)
+        return np.array(out)
 
     def eval_pdf(self, bins_arr):
         idx = self.idx
         y = self.y
         weights = self.weights
-        shape = self.shape
+        shape = self.output_shape
         # shape should be equal or smaller than 2d
 
         bins_arr = np.array(bins_arr)
@@ -440,7 +517,6 @@ class discrete_stat(object):
         return pdf
 
     __call__ = evaluate
-
 
 class kde_stat(object):
 
@@ -768,7 +844,7 @@ class dtfe(object):
             center_indices = np.repeat(np.arange(neighbor_nums.size), np.diff(indptr))
             np.add.at(neighbor_nums, center_indices, 1)
 
-            for _ in np.arange(smooth):
+            for _ in range(smooth):
                 hull_areas_new = np.zeros(hull_areas.shape, dtype='f8')
                 np.add.at(hull_areas_new, center_indices, hull_areas[neighbor_indices])
                 hull_areas = hull_areas_new / neighbor_nums
@@ -1244,7 +1320,7 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
         wait = 0.
         while (len(procs) >= n_proc):
             sleep(wait)
-            for idx in np.arange(len(procs))[::-1]:
+            for idx in range(len(procs))[::-1]:
                 if not procs[idx].is_alive():
                     procs.pop(idx)
             wait = wait_period_sec
