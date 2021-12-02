@@ -104,7 +104,7 @@ def kde_imshow(x, y, lims=None, reso=100, weights=None, tree=True, **kwargs):
                 (np.nanquantile(y, 0.001), np.nanquantile(y, 0.999))]
         print('Automatically setting lims as ', lims)
 
-    pdf = kde_img(x, y, lims, reso, weights=weights, tree=tree)
+    pdf = kde_img(x, y, lims, reso, weights=weights, tree=tree).T
     plt.imshow(pdf, origin='lower', extent=[lims[0][0], lims[0][1], lims[1][0], lims[1][1]], aspect='auto', **kwargs)
 
 
@@ -141,7 +141,7 @@ def hist_imshow(x, y, lims=None, reso=100, weights=None, filter_sigma=None, norm
 
 def kde_contour(x, y, lims, reso=100, bw_method='silverman', weights=None, sig_arr=[1, 2], filled=False, **kwargs):
 
-    pdi = kde_img(x, y, lims, reso, bw_method, weights=weights)
+    pdi = kde_img(x, y, lims, reso, weights=weights, bw_method=bw_method)
     area_per_px = (lims[0][1]-lims[0][0])*(lims[1][1]-lims[1][0])/reso**2
     levels = np.append([sig_level(pdi, sig_arr, area_per_px)[::-1]], np.max(pdi))
 
@@ -287,7 +287,7 @@ def gauss_img(x, y, lims, reso=100, weights=None, subdivide=3, kernel_size=1):
 
     return hist
 
-def kde_img(x, y, lims, reso=100, weights=None, tree=True):
+def kde_img(x, y, lims, reso=100, weights=None, tree=True, bw_method='siverman'):
     x, y = np.array(x), np.array(y)
     mask = np.isfinite(x) & np.isfinite(y)
     x, y = x[mask], y[mask]
@@ -298,7 +298,7 @@ def kde_img(x, y, lims, reso=100, weights=None, tree=True):
         kde = gaussian_kde_tree(np.stack([x, y], axis=-1), weights=weights, smooth_factor=3)
         return fun_img(kde, lims, reso, axis=-1)
     else:
-        kde = gaussian_kde(np.stack([x, y], axis=0), weights=weights)
+        kde = gaussian_kde(np.stack([x, y], axis=0), weights=weights, bw_method=bw_method)
         return fun_img(kde, lims, reso, axis=0)
 
 def fun_img(f, lims, reso=100, axis=-1):
@@ -397,7 +397,7 @@ def dtfe_img(x, y, lims, reso=100, weights=None, smooth=0):
     return grid
 
 
-def mosaic_mean(x, y, v, bins=10, range=None, minnum=0, stat=False, statmin=1, fmt="%.3f", **kwargs):
+def mosaic_mean(x, y, v, bins=10, range=None, minnum=0, stat=False, statmin=1, fmt="%.3f", fontsize=8, contour=False, **kwargs):
     weig = np.histogram2d(x, y, bins, range, weights=v)[0].T
     norm = np.histogram2d(x, y, bins, range)[0].T
     mask = norm < minnum
@@ -406,12 +406,14 @@ def mosaic_mean(x, y, v, bins=10, range=None, minnum=0, stat=False, statmin=1, f
     ims = plt.imshow(arr, origin='lower', extent=np.array(range).flatten(), **kwargs)
     extent = ims.get_extent()
 
+    if(contour):
+        hist_contour(x, y, lims=range, cmap=plt.cm.Greys, color='none', reso=100, sig_arr=[0.5, 1.5], filter_sigma=5, alpha=0.25, filled=True)
+
     if(stat):
         for i in np.arange(bins):
             for j in np.arange(bins)[::-1]:
                 if(norm[j, i] >= statmin):
-                    plt.text(extent[0] + (extent[1]-extent[0]) * i/bins, extent[2] + (extent[3]-extent[2]) * j/bins, (fmt+"\n%d") % ((weig/norm)[j, i], norm[j, i]), fontsize=8, ha='left', va='bottom')
-
+                    plt.text(extent[0] + (extent[1]-extent[0]) * i/bins, extent[2] + (extent[3]-extent[2]) * j/bins, (fmt+"\nN = %d") % ((weig/norm)[j, i], norm[j, i]), fontsize=fontsize, ha='left', va='bottom')
 
     return ims
 
@@ -604,14 +606,17 @@ def binned_plot(x, y, weights=None, bins=10, weighted_binning=False, mode=['medi
         p0 = None
 
     if(p0 is not None):
-        color = p0[0].get_color()
+        if(mode[1] == 'line'):
+            color = p0[0].get_color()
+        elif(mode[1] == 'marker'):
+            color = p0.get_facecolor()[0]
     else:
         color = None
 
     if(errmode[1] == 'face'):
         plt.fill_between(xarr, yarr-yerr[0], yarr+yerr[1], color=color, alpha=0.25, linewidth=0, **error_dict)
     elif(errmode[1] == 'bar'):
-        plt.errorbar(xarr, yarr, yerr=yerr, xerr=xerr, color=color, linewidth=1., **error_dict)
+        plt.errorbar(xarr, yarr, yerr=yerr, xerr=xerr, color=color, linewidth=0., **error_dict)
     elif(errmode[1] == 'line'):
         plt.plot(xarr, yarr-yerr[0], color=color, linewidth=0.5, **error_dict)
         plt.plot(xarr, yarr+yerr[1], color=color, linewidth=0.5, **error_dict)
