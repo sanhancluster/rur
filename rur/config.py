@@ -1,6 +1,30 @@
 from rur.utool import get_vector, rotate_vector, rss, ss, Timer, get_box, expand_shape, Table
 import numpy as np
 
+def type_of_script():
+    """
+    Detects and returns the type of python kernel
+    :return: string 'jupyter' or 'ipython' or 'terminal'
+    """
+    try:
+        ipy_str = str(type(get_ipython()))
+        if 'zmqshell' in ipy_str:
+            return 'jupyter'
+        if 'terminal' in ipy_str:
+            return 'ipython'
+    except:
+        return 'terminal'
+
+if(type_of_script() == 'jupyter'):
+    from tqdm.notebook import tqdm
+else:
+    from tqdm import tqdm
+
+if(type_of_script() == 'jupyter'):
+    from tqdm.notebook import tqdm
+else:
+    from tqdm import tqdm
+
 class alias_dict(dict):
     def __missing__(self, key):
         return key

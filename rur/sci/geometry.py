@@ -25,3 +25,16 @@ def ss(coo, axis=-1):
 def rms(coo, axis=-1):
     # root mean square
     return np.sqrt(np.mean(coo**2, axis=axis))
+
+def rotate(p, angle=0, origin=(0, 0)):
+    # rotate transformation of 2d coordinate
+    R = np.array([[np.cos(angle), -np.sin(angle)],
+                  [np.sin(angle),  np.cos(angle)]])
+    o = np.atleast_2d(origin)
+    p = np.atleast_2d(p)
+    return np.squeeze((R @ (p.T-o.T) + o.T).T)
+
+def poly_area(coo):
+    # calculate area enclosed by 2d points
+    x, y = (*coo.T,)
+    return 0.5*np.abs(np.dot(x,np.roll(y,1))-np.dot(y,np.roll(x,1)))

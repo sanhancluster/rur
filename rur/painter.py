@@ -991,7 +991,7 @@ def get_tickvalues(range, nticks=4):
 
 def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_unit='kpc', mode=['star', 'gas'], show_smbh=True,
            savefile=None, part_method='hist', align=True, age_cut=None, center=None, proj=[0, 1], smbh_minmass=1E4,
-           smbh_labels=True, figsize=(10, 5), dpi=150, vmaxs=None, qscales=None, phot_filter='SDSS_u'):
+           smbh_labels=True, figsize=(10, 5), dpi=150, vmaxs=None, qscales=None, phot_filter='SDSS_u', shape=1000):
     # Simple galaxy viewer integrated with GalaxyMaker data.
 
     cell = None
@@ -1006,7 +1006,6 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
 
     if(proj.shape[0] != ncols):
         proj = np.repeat(proj, ncols, axis=0)
-    print(proj)
 
     vmax_dict = {
         'star':  3E5,
@@ -1015,7 +1014,8 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
         'metal': 1E-1,
         'dust':  3E-2,
         'temp':  1E8,
-        'phot':  1E19
+        'phot':  1E19,
+        'sdss':  1E17
     }
 
     qscale_dict = {
@@ -1026,6 +1026,7 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
         'dust':  2,
         'temp':  4,
         'phot':  5,
+        'sdss':  None,
     }
 
 
@@ -1057,7 +1058,7 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
     if(isinstance(smbh_labels, bool)):
         smbh_labels = np.repeat(smbh_labels, ncols)
 
-    if ('star' in mode or 'dm' in mode or True in show_smbh):
+    if ('star' in mode or 'dm' or 'sdss' or 'phot' in mode or True in show_smbh):
         snap.get_part()
         if (gal is not None and align):
             part = measure.align_axis(snap.part, gal)
@@ -1095,7 +1096,7 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
             star = part['star']
             if (age_cut is not None):
                 star = star[star['age', 'Gyr'] < age_cut]
-            draw_partmap(star, proj=proj_now, shape=1000, qscale=qscale, vmax=vmax, crho=True, method=part_method,
+            draw_partmap(star, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
                                  unit='Msol/pc2')
             mode_label = 'Stars'
         elif (mode_now == 'phot'):
@@ -1104,27 +1105,41 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
                 star = star[star['age', 'Gyr'] < age_cut]
             mags = phot.measure_magnitude(star, filter_name=phot_filter, total=False)
             lums = 10**(-mags/2.5)
-            draw_partmap(star, proj=proj_now, shape=1000, qscale=qscale, vmax=vmax, crho=True, method=part_method,
+            draw_partmap(star, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
                          weights=lums)
             mode_label = 'Stars'
+        elif (mode_now == 'sdss'):
+            star = part['star']
+            filters = ['SDSS_i', 'SDSS_r', 'SDSS_g']
+            images = []
+            for filter_name in filters:
+                mags = phot.measure_magnitude(star, filter_name=filter_name, total=False)
+                lums = 10**(-mags/2.5)
+                image = partmap(star, proj=proj_now, shape=shape, crho=True, method=part_method, weights=lums)
+                images.append(image)
+
+            images = np.array(images) / vmax
+            rgb = make_lupton_rgb(*images, Q=10, stretch=0.5)
+            draw_image(rgb, extent=np.concatenate(snap.box[proj_now]))
+            mode_label = 'SDSS'
         elif (mode_now == 'dm'):
             dm = part['dm']
-            draw_partmap(dm, proj=proj_now, shape=1000, qscale=qscale, vmax=vmax, crho=True, method=part_method,
+            draw_partmap(dm, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
                                  unit='Msol/pc2')
             mode_label = 'DM'
         elif (mode_now == 'gas' or mode_now == 'rho'):
-            draw_gasmap(cell, proj=proj_now, shape=1000, qscale=qscale, vmax=vmax, mode='crho', cmap=ccm.hesperia,
+            draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='crho', cmap=ccm.hesperia,
                                 interp_order=1, unit='Msol/pc2')
             mode_label = 'Gas - Density'
         elif (mode_now == 'temp' or mode_now == 'T'):
-            draw_gasmap(cell, proj=proj_now, shape=1000, qscale=qscale, vmax=vmax, mode='T', cmap=ccm.hesperia, unit='K')
+            draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='T', cmap=ccm.hesperia, unit='K')
             mode_label = 'Gas - Temperature'
         elif (mode_now == 'dust'):
-            draw_gasmap(cell, proj=proj_now, shape=1000, qscale=qscale, vmax=vmax, mode='dust', cmap=ccm.lacerta,
+            draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='dust', cmap=ccm.lacerta,
                                 interp_order=1)
             mode_label = 'Gas - Dust'
         elif (mode_now == 'metal'):
-            draw_gasmap(cell, proj=proj_now, shape=1000, qscale=qscale, vmax=vmax, mode='metal', cmap=ccm.lacerta,
+            draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='metal', cmap=ccm.lacerta,
                                 interp_order=1)
             mode_label = 'Gas - Metallicity'
         else:

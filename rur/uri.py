@@ -602,7 +602,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             return sink
 
     def read_sinkprops(self, path_in_repo='SINKPROPS', drag_part=True, use_cache=False, cache_name='sinkprops.pkl',
-                       reset_cache=False, cache_format='pkl'):
+                       reset_cache=False, cache_format='pkl', progress=False):
         sinkprop_regex = re.compile(r'sink_\s*(?P<icoarse>\d+).dat')
         path = join(self.repo, path_in_repo)
         sinkprop_names = glob.glob(join(path, sinkprop_glob))
@@ -627,7 +627,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         nsinks = []
         aexps = []
 
-        for icoarse in icoarses:
+        timer.start('Reading files...')
+        if(progress):
+            iterator = tqdm(icoarses)
+        else:
+            iterator = icoarses
+        for icoarse in iterator:
             readr.read_sinkprop(path, icoarse, drag_part, self.mode)
             nsink = readr.integer_table.shape[0]
             nsinks.append(nsink)
@@ -648,6 +653,10 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             dtype = sink_prop_dtype_drag
         else:
             dtype = sink_prop_dtype
+        timer.record()
+
+        if(self.mode == 'nh'):
+            dtype = sink_prop_dtype
         if(self.mode == 'fornax'):
             dtype = sink_prop_dtype_drag_fornax
         if(self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4'):
@@ -657,6 +666,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             raise ValueError('Number of fields mismatch\n'
                              'Received: %d, Allocated: %d' % (len(arr), len(dtype)))
 
+        timer.start('Building sinkprop table... (%d)' % arr[0].size)
         sink = fromarrays(arr, dtype=dtype)
         sink = append_fields(sink, ['aexp', 'icoarse'], [aexp_table, icoarse_table], usemask=False)
 

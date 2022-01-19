@@ -10,7 +10,6 @@ from numpy.linalg import det
 import h5py
 from rur.sci.geometry import rss, ss, rms
 from collections.abc import Iterable
-
 import warnings
 
 import pickle as pkl
@@ -39,7 +38,6 @@ if(type_of_script() == 'jupyter'):
     from tqdm.notebook import tqdm
 else:
     from tqdm import tqdm
-
 
 class Table:
     """
@@ -290,10 +288,12 @@ def cartesian(*arrays):
 def discrete_hist2d(shape, idx, use_long=False):
     if (use_long):
         idx = idx.astype('i8')
+        shape = np.array(shape).astype('i8')
     idxs = idx[0] * shape[1] + idx[1]
     hist = np.bincount(idxs, minlength=shape[0] * shape[1])
     hist = np.reshape(hist, shape)
     return hist
+
 def set_bins(bins, lims=None):
     if(lims is not None):
         binarr = []
@@ -306,9 +306,15 @@ def set_bins(bins, lims=None):
         bins = np.atleast_2d(bins)
     return bins
 
-def digitize(points, bins, lims=None, single_idx=False):
+def digitize(points, bins, lims=None, single_idx=False, weights=None):
     points = np.array(points)
     ndim = points.ndim
+    if(isinstance(bins, int)):
+        if(lims is None):
+            bins = weighted_quantile(points, np.linspace(0, 1, bins), sample_weight=weights)
+            bins[-1] += (bins[-1] - bins[-2]) * 0.01
+        else:
+            bins = np.linspace(*lims, bins)
     bins = set_bins(bins, lims)
     if(ndim == 1):
         return np.digitize(points, bins[0])
@@ -401,27 +407,27 @@ class discrete_stat(object):
         return out
 
     def evaluate(self, mode='mean', *args, **kwargs):
-        if(mode == 'num'):
+        if(mode in ['num', 'number']):
             return self.eval_num()
-        elif(mode == 'mean'):
+        elif(mode in ['mean', 'average']):
             return self.eval_mean()
-        elif(mode == 'wsum'):
+        elif(mode in ['wsum', 'weighted_sum']):
             return self.eval_wsum()
-        elif(mode == 'sum'):
+        elif(mode in ['sum']):
             return self.eval_sum()
-        elif(mode == 'std'):
+        elif(mode in ['std', 'stdev', 'standard_deviation']):
             return self.eval_std()
-        elif(mode == 'var'):
+        elif(mode in ['var', 'variance']):
             return self.eval_var()
-        elif(mode == 'skew'):
+        elif(mode in ['skew', 'skewness']):
             return self.eval_skew()
-        elif(mode == 'kurt'):
+        elif(mode in ['kurt', 'kurtosis']):
             return self.eval_kurt()
-        elif(mode == 'moment' or mode == 'mom'):
+        elif(mode in ['mom', 'moment']):
             return self.eval_moment(*args, **kwargs)
-        elif(mode == 'quantile'):
+        elif(mode in ['quant', 'quantile']):
             return self.eval_quantile(*args, **kwargs)
-        elif(mode == 'median'):
+        elif(mode in ['med', 'median']):
             return self.eval_quantile(*args, q=0.5, **kwargs)
         else:
             raise ValueError("Unknown mode: ", mode)
@@ -858,6 +864,51 @@ class dtfe(object):
 
     __call__ = evaluate
 
+def metropolis_hastings(loglike, params_ini, bandwidth, return_like=False, burn_in=10, n_points=100, n_sample=10000, show_progress=False):
+    n_pars = len(params_ini)
+    loglike_ini = loglike(*params_ini)
+    params_arr = np.tile(params_ini, (n_points, 2, 1))
+    loglike_arr = np.tile(loglike_ini, (n_points, 2))
+    loglike_mean = loglike_arr[:, 0].copy()
+    n_iter = np.zeros(n_points, 'i8')
+    mask_burn = np.full(n_points, False)
+
+    if(return_like):
+        params_out = np.zeros((n_sample, n_pars+1))
+    else:
+        params_out = np.zeros((n_sample, n_pars))
+    n_fill = 0
+    if(show_progress):
+        iterator = tqdm(total=n_sample)
+    while(n_fill < n_sample):
+        offset = np.random.normal(scale=bandwidth, size=(n_points, n_pars))
+
+        params_arr[:, 1] = params_arr[:, 0] + offset
+        loglike_arr[:, 1] = loglike(*params_arr[:, 1].T)
+
+        alpha = np.exp(loglike_arr[:, 1] - loglike_arr[:, 0])
+        rand = np.random.rand(n_points)
+        mask = (rand < alpha)
+
+        params_arr[mask, 0] = params_arr[mask, 1]
+        loglike_arr[mask, 0] = loglike_arr[mask, 1]
+        n_iter[mask] += 1
+
+        mask_burn = mask_burn | (n_iter > burn_in) & (loglike_mean - loglike_arr[:, 0] > 0.)
+        loglike_mean[mask] = (loglike_mean[mask] * (burn_in-1) +  loglike_arr[mask, 0])/burn_in
+
+        mask = mask & mask_burn
+        n_add = np.minimum(np.sum(mask), n_sample-n_fill)
+        params_out[n_fill:n_fill+n_add, :n_pars] = params_arr[mask, 0][:n_add]
+        if(return_like):
+            params_out[n_fill:n_fill+n_add, -1] = loglike_arr[mask, 0][:n_add]
+        n_fill += n_add
+        if(show_progress):
+            iterator.update(n_add)
+    if(show_progress):
+        iterator.close()
+    return params_out
+
 class gaussian_kde(object):
     """Representation of a kernel-density estimate using Gaussian kernels.
 
@@ -1259,10 +1310,10 @@ class Timer:
         return result
 
 def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, ncols_tqdm=None,
-              direct_input=True, priorities=None):
+              direct_input=True, priorities=None, kwargs_dict=None):
     """
     A simple multiprocessing tool similar to joblib, but independent to picklability.
-    This runs function 'func' with parameters 'param_arr'.
+    It runs function 'func' with parameters 'param_arr'.
 
     Parameters
     ----------
@@ -1283,13 +1334,16 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
     if(n_proc is None):
         n_proc = cpu_count()
 
+    if(kwargs_dict is None):
+        kwargs_dict = {}
+
     def worker(param_slice, idx_slice, output_arr):
         output_slice = []
         for param in param_slice:
             if(direct_input):
-                output_slice.append(func(*param))
+                output_slice.append(func(*param, **kwargs_dict))
             else:
-                output_slice.append(func(param))
+                output_slice.append(func(param, **kwargs_dict))
 
         output_arr[idx_slice] = output_slice
 
@@ -1315,24 +1369,29 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
     head_idxs = np.arange(0, output_size, n_chunk)
     idx_proc = 0
     iterator = tqdm(head_idxs, ncols=ncols_tqdm)
-    for head_idx in iterator:
-        idx_slice = slice(head_idx, np.minimum(head_idx+n_chunk, output_size))
-        wait = 0.
-        while (len(procs) >= n_proc):
-            sleep(wait)
-            for idx in range(len(procs))[::-1]:
-                if not procs[idx].is_alive():
-                    procs.pop(idx)
-            wait = wait_period_sec
+    try:
+        for head_idx in iterator:
+            idx_slice = slice(head_idx, np.minimum(head_idx+n_chunk, output_size))
+            wait = 0.
+            while (len(procs) >= n_proc):
+                sleep(wait)
+                for idx in range(len(procs))[::-1]:
+                    if not procs[idx].is_alive():
+                        procs.pop(idx)
+                wait = wait_period_sec
 
-        p = Process(target=worker, args=(param_arr[idx_slice], idx_slice, output_arr))
-        procs.append(p)
-        p.start()
-        idx_proc += 1
-    finalize()
-    iterator.close()
-
-    return [output_arr[key] for key in keys_inv]
+            p = Process(target=worker, args=(param_arr[idx_slice], idx_slice, output_arr))
+            procs.append(p)
+            p.start()
+            idx_proc += 1
+    except KeyboardInterrupt:
+        for p in procs:
+            p.terminate()
+        return None
+    finally:
+        finalize()
+        iterator.close()
+        return [output_arr[key] for key in keys_inv]
 
 
 

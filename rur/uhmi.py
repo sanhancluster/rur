@@ -1,20 +1,16 @@
 import os
 from numpy.core.records import fromarrays
 import numpy as np
-from rur.utool import Timer, get_vector, type_of_script, dump, load, pairing, get_distance, rss, ss,\
+from rur.utool import Timer, get_vector, dump, load, pairing, get_distance, rss, ss,\
     set_vector, discrete_hist2d, weighted_quantile, expand_shape
 from rur.readhtm import readhtm as readh
 from rur import uri
-from rur.config import Table
+from rur.config import Table, tqdm
 from scipy.stats import mode
 from numpy.lib.recfunctions import append_fields, drop_fields, merge_arrays
 import gc
 import string
 from glob import glob
-if(type_of_script() == 'jupyter'):
-    from tqdm.notebook import tqdm
-else:
-    from tqdm import tqdm
 import warnings
 from multiprocessing import Process, Queue
 from time import sleep
@@ -286,8 +282,8 @@ class PhantomTree:
                 rank_range = slice((ilook - 1) * rankup, ilook * rankup)
                 # record descendent halos and number of particles sent, sorted by rank
                 if(ilook<=buffer):
-                    desc_idx, npass_arr = PhantomTree.find_desc(part_pool[np.array([0, ilook])],
-                                                                prog_n=sizes[0], next_n=sizes[ilook], rankup=rankup)
+                    desc_idx, npass_arr = PhantomTree.find_desc(
+                        part_pool[np.array([0, ilook])], prog_n=sizes[0], next_n=sizes[ilook], rankup=rankup)
                     desc_ids[rank_range] = halo_ids[ilook-1][desc_idx]
                     desc_ids[rank_range][desc_idx==-1] = -1
                     npass[rank_range] = npass_arr
@@ -348,7 +344,7 @@ class PhantomTree:
         return desc_idx, npass
 
     @staticmethod
-    def merge_ptree(repo, iout_max, path_in_repo=path_in_repo, ptree_file=ptree_file, ptree_file_format=ptree_file_format, skip_jumps=False):
+    def merge_ptree(repo, iout_max, path_in_repo=path_in_repo, ptree_file=ptree_file, ptree_file_format=ptree_file_format, skip_jumps=False, dtype_id='i8'):
         dirpath = os.path.join(repo, path_in_repo)
         iout = iout_max
         ptree = []
@@ -371,31 +367,47 @@ class PhantomTree:
             raise FileNotFoundError('No ptree file found in %s' % dirpath)
 
         ptree = np.concatenate(ptree)
-        ptree = PhantomTree.set_pairing_id(ptree)
+        ptree = PhantomTree.set_pairing_id(ptree, dtype_id=dtype_id)
 
         dump(ptree, os.path.join(dirpath, ptree_file))
 
     @staticmethod
-    def set_pairing_id(ptree, save_hmid=True):
-        if(np.max(ptree['timestep'])*np.max(ptree['id'])+1 < 65535):
-            warnings.warn("Max ID from halo is too big; You probably need to replace pairing id to 64-bit integer.")
-
-        halo_uid = pairing(ptree['timestep'], ptree['id'], ignore=-1)
-        if(save_hmid):
-            hmid = ptree['id']
-            ptree = append_fields(ptree, 'hmid', hmid, usemask=False)
+    def set_pairing_id(ptree, save_hmid=True, dtype_id='i8'):
+        #if(np.max(ptree['timestep'])*np.max(ptree['id'])+1 < 65535):
+        #    raise ValueError("Max ID from halo is too big; You probably need to replace pairing id to 64-bit integer.")
+        # desc_arr = np.full(ptree['desc'].shape, -1, dtype='i8')
+        print("Setting halo id from pairing function...")
+        halo_uid = pairing(ptree['timestep'].astype(dtype_id), ptree['id'].astype(dtype_id), ignore=-1)
 
         lookup, rankup = ptree['desc'].shape[-2:]
         lookup += 1
 
         iouts = np.unique(ptree['timestep'])
         np.sort(iouts)
+        iouts_next = np.zeros((np.max(iouts+1), lookup-1), dtype='i4')
+        for ilook in range(1, lookup):
+            # set array indicates next iout
+            iouts_next[iouts[:-ilook], ilook-1] = iouts[ilook:]
 
-        for ilook in np.arange(1, lookup):
-            idxs = np.searchsorted(iouts, ptree['timestep']) + ilook
-            iout_desc = np.select([idxs<iouts.size, True], [iouts[np.minimum(idxs, iouts.size-1)], -1])
-            ptree['desc'][:, ilook-1] = pairing(expand_shape(iout_desc, 0, 2), ptree['desc'][:, ilook-1], ignore=-1)
+        iout_desc = iouts_next[ptree['timestep']][..., np.newaxis]
+        desc_arr = pairing(iout_desc.astype(dtype_id), ptree['desc'].astype(dtype_id), ignore=-1)
+
+        #for ilook in np.arange(1, lookup):
+        #    idxs = np.searchsorted(iouts, ptree['timestep']) + ilook
+        #    iout_desc = np.select([idxs<iouts.size, True], [iouts[np.minimum(idxs, iouts.size-1)], -1])
+        #    desc_arr[:, ilook-1] = pairing(expand_shape(iout_desc, 0, 2), ptree['desc'][:, ilook-1], ignore=-1)
+        print("Rewriting array...")
+        ptree_add = np.zeros(ptree.shape, dtype=[('id', dtype_id), ('desc', 'i8', (lookup-1, rankup))])
+
+        if(save_hmid):
+            hmid = ptree['id']
+            ptree = append_fields(ptree, 'hmid', hmid, usemask=False)
+
+        ptree = drop_fields(ptree, ['id', 'desc'], usemask=False)
+        ptree = merge_arrays([ptree, ptree_add], usemask=False, flatten=True)
         ptree['id'] = halo_uid
+        ptree['desc'] = desc_arr
+
         return ptree
 
     @staticmethod
@@ -405,7 +417,7 @@ class PhantomTree:
         ptree.sort(order='id')
         if(overwrite):
             ptree = drop_fields(ptree, names, usemask=False)
-        id_ini = np.full(ptree.size, -1, dtype='i4')
+        id_ini = np.full(ptree.size, -1, dtype='i8')
         score_ini = np.zeros(ptree.size, dtype='f8')
         ptree = append_fields(
             ptree, names,
@@ -478,8 +490,8 @@ class PhantomTree:
         names = ['nprog', 'ndesc', 'first', 'last', 'first_rev', 'last_rev']
         if(overwrite):
             ptree = drop_fields(ptree, names, usemask=False)
-        id_ini = np.full(ptree.size, -1, dtype='i4')
-        num_ini = np.zeros(ptree.size, dtype='i4')
+        id_ini = np.full(ptree.size, -1, dtype='i8')
+        num_ini = np.zeros(ptree.size, dtype='i8')
         ptree = append_fields(
             ptree, names,
             [num_ini, num_ini, id_ini, id_ini, id_ini, id_ini], usemask=False)
@@ -487,27 +499,33 @@ class PhantomTree:
         def search_tree_reverse(son_name, fat_name, last_name, nprog_name):
             ptree.sort(order=son_name)
             id_key = np.argsort(ptree['id'])
+
             # first fill end-nodes (leafs and roots)
+            # nodes without son indicates they are either roots or branches
             last_idx = np.where(ptree[son_name]==-1)[0]
-            ptree[last_name][last_idx] = ptree['id'][last_idx]
+            ptree[last_name] = ptree['id']
+            #ptree[last_name][last_idx] = ptree['id'][last_idx]
 
             t = tqdm(total=ptree.size)
-            ptree[last_name] = ptree['id']
             stat = [0, 0, 0]
             while last_idx.size > 0:
                 t.update(last_idx.size)
 
                 # leave only nodes referenced by other node as son
+                # if none referenced, they are no longer alive (end of branch)
                 last_idx = last_idx[np.isin(ptree[last_idx]['id'], ptree[son_name])]
                 now = ptree[last_idx]
                 my_id = now['id']
 
-                #find the range of idx of other nodes where pointing itself as a son
+                # count the number of progenitors
+                # find the range of idx of other nodes where pointing itself as a son
                 lidxs = np.searchsorted(ptree[son_name], my_id, side='left')
                 ridxs = np.searchsorted(ptree[son_name], my_id, side='right')
                 ptree[nprog_name][last_idx] = ridxs - lidxs
 
+                # find my father index (unique)
                 fat_idx = id_key[np.searchsorted(ptree['id'], now[fat_name], sorter=id_key)]
+                # check if there is any mutual link (fat & son directing each other)
                 mask_mutual = (now[fat_name] != -1) & (my_id == ptree[son_name][fat_idx])
 
                 # if there's no mutually linked node, select the progenitor with highest score

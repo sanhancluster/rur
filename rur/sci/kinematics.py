@@ -1,7 +1,10 @@
 from rur.uri import *
+from scipy.interpolate import LinearNDInterpolator, CloughTocher2DInterpolator, NearestNDInterpolator
+from scipy.fft import rfft
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize
 import gc
 from multiprocessing import Process, Queue, Pool
-from tqdm import tqdm
 from rur import uhmi
 from numpy.lib.recfunctions import merge_arrays, append_fields
 
@@ -17,7 +20,7 @@ def sig_rad(part: RamsesSnapshot.Particle, gal):
     vrad = np.sum(vrel * rrel, axis=-1) / utool.rss(rrel)
     return np.std(vrad)
 
-def measure_amon(part: uri.RamsesSnapshot.Particle, gal):
+def measure_amon(part: RamsesSnapshot.Particle, gal):
     vcen = get_vector(gal, 'v')
     rcen = get_vector(gal)
 
@@ -129,299 +132,142 @@ def vel_spherical(part: RamsesSnapshot.Particle, gal, pole):
 
 #    return jrot/jcire
 
-def measure_radius_2d(ts, iout_start, ages_target=np.arange(11.624, 0, -0.25), nbins=100, gal_minmass=1E8, mass_cut_refine=2.4E-11, sfr_measure_Myr=100., nangles=100., sb_lim=26.5):
-
-    def measure_galaxy(gal, line):
-        line = line.copy()
-
-        # load star / dm partciels
-        snap_now.set_box_halo(gal, radius=1., radius_name='r')
-        snap_now.get_part(exact_box=False)
-        dm = snap_now.part['dm']
-        star = snap_now.part['star']
-        smbh = snap_now.part['smbh']
-
-        gal_star = star
-        if(star.size == 0):
-            return line
-
-        # match galaxy member stars only
-        gal_mask = part_pool[np.abs(star['id'])] == idxs[halomaker['id'] == gal['hmid']][0]
-        if(np.sum(gal_mask)==0):
-            print('no galaxy star detected.', gal['hmid'], gal['timestep'])
-            return line
-        gal_star = star[gal_mask]
-
-        # measure magnitude
-        mags = phot.measure_magnitude(gal_star, filter_name='SDSS_r', total=False)
-        lums = 10**(-mags/2.5)
-
-        rholm_arr = []
-        coo = gal_star['pos']-uri.get_vector(gal)
-        for proj in [[0, 1], [0, 2], [1, 2]]:
-            dists = utool.rss(coo[:, proj])
-            dist_bins = np.linspace(0, gal['r'], nbins)
-            sbarr = []
-            for rmin, rmax in zip(dist_bins[:-1], dist_bins[1:]):
-                mask = (rmin < dists) & (dists < rmax)
-                if(np.sum(mask) == 0):
-                    continue
-                lums_bin = lums[mask]
-                abslum = np.sum(lums_bin)
-                absmag = -2.5*np.log10(abslum)
-                area_pc2 = np.pi*(rmax**2-rmin**2)/snap_now.unit['pc']**2
-                rbin = np.average(dists[mask], weights=lums_bin)
-                sb = surface_brightness(absmag, area_pc2)
-                sbarr.append([rbin, sb])
-            sbarr = np.array(sbarr)
-
-            mask = sbarr[:, 1] > sb_lim
-            if(np.all(mask)): # too faint
-                rholm = sbarr[0, 0]
-            elif(np.sum(mask) == 0): # too bright
-                rholm = sbarr[-1, 0]
-            else:
-                rank = np.arange(mask.size)[mask][0]
-                rholm = np.interp(sb_lim, sbarr[rank-1:rank+1, 1], sbarr[rank-1:rank+1, 0])
-
-            mask = dists < rholm
-            lums_mask = lums[mask]
-            dists_mask = dists[mask]
-
-            r50 = utool.weighted_quantile(dists_mask, 0.5, sample_weight=lums_mask)
-            r90 = utool.weighted_quantile(dists_mask, 0.9, sample_weight=lums_mask)
-
-            rholm_arr.append([rholm, r90, r50])
-        rholm_arr = np.array(rholm_arr)
-
-        # set galaxy radius as median value of multiple projections
-        rholm = np.mean(rholm_arr[:, 0])
-        r90 = np.mean(rholm_arr[:, 1])
-        r50 = np.mean(rholm_arr[:, 2])
-
-        star_rholm = uri.cut_halo(gal_star, gal, rholm, use_halo_radius=False)
-        mags_rholm = phot.measure_magnitude(star_rholm, filter_name='SDSS_r', total=False)
-        lums_rholm = 10**(-2.5/mags_rholm)
-        dists = utool.get_distance(gal, star_rholm)
-
-        sfr = np.sum(star_rholm[star_rholm['age', 'Myr']<sfr_measure_Myr]['m', 'Msol']) / (sfr_measure_Myr*1E6)
-
-        age = np.average(star_rholm['age', 'Gyr'], weights=star_rholm['m'])
-        tform = np.median(snap_now.age-star_rholm['age', 'Gyr'])
-        metal = np.average(star_rholm['metal'], weights=star_rholm['m'])
-
-        dm_rholm = uri.cut_halo(dm, gal, rholm, use_halo_radius=False)
-        contam = np.sum(dm_rholm[dm_rholm['m']>mass_cut_refine]['m'])/np.sum(dm_rholm['m'])
-
-        bh_r90 = uri.cut_halo(smbh, gal, r90, use_halo_radius=False)
-
-        line['sfr'] = sfr
-        line['r90_2d'] = r90
-        line['r50_2d'] = r50
-
-        r90 = utool.weighted_quantile(dists, 0.9, sample_weight=star_rholm['m'])
-        r50 = utool.weighted_quantile(dists, 0.5, sample_weight=star_rholm['m'])
-        line['r90'] = r90
-        line['r50'] = r50
-
-        line['rholm'] = rholm
-
-        line['nparts'] = star_rholm.size
-        line['contam'] = contam
-        line['age'] = age
-        line['tform'] = tform
-        line['metal'] = metal
-
-        # Measure BHs
-        if(bh_r90.size>0):
-            bh_max = bh_r90[np.argmax(bh_r90['m'])]
-            mbh = bh_max['m', 'Msol']
-            bh_offset = utool.get_distance(gal, bh_max)
-
-            line['mbh'] = mbh
-            line['bh_offset'] = bh_offset
-
-        keys = np.argsort(dists)
-        star_rholm = star_rholm[keys]
-        lums_rholm = lums_rholm[keys]
-        dists = dists[keys]
-        bins = np.concatenate([dists[::dists.size//nbins+1], [dists[-1]]])
-        dist_bin_idx = np.searchsorted(dists, bins)
-        amon_tot = np.sum(measure_amon(star_rholm, gal), axis=0)
-
-        profile = line['profile']
-        for rmin, rmax, ibin in zip(dist_bin_idx[:-1], dist_bin_idx[1:], np.arange(nbins)):
-            slice_star = star_rholm[rmin:rmax]
-            slice_lums = lums_rholm[rmin:rmax]
-            if(slice_star.size==0):
-                continue
-            profile['m'][ibin] = np.sum(slice_star['m', 'Msol'])
-            profile['sig'][ibin] = utool.rss(weighted_std(slice_star['vel', 'km/s'], axis=0, weights=slice_lums))/np.sqrt(3.)
-            profile['rbin'][ibin] = bins[ibin+1]
-
-            coo_sph = coo_spherical(slice_star, gal, amon_tot)
-
-            profile['sig_rad'][ibin] = weighted_std(coo_sph[:, 0], weights=slice_lums)
-            profile['sig_phi'][ibin] = weighted_std(coo_sph[:, 1], weights=slice_lums)
-            profile['sig_theta'][ibin] = weighted_std(coo_sph[:, 2], weights=slice_lums)
-
-            profile['v_rot'][ibin] = np.average(coo_sph[:, 1], weights=slice_lums)
-
-            profile['age'][ibin] = np.average(slice_star['age', 'Gyr'], weights=slice_star['m'])
-            profile['tform'][ibin] = np.median(snap_now.age-slice_star['age', 'Gyr'])
-            profile['metal'][ibin] = np.average(slice_star['metal'], weights=slice_star['m'])
-
-            amon = measure_amon(slice_star, gal)
-            profile['Lx'][ibin] = np.sum(amon[:, 0])
-            profile['Ly'][ibin] = np.sum(amon[:, 1])
-            profile['Lz'][ibin] = np.sum(amon[:, 2])
-            profile['lum'][ibin] = np.sum(slice_lums)
-        line['profile'] = profile
-        return line
-
-    def measure_galaxies(gal_slice, line_slice, q):
-        for gal, line, idx in zip(gal_slice, line_slice, np.arange(line_slice.size)):
-            line_slice[idx] = measure_galaxy(gal, line)
-        q.put(line_slice)
-
-    if(isinstance(ts, uri.RamsesSnapshot)):
-        ts = uri.TimeSeries(ts)
-
-    # set snapshot
-    snap = ts[iout_start]
-
-    # get age-iout matching array
-    ages = []
-    for iout in np.arange(1, iout_start+1):
-        try:
-            ages.append([iout, ts[iout].age])
-        except FileNotFoundError:
-            continue
-    ages = np.array(ages)
-
-    # find timesteps that matches with ages_target
-    iouts_target = []
-    for age in ages_target:
-        iouts_target.append(ages[np.argmin(np.abs(ages[:, 1]-age)), 0])
-    iouts_target = np.array(iouts_target)
-
-    # load ptree file
-    ptree = uhmi.PhantomTree.load(snap, ptree_file='ptree_stable.pkl')
-
-    # sort aexp and iouts
-    iouts = np.sort(np.unique(ptree['timestep']))
-
-    # load particle id list as sample
-    part_ids = uhmi.HaloMaker.load(snap, galaxy=True, load_parts=True, path_in_repo='galaxy_local')[1]
-
-    # set up pool (hid array) for member filtering
-    max_part_size = int(np.max(part_ids) * 1.2)
-    part_pool = np.full(max_part_size, -1, dtype='i4')
-
-    # set dtypes and names
-    profile_names = ['rbin', 'm', 'sig', 'sig_rad', 'sig_phi', 'sig_theta', 'age', 'tform', 'metal', 'Lx', 'Ly', 'Lz', 'lum', 'v_rot']
-    extras = ['sfr', 'rholm', 'r90', 'r90_2d', 'r50', 'r50_2d', 'contam', 'age', 'tform', 'metal', 'mbh', 'bh_offset']
-
-    profile_dtype = {
-        'names': profile_names,
-        'formats': ['f8'] * len(profile_names),
-    }
-    dtype = {
-        'names': ['profile'] + extras,
-        'formats': [(profile_dtype, nbins)] + ['f8'] * len(extras)
-    }
-    dtype = np.dtype(dtype)
-
-    # leave target timestpes only
-    ptree_target = ptree[np.isin(ptree['timestep'], iouts_target)]
-    ptree_target = ptree_target[ptree_target['m']>gal_minmass]
-    output_table = np.zeros(ptree_target.size, dtype=dtype)
-
-    output_table = merge_arrays([ptree_target, output_table], usemask=False, flatten=True)
-    output_table = np.sort(output_table, order='id')
-
-    # main loop over timesteps
-    for iout in iouts_target:
-        uri.verbose=1
-
-        # mask and sort snapshot gals
-        mask = ptree_target['timestep'] == iout
-        gals = ptree_target[mask]
-        print('iout = %d, ngals = %d' % (iout, gals.size))
-        if(gals.size == 0):
-            continue
-        gals.sort(order='hmid')
-
-        # load halomaker data (particle id list)
-        snap_now = ts[iout]
-        halomaker, part_ids = uhmi.HaloMaker.load(snap_now, galaxy=True, load_parts=True, path_in_repo='galaxy_local')
-
-        idxs = np.arange(halomaker.size)
-        halomaker_idx = np.repeat(idxs, halomaker['nparts'])
-
-        # pre-load domains from halo position
-        cpulist = snap_now.get_halos_cpulist(gals, radius=1.05, radius_name='r', n_divide=5)
-        snap_now.get_part(cpulist=cpulist)
-
-        # initialize pool
-        part_pool[:] = -1
-        part_pool[part_ids] = halomaker_idx
-        uri.timer.verbose = 0
-
-        # loop over galaxies
-        # Multiprocessing implemented
-        nproc = 36 # Max. number of jobs
-        nchunk = 1 # number of chunk size for jobs to be divided
-
-        njobs = int(np.ceil(gals.size/nchunk))
-        iterator = tqdm(np.arange(njobs), ncols=100)
-
-        jobs = []
-        q = Queue()
-        for i in iterator:
-            while True:
-                for idx in np.arange(len(jobs))[::-1]:
-                    if (not jobs[idx].is_alive()):
-                        jobs.pop(idx)
-                if (len(jobs) >= nproc):
-                    sleep(0.5)
-                else:
-                    break
-
-            st, ed = i * nchunk, np.minimum((i+1)*nchunk, gals.size)
-            gal_slice = gals[st:ed]
-            galidxs = np.searchsorted(output_table['id'], gal_slice['id'])
-            line_slice = output_table[galidxs]
-
-            p = Process(target=measure_galaxies, args=(gal_slice, line_slice, q))
-            jobs.append(p)
-            p.start()
-            while not q.empty():
-                line_slice = q.get()
-                galidxs = np.searchsorted(output_table['id'], line_slice['id'])
-                output_table[galidxs] = line_slice
-        iterator.close()
-
-        ok = False
-        while not ok:
-            ok = True
-            for idx in np.arange(len(jobs)):
-                if (jobs[idx].is_alive()):
-                    ok = False
-                if (not q.empty()):
-                    line_slice = q.get()
-                    galidxs = np.searchsorted(output_table['id'], line_slice['id'])
-                    output_table[galidxs] = line_slice
-                else:
-                    sleep(0.5)
-
-
-        uri.timer.verbose = 1
-        snap_now.clear()
-        gc.collect()
-    output_table = output_table[output_table['m']>gal_minmass]
-
-    return output_table
-
 def surface_brightness(absmag, area_pc2):
     return absmag + 2.5*np.log10(area_pc2) - 5 + 5 * np.log10(3600*180/np.pi)
+
+def rotate2d(p, angle=0, origin=(0, 0)):
+    R = np.array([[np.cos(angle), -np.sin(angle)],
+                  [np.sin(angle),  np.cos(angle)]])
+    o = np.atleast_2d(origin)
+    p = np.atleast_2d(p)
+    return np.squeeze((R @ (p.T-o.T) + o.T).T)
+
+class kinemetry:
+    # Kinemetry algorithm based on Krajnovic+ 2006
+    @staticmethod
+    def ellipse_sample(a, q, pa, n_sample=100, return_psi=False, draw=False, color='white'):
+        # return given number of sampling points from ellipse.
+        psi = np.linspace(0, 2*np.pi, n_sample + 1)[:-1]
+        x, y = a*np.cos(psi), a*q*np.sin(psi)
+        r, theta = np.sqrt(x**2+y**2), np.arctan2(y, x)
+        theta %= 2*np.pi
+        x, y = r*np.cos(theta + pa), r*np.sin(theta + pa)
+        coo = np.stack([x, y], axis=-1)
+
+        if(draw):
+            plt.plot(list(coo[:, 0])+[coo[0, 0]], list(coo[:, 1])+[coo[0, 1]], color=color, linewidth=1)
+            plt.scatter(coo[0, 0], coo[0, 1], color=color, s=5, zorder=100)
+
+        if(return_psi):
+            return coo, psi
+        else:
+            return coo
+
+    @staticmethod
+    def get_chisq(pars, a, lint, n_sample=100, n_subsample=5, a_width=0, moment='odd'):
+        q, pa = tuple(pars)
+        if(q < 0 or q > 1):
+            return np.inf
+        varr = []
+        if(a_width > 0):
+            for a_local in np.linspace(a-a_width, a+a_width, n_subsample):
+                coo = kinemetry.ellipse_sample(a_local, q, pa, n_sample)
+                v = lint(coo)
+                varr.append(v)
+            v = np.average(varr, axis=0)
+        else:
+            coo = kinemetry.ellipse_sample(a, q, pa, n_sample)
+            v = lint(coo)
+        ff = rfft(v)
+        if(moment == 'odd'):
+            return (ff[1].imag**2+np.sum(np.abs(ff[2:4])**2)) / ff[1].real**2
+        elif(moment == 'even'):
+            return np.var(v)
+
+    @staticmethod
+    def fit_ellipse(a, lint, points, weights, wlint=None, n_sample=100, init_iter=4, return_diff=True, moment='odd'):
+        mask = utool.rss(points) < a*2
+        if(np.sum(mask)>1):
+            points = points[mask]
+            weights = weights[mask]
+
+            q_init = 1.
+            pa_init = 0.
+            if(moment == 'odd'):
+                for _ in range(init_iter):
+
+                    coo_init = kinemetry.ellipse_sample(a, q_init, pa_init, n_sample)
+                    pa_offset = -np.angle(rfft(lint(coo_init))[1])
+                    pa_init = pa_init + pa_offset
+
+                    points_new = rotate2d(points, angle=-pa_init)
+                    std = utool.weighted_std(points_new, weights=weights, axis=0)
+                    q_init = np.divide(*std[::-1])
+                    q_init = np.clip(q_init, 0., 1.)
+
+            else:
+                x2b = np.average(points**2, axis=0)
+                xyb = np.average(np.product(points, axis=-1))
+                aa = np.sqrt(np.sum(x2b)/2 + np.sqrt((np.diff(x2b)/2)**2 + xyb**2))
+                b = np.sqrt(np.sum(x2b)/2 - np.sqrt((np.diff(x2b)/2)**2 + xyb**2))
+                pa_init = np.arctan2(2*xyb, -np.diff(x2b))/2
+
+                #aa, b, phi = phot.ellipse_fit(points, weights)
+                #pa_init = phi
+                q_init = b/aa
+                pa_init %= np.pi
+            coo_init = kinemetry.ellipse_sample(a, q_init, pa_init, n_sample)
+
+            if(wlint is not None):
+                width = np.average(wlint(coo_init))
+            else:
+                width = 0
+
+            #pars_init = q_init, pa_init, 0
+            #return pars_init, 0
+
+            fit = minimize(kinemetry.get_chisq, (q_init, pa_init), method='Nelder-Mead', args=(a, lint, n_sample, 5, width, moment))
+            pars = fit.x
+            pars[1] %= (np.pi*2)
+            chisq = kinemetry.get_chisq(pars, a, lint, n_sample, 5, width, moment)
+        else:
+            pars = np.nan, np.nan
+            q_init = np.nan
+            chisq = np.nan
+        if(return_diff):
+            diff = pars[0]/q_init
+            return pars, diff, chisq
+        else:
+            return pars
+
+    @staticmethod
+    def do_kinemetry(a_arr, points, values, weights, widths=None, n_sample=100, interpolate='linear', moment='odd'):
+        # a_arr: desired array of semi-major axis
+        # points: coordinates of values
+        # values: values to fit
+        # weights: weights for values
+
+        if(interpolate == 'linear'):
+            interpolator = LinearNDInterpolator
+        elif(interpolate == 'nearest'):
+            interpolator = NearestNDInterpolator
+        elif(interpolate == 'cubic'):
+            interpolator = CloughTocher2DInterpolator
+        else:
+            raise ValueError("Unknown interpolator: ", interpolate)
+
+        lint = interpolator(points, values)
+        if(widths is not None):
+            wlint = interpolator(points, widths)
+        else:
+            wlint = None
+
+        pars_arr = np.zeros(len(a_arr), dtype=[('a', 'f8'), ('q', 'f8'), ('PA', 'f8'), ('q_diff', 'f8'), ('chisq', 'f8')])
+        pars_arr['a'] = a_arr
+        for line in pars_arr:
+            pars, diff, chisq = kinemetry.fit_ellipse(line['a'], lint, points, weights, wlint, n_sample=n_sample, moment=moment)
+            line['q'] = pars[0]
+            line['PA'] = pars[1]
+            line['q_diff'] = diff
+            line['chisq'] = chisq
+        return pars_arr

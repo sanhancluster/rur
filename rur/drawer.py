@@ -509,7 +509,7 @@ def medplot(x, y, binarr, minnum=1, xyinv=False, line='med', face='qua', errbar=
 
     return xc, c
 
-def binned_plot(x, y, weights=None, bins=10, weighted_binning=False, mode=['median', 'line'], xmode='mean', errmode=['quatile', 'face'], xerrmode=None, error_dict={}, **kwargs):
+def binned_plot(x, y, weights=None, errors=None, bins=10, weighted_binning=False, mode=['median', 'line'], xmode='mean', errmode=['quatile', 'face'], xerrmode=None, error_dict={}, min_stat=1, **kwargs):
     if(weights is None):
         weights = np.full_like(y, 1.)
     key = np.argsort(x)
@@ -533,11 +533,15 @@ def binned_plot(x, y, weights=None, bins=10, weighted_binning=False, mode=['medi
     xarr, yarr = [], []
     xerr, yerr = [], []
     for ibin, ibot, itop in zip(np.arange(0, nbins), bins_idx[:-1], bins_idx[1:]):
-        if(itop - ibot < 1):
+        if(itop - ibot < min_stat):
             continue
         x_slice = x[ibot:itop]
         y_slice = y[ibot:itop]
         w_slice = weights[ibot:itop]
+        if(errors is not None):
+            e_slice = errors[ibot:itop]
+        if(np.sum(w_slice) == 0):
+            continue
 
         if(xmode == 'mean'):
             xbin = np.average(x_slice, weights=w_slice)
@@ -576,12 +580,15 @@ def binned_plot(x, y, weights=None, bins=10, weighted_binning=False, mode=['medi
         if(errmode[0] == 'quatile'):
             yqua = weighted_quantile(y_slice, [0.25, 0.75], sample_weight=w_slice)
             ye = np.abs(yqua - ybin)
-        elif(errmode[0] == 'sigma'):
+        elif(errmode[0] == '1sigma'):
             sig = 0.68269
             yqua = weighted_quantile(y_slice, [0.5-sig/2, 0.5+sig/2], sample_weight=w_slice)
             ye = np.abs(yqua - ybin)
         elif(errmode[0] == 'std'):
             ystd = weighted_std(y_slice, weights=w_slice)
+            ye = [ystd, ystd]
+        elif(errmode[0] == 'std_mean'):
+            ystd = weighted_std(y_slice, weights=w_slice)/np.sqrt(y_slice.size)
             ye = [ystd, ystd]
         else:
             ye = None
