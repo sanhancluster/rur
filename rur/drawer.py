@@ -397,23 +397,40 @@ def dtfe_img(x, y, lims, reso=100, weights=None, smooth=0):
     return grid
 
 
-def mosaic_mean(x, y, v, bins=10, range=None, minnum=0, stat=False, statmin=1, fmt="%.3f", fontsize=8, contour=False, **kwargs):
-    weig = np.histogram2d(x, y, bins, range, weights=v)[0].T
-    norm = np.histogram2d(x, y, bins, range)[0].T
-    mask = norm < minnum
-    arr = np.ma.masked_array((weig/norm), mask)
+def mosaic_stat(x, y, v, weights=None, bins=10, lims=None, minnum=0, statmode=None, show_number=False, statmin=1, fmt="%.3f", fontsize=8, contour=False, **kwargs):
+    if statmode is None:
+        statmode = 'mean'
+    bins = np.atleast_1d(bins)
+    stat = binned_stat(np.stack([x, y], axis=-1), v, bins, lims, weights=weights)
 
-    ims = plt.imshow(arr, origin='lower', extent=np.array(range).flatten(), **kwargs)
+    num = stat('num')
+    arr = stat(statmode)
+
+    mask = num < minnum
+    arr = np.ma.masked_array(arr, mask)
+
+    ims = plt.imshow(arr, origin='lower', extent=np.array(lims).flatten(), **kwargs)
     extent = ims.get_extent()
 
     if(contour):
-        hist_contour(x, y, lims=range, cmap=plt.cm.Greys, color='none', reso=100, sig_arr=[0.5, 1.5], filter_sigma=5, alpha=0.25, filled=True)
+        hist_contour(x, y, lims, cmap=plt.cm.Greys, color='none', reso=100, sig_arr=[0.5, 1.5], filter_sigma=5, alpha=0.25, filled=True)
 
-    if(stat):
-        for i in np.arange(bins):
-            for j in np.arange(bins)[::-1]:
-                if(norm[j, i] >= statmin):
-                    plt.text(extent[0] + (extent[1]-extent[0]) * i/bins, extent[2] + (extent[3]-extent[2]) * j/bins, (fmt+"\nN = %d") % ((weig/norm)[j, i], norm[j, i]), fontsize=fontsize, ha='left', va='bottom')
+    if(show_number):
+        for i in np.arange(bins[0]):
+            for j in np.arange(bins[1]):
+                if(num[j, i] >= statmin):
+                    tx, ty = (extent[0] + (extent[1] - extent[0]) * i / bins)[0], \
+                             (extent[2] + (extent[3] - extent[2]) * j / bins)[-1]
+                    if(statmode == 'mean'):
+                        std = stat('std')
+                        text = (fmt+"±"+fmt+"\nN = %d") % (arr[j, i], std[j, i], num[j, i])
+                        plt.text(tx, ty, text, fontsize=fontsize, ha='left', va='bottom')
+                    elif(statmode == 'median'):
+                        if(num[j, i] == 0):
+                            print(arr[j, i])
+                        u, l = stat('quantile', 0.75) - stat(statmode), stat(statmode) - stat('quantile', 0.25)
+                        text = (fmt+"$^{+"+fmt+"}_{-"+fmt+"}"+"$\nN = %d") % (arr[j, i], u[j, i], l[j, i], num[j, i])
+                        plt.text(tx, ty, text, fontsize=fontsize, ha='left', va='bottom')
 
     return ims
 

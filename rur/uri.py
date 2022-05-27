@@ -321,7 +321,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 elif (self.mode == 'yzics'):
                     self.part_dtype = part_dtype['yzics_dm_only']
             if(self.longint):
-                if(self.mode == 'iap' or self.mode == 'gem' or self.mode == 'fornax' or self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4'):
+                if(self.mode == 'iap' or self.mode == 'gem' or self.mode == 'fornax' or self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4' or self.mode == 'nc'):
                     self.part_dtype = part_dtype['gem_longint']
         else:
             self.params['star'] = True
@@ -386,7 +386,10 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             timer.start('Reading %d part files (%s) in %s... ' % (cpulist.size, utool.format_bytes(filesize), self.path), 1)
 
             progress_bar = cpulist.size > progress_bar_limit and timer.verbose >= 1
-            readr.read_part(self.snap_path, self.iout, cpulist, self.mode, progress_bar, self.longint)
+            mode = self.mode
+            if mode == 'nc':
+                mode = 'y4'
+            readr.read_part(self.snap_path, self.iout, cpulist, mode, progress_bar, self.longint)
             timer.record()
 
             if(self.longint):
@@ -565,10 +568,25 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         readr.close()
         return arr
 
+    def search_sinkprops(self, path_in_repo='SINKPROPS'):
+        sinkprop_regex = re.compile(r'sink_\s*(?P<icoarse>\d+).dat')
+        path = join(self.repo, path_in_repo)
+        sinkprop_names = glob.glob(join(path, sinkprop_glob))
+        if(timer.verbose>=1):
+            print('Found %d sinkprop files' % len(sinkprop_names))
 
-    def read_sinkprop(self, path_in_repo='', icoarse=None, drag_part=True, raw_data=False, return_aexp=False):
+        icoarses = []
+        for name in sinkprop_names:
+            matched = sinkprop_regex.search(name)
+            icoarses.append(int(matched.group('icoarse')))
+        return np.array(icoarses)
+
+    def read_sinkprop(self, path_in_repo='SINKPROPS', icoarse=None, drag_part=True, raw_data=False, return_aexp=False):
         if(icoarse is None):
-            icoarse = self.nstep_coarse-1
+            icoarses = self.search_sinkprops(path_in_repo)
+            icoarse = icoarses[np.argmin(np.abs((self.nstep_coarse) - icoarses))]
+            if(icoarse != self.nstep_coarse):
+                warnings.warn('Targeted SINKPROP file not found with icoarse = %d\nFile with icoarse = %d loaded instead.')
         path = join(self.repo, path_in_repo)
         check = join(path, sinkprop_format.format(icoarse=icoarse))
         if(not exists(check)):
@@ -585,7 +603,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             dtype = sink_prop_dtype
         if(self.mode == 'fornax'):
             dtype = sink_prop_dtype_drag_fornax
-        if(self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4'):
+        if(self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4' or self.mode == 'nc'):
             dtype = sink_prop_dtype_drag_y2
         if(len(arr) != len(dtype)):
             readr.close()
@@ -603,22 +621,16 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
     def read_sinkprops(self, path_in_repo='SINKPROPS', drag_part=True, use_cache=False, cache_name='sinkprops.pkl',
                        reset_cache=False, cache_format='pkl', progress=False):
-        sinkprop_regex = re.compile(r'sink_\s*(?P<icoarse>\d+).dat')
+        icoarses = self.search_sinkprops(path_in_repo)
         path = join(self.repo, path_in_repo)
-        sinkprop_names = glob.glob(join(path, sinkprop_glob))
-        if(timer.verbose>=1):
-            print('Found %d sinkprop files' % len(sinkprop_names))
 
-        icoarses = []
-        for name in sinkprop_names:
-            matched = sinkprop_regex.search(name)
-            icoarses.append(int(matched.group('icoarse')))
-
+        cache = None
         if(use_cache and not reset_cache):
             cache_file =join(path, cache_name)
             if(exists(cache_file)):
                 cache = utool.load(cache_file, format=cache_format)
-                if(np.all(np.isin(icoarses, np.unique(cache['icoarse'])))):
+                icoarses = icoarses[~np.isin(icoarses, np.unique(cache['icoarse']))]
+                if(icoarses.size == 0):
                     print('Found cached file: %s' % cache_file)
                     return cache
 
@@ -659,7 +671,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             dtype = sink_prop_dtype
         if(self.mode == 'fornax'):
             dtype = sink_prop_dtype_drag_fornax
-        if(self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4'):
+        if(self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4' or self.mode == 'nc'):
             dtype = sink_prop_dtype_drag_y2
         if(len(arr) != len(dtype)):
             readr.close()
@@ -672,6 +684,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
         timer.record()
         readr.close()
+        if cache is not None:
+            sink = np.concatenate([cache, sink])
 
         if(reset_cache or use_cache):
             cache_file =join(path, cache_name)
@@ -978,6 +992,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             print('Total number of cells: %d' % cell.size)
             gas_tot = np.sum(cell['rho'] * (cell['dx'])**3) / self.unit['Msol']
             print('Total gas mass: %.3e Msol' % gas_tot)
+            print('Max. gas density    : %.3e H/cc' % np.max(self.cell['rho', 'H/cc']))
+            print('Max. gas temperature: %.3e K' % np.max(self.cell['T', 'K']))
             if('refmask' in cell.dtype.names):
                 contam = 1.-np.sum(cell[cell['refmask']>0.01]['m'])/np.sum(cell['m'])
                 if(contam>0.):
@@ -1304,6 +1320,7 @@ def match_part_to_cell(part, cell, n_search=16):
     return idx_cell
 
 def match_tracer(tracer, cell, n_jobs=-1, min_dist_pc=1, use_cell_size=False):
+    # match MC gas tracer particles to cell
     timer.start("Matching %d tracers and %d cells..." % (tracer.size, cell.size), 1)
     tree = KDTree(tracer['pos'])
     dists, idx_tracer = tree.query(cell['pos'], p=1, n_jobs=n_jobs)
@@ -1522,6 +1539,7 @@ class GraficLevel(object):
         self.coo = ((idxarr + off_arr / self.header['dx']) * dx)[:, :, :, [1, 0, 2]]
 
     def read_file(self, fname):
+        # reads grafic2 file format
         ff = FortranFile(join(self.repo, fname))
         header = ff.read_record(grafic_header_dtype)
 
@@ -1539,6 +1557,7 @@ class GraficLevel(object):
         return self.header[key]
 
 class GraficIC(object):
+    # an object to manage multi-level grafic IC
     def __init__(self, repo=None, level_repos=None, levels=None, read_pos=True):
         self.repo = repo
         self.ic = []

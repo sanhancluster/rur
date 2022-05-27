@@ -14,6 +14,55 @@ class mgal_mbh:
 
     __call__ = evaluate
 
+class mgal_mdmh:
+    def guo(m, c=0.129, m_0=10 ** 11.4, alpha=0.926, beta=0.261, gamma=2.440):
+        # from Guo et al. (2010)
+        return c * ((m / m_0) ** -alpha + (m / m_0) ** beta) ** (-gamma)
+
+    def moster(m, z=0.):
+        #  Stellar-to-halo mass relation from Moster et al. (2010)
+        table = np.array(
+            [
+                (0.0, 11.88, 0.02, 0.0282, 0.0005, 1.06, 0.05, 0.05, 0.56, 0.00),
+                (0.5, 11.95, 0.24, 0.0254, 0.0047, 1.37, 0.22, 0.27, 0.55, 0.17),
+                (0.7, 11.93, 0.23, 0.0215, 0.0048, 1.18, 0.23, 0.28, 0.48, 0.16),
+                (0.9, 11.98, 0.24, 0.0142, 0.0034, 0.91, 0.16, 0.19, 0.43, 0.12),
+                (1.1, 12.05, 0.18, 0.0175, 0.0060, 1.66, 0.26, 0.31, 0.52, 0.40),
+                (1.5, 12.15, 0.30, 0.0110, 0.0044, 1.29, 0.25, 0.32, 0.41, 0.41),
+                (1.8, 12.28, 0.27, 0.0116, 0.0051, 1.53, 0.33, 0.41, 0.41, 0.41),
+                (2.5, 12.22, 0.38, 0.0130, 0.0037, 0.90, 0.20, 0.24, 0.30, 0.30),
+                (3.5, 12.21, 0.19, 0.0101, 0.0020, 0.82, 0.72, 1.16, 0.46, 0.21),
+            ], dtype=[('z', 'f8'), ('m1', 'f8'), ('m1err', 'f8'), ('mm0', 'f8'), ('mm0err', 'f8'),
+                      ('beta', 'f8'), ('betaep', 'f8'), ('betaem', 'f8'), ('gamma', 'f8'), ('gammaerr', 'f8')])
+
+        m1 = 10. ** np.interp(z, table['z'], table['m1'])
+        mm0 = np.interp(z, table['z'], table['mm0'])
+        beta = np.interp(z, table['z'], table['beta'])
+        gamma = np.interp(z, table['z'], table['gamma'])
+
+        return 2 * mm0 * ((m / m1) ** -beta + (m / m1) ** gamma) ** -1
+
+    def behroozi(mh, z):
+        #  Stellar-to-halo mass relation from Behroozi et al. (2013)
+        exp = np.exp
+        logmh = np.log10(mh)
+        a = 1. / (1. + z)
+
+        nu = exp(-4 * a ** 2)
+
+        logeps = -1.777 + (-0.006 * (a - 1)) * nu - 0.119 * (a - 1)
+        logm1 = 11.514 + (-1.793 * (a - 1) - 0.251 * z) * nu
+
+        alpha = -1.412 + (0.731 * (a - 1)) * nu
+        delta = 3.508 + (2.608 * (a - 1) - 0.043 * z) * nu
+        gamma = 0.316 + (1.319 * (a - 1) + 0.279 * z) * nu
+
+        f = lambda x: -np.log10(10 ** (alpha * x) + 1) + delta * np.log10(1 + exp(x)) ** gamma / (1 + exp(10 ** -x))
+
+        logmg = logeps + logm1 + f(logmh - logm1) - f(0)
+
+        return 10. ** (logmg - logmh)
+
 class mgal_size:
 
     def V14(self, mlog, z=0, shape='circular', radius_type=1, gal_type='late', return_error=False): # van der Wel+ 2014 (SDSS)
@@ -65,3 +114,10 @@ class mgal_size:
             else:
                 return out
 
+class mgal_sfr:
+    @staticmethod
+    def W14(logm, z=0): # Whitaker+ 2014
+        alpha = 0.70 - 0.13 * z
+        beta = 0.38 + 1.14 * z - 0.19 * z**2
+        log_sfr = alpha * (logm - 10.5) + beta
+        return log_sfr

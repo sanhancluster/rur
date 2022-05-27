@@ -989,9 +989,9 @@ def get_tickvalues(range, nticks=4):
         ticks = ticks.astype(int)
     return ticks
 
-def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_unit='kpc', mode=['star', 'gas'], show_smbh=True,
-           savefile=None, part_method='hist', align=True, age_cut=None, center=None, proj=[0, 1], smbh_minmass=1E4,
-           smbh_labels=True, figsize=(10, 5), dpi=150, vmaxs=None, qscales=None, phot_filter='SDSS_u', shape=1000):
+def viewer(snap:uri.RamsesSnapshot, gal=None, source=None, rank=1, hmid=None, radius=10, radius_unit='kpc', mode=['star', 'gas'], show_smbh=True,
+           savefile=None, part_method='hist', align=False, age_cut=None, center=None, proj=[0, 1], smbh_minmass=1E4, interp_order=1,
+           smbh_labels=True, figsize=(10, 5), dpi=150, vmaxs=None, qscales=None, phot_filter='SDSS_u', shape=1000, drag_part=True):
     # Simple galaxy viewer integrated with GalaxyMaker data.
 
     cell = None
@@ -1029,16 +1029,19 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
         'sdss':  None,
     }
 
-
+    if (source is not None and gal is not None):
+        warn("Getting data from %s, ignoring predefined gal..." % source)
     if (source == 'GalaxyMaker'):
-        if(gal is not None):
-            warn("Getting data from %s, ignoring predefined gal..." % source)
-        gals = uhmi.HaloMaker.load(snap, path_in_repo='galaxy', galaxy=True)
+        gals = uhmi.HaloMaker.load(snap, path_in_repo='galaxy', galaxy=True, double_precision=True)
         gals = np.sort(gals, order='m')
         if(hmid is not None):
             gal = gals[gals['hmid']==hmid]
         else:
             gal = gals[-rank]
+    elif(source == 'SINKPROPS'):
+        sinks = snap.read_sinkprop(drag_part=drag_part)
+        sinks.sort(order='m')
+        gal = sinks[-rank]
 
     if (radius_unit in snap.unit):
         radius = radius * snap.unit[radius_unit]
@@ -1129,18 +1132,18 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
             mode_label = 'DM'
         elif (mode_now == 'gas' or mode_now == 'rho'):
             draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='crho', cmap=ccm.hesperia,
-                                interp_order=1, unit='Msol/pc2')
+                                interp_order=interp_order, unit='Msol/pc2')
             mode_label = 'Gas - Density'
         elif (mode_now == 'temp' or mode_now == 'T'):
             draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='T', cmap=ccm.hesperia, unit='K')
             mode_label = 'Gas - Temperature'
         elif (mode_now == 'dust'):
             draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='dust', cmap=ccm.lacerta,
-                                interp_order=1)
+                                interp_order=interp_order)
             mode_label = 'Gas - Dust'
         elif (mode_now == 'metal'):
             draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='metal', cmap=ccm.lacerta,
-                                interp_order=1)
+                                interp_order=interp_order)
             mode_label = 'Gas - Metallicity'
         else:
             raise ValueError('Unknown mode: ', mode_now)
@@ -1150,14 +1153,20 @@ def viewer(snap, gal=None, source=None, rank=1, hmid=None, radius=10, radius_uni
             else:
                 labels = None
             draw_smbhs(smbh, proj=proj_now, labels=labels, color='gray',
-                       fontsize=7, mass_range=[4, 8])
+                       fontsize=7, mass_range=[4, 8], facecolor='none', s=100)
         set_ticks_unit(snap, proj_now, 'kpc')
         if(icol == 0):
             if (gal is not None):
-                dr.axlabel('M$_*$ = %.3e M$_{sol}$' % gal['m'], 'left top', color='white', fontsize=10)
+                if(source == 'SINKPROPS'):
+                    dr.axlabel('M$_{BH}$ = %.3e M$_{sol}$' % (gal['m']/snap.unit['Msol']), 'left top', color='white', fontsize=10)
+                elif(source == 'GalaxyMaker'):
+                    dr.axlabel('M$_*$ = %.3e M$_{sol}$' % gal['m'], 'left top', color='white', fontsize=10)
+                else:
+                    dr.axlabel('M = %.3e M$_{sol}$' % gal['m'], 'left top', color='white', fontsize=10)
             dr.axlabel('z = %.3f' % snap.z, 'right top', color='white', fontsize=10)
         if(mode_label is not None):
             dr.axlabel(mode_label, 'left bottom', color='white', fontsize=10)
+
 
     if (savefile is not None):
         save_figure(savefile)
