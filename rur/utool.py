@@ -467,10 +467,12 @@ class discrete_stat(object):
 
     def eval_sum(self, use_weights=True):
         if(self.cache['sum'] is None):
-            to_sum = self.y
+            y = self.y[self.valid_slice]
             if(use_weights):
-                to_sum *= self.weights
-            self.cache['sum'] = self.apply_at_idx(to_sum)
+                to_add = y * self.weights[self.valid_slice]
+            else:
+                to_add = y.copy()
+            self.cache['sum'] = self.apply_at_idx(to_add, use_valid_slice=False)
         return self.cache['sum']
 
     def eval_mean(self):
@@ -650,7 +652,8 @@ class kde_stat(object):
 def k_partitioning(centers_init, points, weights,
                    gamma=2.0, scale=1.0, iterations=10, target_std=0.,
                    fail_threshold=(0.05, 5), n_nei=6, n_jobs=-1, verbose=False):
-    # voronoi binning with equal weights
+    # finds an effective solution for Voronoi binning with equal weights
+
     def replace(centers):
         centers = centers.copy()
         tree = KDTree(centers)

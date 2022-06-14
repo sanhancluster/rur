@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from rur import uri, painter, uhmi, drawer
+from rur import drawer
 from matplotlib.colors import LogNorm
 
 solar_frac = {
@@ -13,6 +13,7 @@ solar_frac = {
     'S' : 0.02126050,
     'Fe': 0.08884559,
 }
+solar_abundance = solar_frac
 
 def O_over_Fe(data, total=False):
     solar_OFe = 0.39389979 / 0.08884559

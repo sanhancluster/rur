@@ -452,6 +452,12 @@ contains
         logical,               intent(in) :: drag_part
         character(len=10),     intent(in) :: mode
 
+        ! possible sinkprop data formats
+        ! default: 1 integer, 22 real
+        ! fornax: 1 integer, 23 real
+        ! nh2: 1 integer, 26 real
+        ! +drag part: +2 integer, +12 real
+
         sink_n = 40
         call close()
 
@@ -469,7 +475,7 @@ contains
             nint = 1
         end if
         if(mode == 'fornax') nreal = nreal + 1
-        if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4') nreal = nreal + 4
+        if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc') nreal = nreal + 4
         allocate(real_table(1:nsink, 1:nreal))
         allocate(integer_table(1:nsink, 1:nint))
 
@@ -482,7 +488,7 @@ contains
             read(sink_n) real_table(:, ireal)
             ireal = ireal + 1
         end do
-        if(mode == 'fornax' .or. mode == 'y2' .or. mode == 'y3' .or. mode == 'y4') then
+        if(mode == 'fornax' .or. mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc') then
             read(sink_n) real_table(:, ireal)
             ireal = ireal + 1
         end if
@@ -500,7 +506,7 @@ contains
                 ireal = ireal + 1
             end do
         end if
-        if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4') then
+        if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc') then
             do i=1,3
                 read(sink_n) real_table(:, ireal)
                 ireal = ireal + 1

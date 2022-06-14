@@ -3,10 +3,6 @@ from scipy.interpolate import LinearNDInterpolator, CloughTocher2DInterpolator, 
 from scipy.fft import rfft
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
-import gc
-from multiprocessing import Process, Queue, Pool
-from rur import uhmi
-from numpy.lib.recfunctions import merge_arrays, append_fields
 
 # This module contains useful functions related to galaxy kinematics.
 

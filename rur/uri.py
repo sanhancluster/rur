@@ -171,6 +171,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.box_part = None
 
     def switch_iout(self, iout):
+        # returns to other snapshot while maintaining repository, box, etc.
         return RamsesSnapshot(self.repo, iout, self.mode, self.box, self.path_in_repo, snap=self, longint=self.longint)
 
     def __getitem__(self, item):
@@ -185,6 +186,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         return self.data_path.format(type=type, icpu=icpu)
 
     def set_cosmology(self, params=None, n=5000, snap=None):
+        # calculates cosmology table with given cosmology paramters
         if(params is None):
             params = self.params
 
@@ -225,6 +227,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         return aexp
 
     def aexp_to_dtdu(self, aexp):
+        # returns dt over du (derivative of proper time t in function of ramses time unit u)
         return aexp**2 / (self['H0'] * km * Gyr / Mpc)
 
     def set_extra_fields(self):
@@ -586,7 +589,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             icoarses = self.search_sinkprops(path_in_repo)
             icoarse = icoarses[np.argmin(np.abs((self.nstep_coarse) - icoarses))]
             if(icoarse != self.nstep_coarse):
-                warnings.warn('Targeted SINKPROP file not found with icoarse = %d\nFile with icoarse = %d loaded instead.')
+                warnings.warn('Targeted SINKPROP file not found with icoarse = %d\nFile with icoarse = %d loaded instead.' % (self.nstep_icoarse, icoarse))
         path = join(self.repo, path_in_repo)
         check = join(path, sinkprop_format.format(icoarse=icoarse))
         if(not exists(check)):
@@ -904,6 +907,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
 
     def get_halos_cpulist(self, halos, radius=3., use_halo_radius=True, radius_name='rvir', n_divide=4):
+        # returns cpulist that encloses given list of halos
         cpulist = []
         for halo in halos:
             if(use_halo_radius):
@@ -925,6 +929,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         return np.unique(self.pcmap[ids]).astype('i8')
 
     def diag(self):
+        # prints a brief description of the current status of snapshot.
         dm_tot = 0
         star_tot = 0
         gas_tot = 0
@@ -1031,6 +1036,7 @@ def write_parts_rockstar(part: RamsesSnapshot.Particle, snap: RamsesSnapshot, fi
 
 def write_snaps_rockstar(repo: str, start: int, end: int, mode='none',
                          path_in_repo='snapshots', ncpu=48, min_halo_particles=100):
+    # write particles in format that can be read by Rockstar
     path = join(repo, 'rst')
     dm_flist = []
     star_flist = []
@@ -1084,6 +1090,7 @@ def write_snaps_rockstar(repo: str, start: int, end: int, mode='none',
             opened.write('MIN_HALO_PARTICLES = %d\n' % min_halo_particles)
 
 def save_part_cpumap(snap, full_box=False, icpu_dtype='u2', path_in_repo='pcmap', mode='init', filename='%s_cpumap_%05d.pkl'):
+    # writes cpumap that tells what particle belongs to which cpu
     if(full_box):
         snap.box = None
     snap.get_part()
@@ -1458,6 +1465,7 @@ def compute_boundary(cpumap, cpulist):
     return np.concatenate([bound, [cpumap.size]])
 
 class GraficLevel(object):
+    # an object to read grafic ic file of specific level
     def __init__(self, level_repo, level=None, read_pos=True):
         self.repo = level_repo
         self.read_pos = read_pos

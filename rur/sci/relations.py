@@ -3,18 +3,26 @@ from scipy.interpolate import interp2d
 
 @staticmethod
 class mgal_mbh:
+    # galaxy-BH mass relation
     params_dict = {
         'RV15a': [1.05, 1E11, 7.45], # Reines & Volonteri 2015 (AGNs)
         'RV15b': [1.40, 1E11, 8.95], # Reines & Volonteri 2015 (E/CBs)
         'BM19':  [1.64, 1E11, 7.88], # Baron & Ménard 2019 (All?)
     }
-    def evaluate(self, tag):
+    def evaluate(self, tag, logscale=False):
         params = self.params_dict[tag]
-        return lambda mgal: 10**(params[0]*np.log10(params[1])+params[2])
+        if(not logscale):
+            return lambda mgal: 10**(params[0]*np.log10(params[1])+params[2])
+        else:
+            return lambda mgal: (params[0]*np.log10(params[1])+params[2])
 
     __call__ = evaluate
 
+class msigma:
+
+
 class mgal_mdmh:
+    # stellar to halo mass ratio
     def guo(m, c=0.129, m_0=10 ** 11.4, alpha=0.926, beta=0.261, gamma=2.440):
         # from Guo et al. (2010)
         return c * ((m / m_0) ** -alpha + (m / m_0) ** beta) ** (-gamma)
@@ -63,8 +71,10 @@ class mgal_mdmh:
 
         return 10. ** (logmg - logmh)
 
-class mgal_size:
+    evaluate()
 
+class mgal_size:
+    # mass-size relation
     def V14(self, mlog, z=0, shape='circular', radius_type=1, gal_type='late', return_error=False): # van der Wel+ 2014 (SDSS)
         if(shape == 'circular'):
             table_16 = [
@@ -115,6 +125,7 @@ class mgal_size:
                 return out
 
 class mgal_sfr:
+    # star formation main sequence
     @staticmethod
     def W14(logm, z=0): # Whitaker+ 2014
         alpha = 0.70 - 0.13 * z
