@@ -334,12 +334,12 @@ contains
             nreal = 2*ndim + 12
             nint = 4
             nbyte = 2
-        elseif(mode == 'y3') then ! New RAMSES version that includes family, tag
+        elseif(mode == 'y3') then ! New RAMSES version that includes family, tag, 8 chems, stellar densities
             nreal = 2*ndim + 13
             nint = 4
             nbyte = 2
             nchem = 8
-        elseif(mode == 'y4') then ! New RAMSES version that includes family, tag
+        elseif(mode == 'y4' .or. mode == 'nc') then ! New RAMSES version that includes family, tag, 9 chems, stellar densities
             nreal = 2*ndim + 14
             nint = 4
             nbyte = 2
@@ -403,7 +403,7 @@ contains
                 integer_table(npart_c:npart_c+npart-1, pint) = icpu
 
             elseif(mode == 'iap' .or. mode == 'gem' .or. mode == 'none' .or. mode == 'fornax' &
-                & .or. mode == 'y2' .or. mode == 'y3' .or. mode == 'y4') then
+                & .or. mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc') then
                 ! family, tag
                 read(part_n) byte_table(npart_c:npart_c+npart-1, 1)
                 read(part_n) byte_table(npart_c:npart_c+npart-1, 2)
@@ -421,13 +421,14 @@ contains
                         end do
                     end if
                     if(mode == 'y3' .or. mode == 'y4') then
-                        ! Stellar densities
+                        ! Stellar densities at formation
                         read(part_n) real_table(npart_c:npart_c+npart-1, 2*ndim+nchem+5)
                     end if
                 else
                     real_table(npart_c:npart_c+npart-1, 2*ndim+2:2*ndim+3) = 0d0
                 end if
                 if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4') then
+                    ! Parent indices
                     read(part_n) integer_table(npart_c:npart_c+npart-1, pint+1)
                 end if
 

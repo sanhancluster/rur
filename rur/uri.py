@@ -273,7 +273,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             line = opened.readline().strip()
             matched = int_regex.search(line)
             if(not matched):
-                raise ValueError("A line in the info file not recognized: %s" % line)
+                raise ValueError("A line in the info file is not recognized: %s" % line)
             params[matched.group('name')] = int(matched.group('data'))
 
         opened.readline()
@@ -283,7 +283,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             line = opened.readline().strip()
             matched = float_regex.search(line)
             if(not matched):
-                raise ValueError("A line in the info file not recognized: %s" % line)
+                raise ValueError("A line in the info file is not recognized: %s" % line)
             params[matched.group('name')] = float(matched.group('data'))
 
         # some cosmological calculations

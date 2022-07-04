@@ -109,7 +109,7 @@ def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, sub
     known_lvls = np.arange(minlvl, maxlvl+1)
 
     if(verbose>=1):
-        print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl), basebin * 2**(maxlvl-minlvl))
+        print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl), (basebin * 2.**(maxlvl-minlvl)).astype(int))
     timer.start('Drawing Refinement Level Map... ', 1)
 
     if(shape is None):
@@ -160,8 +160,7 @@ def draw_lvlmap(cell, box=None, proj=[0, 1], shape=None, minlvl=None, maxlvl=Non
 
     draw_image(image, np.concatenate(box_proj), vmax=maxlvl, vmin=minlvl, normmode='linear', **kwargs)
 
-def set_weights(mode, cell, unit, depth):
-    quantity = None
+def set_weights(mode, cell, unit, depth, weights=None, quantity=None):
     if (mode == 'v'):
         # averge mass-weighted velocity along LOS
         weights = cell['rho']
@@ -191,15 +190,16 @@ def set_weights(mode, cell, unit, depth):
         # column density along LOS
         weights = np.full(cell.size, 1)
         quantity = cell['rho', unit] * depth
-    else:
+    elif (mode != 'custom'):
         weights = np.full(cell.size, 1)
-    if(quantity is None):
+    if(quantity is None and mode != 'custom'):
         quantity = cell[mode, unit]
 
     return quantity, weights
 
-def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, interp_order=0):
-    if(box is None and isinstance(cell, uri.RamsesSnapshot.Cell)):
+def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True,
+           interp_order=0, weights=None, quantity=None):
+    if(box is None and hasattr(cell, 'snap')):
         box = cell.snap.box
 
     lvl = cell['level']
@@ -213,12 +213,14 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
         shape = np.array(shape)
 
     known_lvls = np.unique(lvl)
+    print(known_lvls, minlvl, maxlvl)
     minlvl, maxlvl, basebin, edge = set_bins(known_lvls, minlvl, maxlvl, box_proj, shape)
+    print(known_lvls, minlvl, maxlvl)
 
     known_lvls = np.arange(minlvl, np.max(known_lvls)+1)
 
     if(verbose>=1):
-        print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl), basebin * 2**(maxlvl-minlvl))
+        print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl), (basebin * 2.**(maxlvl-minlvl)).astype(int))
     timer.start('Drawing gas map... ', 1)
 
     if(shape is None):
@@ -228,11 +230,13 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
     depth_map = np.zeros(basebin)
     depth = np.diff(box[los(proj)])
 
+    qc, wc = set_weights(mode, cell, unit, depth, weights, quantity)
+
     for ilvl in known_lvls:
         mask = lvl==ilvl
         cell_lvl = cell[mask]
-
-        qm, wm = set_weights(mode, cell_lvl, unit, depth)
+        qm = qc[mask]
+        wm = wc[mask]
 
         xm = get_vector(cell_lvl)
 
@@ -373,11 +377,13 @@ def velmap(data, box=None, proj=[0, 1], shape=500, unit=None, minlvl=None, maxlv
         image_out /= data.snap.unit[unit]
     return image_out
 
-def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, interp_order=0, **kwargs):
-    if(box is None and isinstance(cell, uri.RamsesSnapshot.Cell)):
+def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho', unit=None, minlvl=None, maxlvl=None,
+                subpx_crop=True, interp_order=0, weights=None, quantity=None, **kwargs):
+    if(box is None and hasattr(cell, 'snap')):
         box = cell.snap.box
 
-    image = gasmap(cell, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl, subpx_crop=subpx_crop, interp_order=interp_order)
+    image = gasmap(cell, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl,
+                   subpx_crop=subpx_crop, interp_order=interp_order, weights=weights, quantity=quantity)
 
     box_proj = get_box_proj(box, proj)
     if extent is None:
@@ -386,7 +392,7 @@ def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho',
     return draw_image(image, extent=extent, **kwargs)
 
 def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True):
-    if(box is None and isinstance(tracer_part, uri.RamsesSnapshot.Particle)):
+    if(box is None and hasattr(tracer_part, 'snap')):
         box = tracer_part.snap.box
 
     lvl = tracer_part['level']
@@ -448,7 +454,7 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
     return image.T
 
 def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True, **kwargs):
-    if(box is None and isinstance(tracer_part, uri.RamsesSnapshot.Particle)):
+    if(box is None and hasattr(tracer_part, 'snap')):
         box = tracer_part.snap.box
 
     image = tracermap(tracer_part, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl, subpx_crop=subpx_crop)
@@ -514,7 +520,7 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
 
 
 def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=None, unit=None, method='hist', smooth=16, crho=False, angles=None, **kwargs):
-    if(box is None and isinstance(part, uri.RamsesSnapshot.Particle)):
+    if(box is None and hasattr(part, 'snap')):
         box = part.snap.box
 
     image = partmap(part, box, proj, shape, weights, unit, method, smooth=smooth, crho=crho, angles=None)
@@ -583,7 +589,7 @@ def draw_contour(image, extent, vmin=None, vmax=None, qscale=None, normmode='log
 
 def draw_points(points, box=None, proj=[0, 1], color=None, label=None, fontsize=None, fontcolor=None, s=None, **kwargs):
     x = get_vector(points)
-    if(box is None and isinstance(points, uri.RamsesSnapshot.Particle)):
+    if(box is None and hasattr(points, 'snap')):
         box = points.snap.box
     else:
         box = default_box
