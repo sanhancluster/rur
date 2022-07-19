@@ -19,6 +19,9 @@ import glob
 import re
 
 class TimeSeries(object):
+    """
+    A class to manage multiple snapshots in the same repository
+    """
     def __init__(self, snap):
         self.snaps = {}
         self.basesnap = snap
@@ -918,10 +921,11 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             cpulist.append(get_cpulist(box, None, self.levelmax, self.bound_key, self.ndim, n_divide))
         return np.unique(np.concatenate(cpulist))
 
-    def get_pcmap_cpulist(self, ids, path_in_repo='pcmap', mode='init', filename='%s_cpumap_%05d.pkl'):
+    def get_cpulist_from_part(self, ids, path_in_repo='part_cpumap', mode='init', filename='%s_cpumap_%05d.pkl'):
         """
         reads particle-cpumap file (if there's any) and returns appropriate cpulist of domains
         that encompass selected id list of paritcles
+        mode can either be 'init'(dm + tracer) or 'star'
         """
         if(self.pcmap is None):
             path = join(self.repo, path_in_repo, filename % (mode, self.iout))
@@ -1089,12 +1093,12 @@ def write_snaps_rockstar(repo: str, start: int, end: int, mode='none',
 
             opened.write('MIN_HALO_PARTICLES = %d\n' % min_halo_particles)
 
-def save_part_cpumap(snap, full_box=False, icpu_dtype='u2', path_in_repo='pcmap', mode='init', filename='%s_cpumap_%05d.pkl'):
+def save_part_cpumap(snap, full_box=False, icpu_dtype='u2', path_in_repo='part_cpumap', mode='init', filename='%s_cpumap_%05d.pkl'):
     # writes cpumap that tells what particle belongs to which cpu
     if(full_box):
         snap.box = None
     snap.get_part()
-    if(mode == 'init'):
+    if(mode == 'init'): # dm and tracer
         part = snap.part['init']
     elif(mode == 'star'):
         part = snap.part['star']

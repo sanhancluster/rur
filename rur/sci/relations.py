@@ -18,8 +18,6 @@ class mgal_mbh:
 
     __call__ = evaluate
 
-class msigma:
-
 
 class mgal_mdmh:
     # stellar to halo mass ratio

@@ -213,9 +213,7 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
         shape = np.array(shape)
 
     known_lvls = np.unique(lvl)
-    print(known_lvls, minlvl, maxlvl)
     minlvl, maxlvl, basebin, edge = set_bins(known_lvls, minlvl, maxlvl, box_proj, shape)
-    print(known_lvls, minlvl, maxlvl)
 
     known_lvls = np.arange(minlvl, np.max(known_lvls)+1)
 
