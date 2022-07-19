@@ -15,12 +15,13 @@ from mpl_toolkits import mplot3d
 
 import pickle5 as pickle
 
-from fortran.find_domain_py import find_domain_py
-from fortran.get_ptcl_py import get_ptcl_py
-from fortran.get_flux_py import get_flux_py
-from fortran.jsamr2cell_totnum_py import jsamr2cell_totnum_py
-from fortran.jsamr2cell_py import jsamr2cell_py
-from fortran.js_gasmap_py import js_gasmap_py
+
+from rur.vr.fortran.find_domain_py import find_domain_py
+#from rur.vr.fortran.get_ptcl_py import get_ptcl_py
+#from rur.vr.fortran.get_flux_py import get_flux_py
+from rur.vr.fortran.jsamr2cell_totnum_py import jsamr2cell_totnum_py
+from rur.vr.fortran.jsamr2cell_py import jsamr2cell_py
+from rur.vr.fortran.js_gasmap_py import js_gasmap_py
 
 ##-----
 ## General Settings
