@@ -2,7 +2,7 @@ import numpy as np
 import h5py
 import os
 import os.path
-import pickle
+import pickle5 as pickle
 import pkg_resources
 
 from scipy import interpolate
@@ -11,6 +11,7 @@ import scipy.integrate as integrate
 
 from rur.vr.fortran.find_domain_py import find_domain_py
 from rur.vr.fortran.get_ptcl_py import get_ptcl_py
+from rur.vr.fortran.get_flux_py import get_flux_py
 
 class vr_load:
 
@@ -21,6 +22,7 @@ class vr_load:
         self.num_thread = int(num_thread)   # The number of cores
         self.simtype    = simtype
         self.dir_table  = pkg_resources.resource_filename('rur', 'vr/table/')
+        self.ssp_type   = 'chab'
 
         ##-----
         ## Specify configurations based on the simulation type
@@ -193,7 +195,7 @@ class vr_load:
             p_metal=False, p_id=False, raw=False, boxrange=50., domlist=[0], num_thread=None):
 
         # Get funtions
-        gf  = vr_getftns(dir_raw=self.dir_raw, dir_table=self.dir_table)
+        gf  = vr_getftns(self)
 
         # Initial settings
         if(p_gyr==False and p_flux==True): p_gyr=True
@@ -318,7 +320,7 @@ class vr_load:
             ('vx', '<f8'), ('vy', '<f8'), ('vz', '<f8'),
             ('mass', '<f8'), ('sfact', '<f8'), ('gyr', '<f8'), ('metal', '<f8')]
         for name in self.vr_fluxlist:
-            dtype   += [(name, '<f8')]
+            dtype   += [('f_' + name, '<f8')]
 
         ptcl    = np.zeros(np.int32(n_new), dtype=dtype)
 
@@ -339,20 +341,22 @@ class vr_load:
             ptcl['gyr'][:]  = gyr['gyr'][:]
             ptcl['sfact'][:]= gyr['sfact'][:]
 
-        ##---- COMPUTE FLUX
-        #if(p_flux==True):
-        #    for name in flux_list:
-        #        ptcl[name][:] = g_flux(ptcl['mass'][:], ptcl['metal'][:], ptcl['gyr'][:],name)[name]
+        #---- COMPUTE FLUX
+        if(p_flux==True):
+            for name in self.vr_fluxlist:
+                ptcl['f_' + name][:] = gf.g_flux(ptcl['mass'][:], ptcl['metal'][:], ptcl['gyr'][:],name)[name]
 
         return ptcl, rate, domlist, idlist
 
+##-----
+## Call FTNs
+##-----
 class vr_getftns:
-    def __init__(self, dir_raw=None, dir_table=None):
-        self.dir_raw    = dir_raw
-        self.dir_table  = dir_table
-        self.H0         = np.double(np.loadtxt(self.dir_raw+'output_00001/info_00001.txt', dtype=object, skiprows=10, max_rows=1)[2])
-        self.omega_M    = np.double(np.loadtxt(self.dir_raw+'output_00001/info_00001.txt', dtype=object, skiprows=11, max_rows=1)[2])
-        self.omega_L    = np.double(np.loadtxt(self.dir_raw+'output_00001/info_00001.txt', dtype=object, skiprows=12, max_rows=1)[2])
+    def __init__(self, vrobj):
+        self.vrobj      = vrobj
+        self.H0         = np.double(np.loadtxt(self.vrobj.dir_raw+'output_00001/info_00001.txt', dtype=object, skiprows=10, max_rows=1)[2])
+        self.omega_M    = np.double(np.loadtxt(self.vrobj.dir_raw+'output_00001/info_00001.txt', dtype=object, skiprows=11, max_rows=1)[2])
+        self.omega_L    = np.double(np.loadtxt(self.vrobj.dir_raw+'output_00001/info_00001.txt', dtype=object, skiprows=12, max_rows=1)[2])
 
     ##-----
     ## Compute Gyr from conformal time
@@ -360,7 +364,7 @@ class vr_getftns:
     def g_gyr(self, n_snap, t_conf):
 
         # Initial Settings
-        aexp    = np.double(np.loadtxt(self.dir_raw+'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt", dtype=object, skiprows=9, max_rows=1)[2])
+        aexp    = np.double(np.loadtxt(self.vrobj.dir_raw+'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt", dtype=object, skiprows=9, max_rows=1)[2])
         H0      = self.H0
         omega_M = self.omega_M
         omega_L = self.omega_L
@@ -396,7 +400,7 @@ class vr_getftns:
         oL     = self.omega_L
 
         # reference path is correct?
-        fname   = self.dir_table + 'cft_%0.5d'%(H0*1000.) + '_%0.5d'%(oM*100000.) + '_%0.5d'%(oL*100000.) + '.pkl'
+        fname   = self.vrobj.dir_table + 'cft_%0.5d'%(H0*1000.) + '_%0.5d'%(oM*100000.) + '_%0.5d'%(oL*100000.) + '.pkl'
         isfile = os.path.isfile(fname)
         if(isfile==True):
             with open(fname, 'rb') as f:
@@ -427,7 +431,7 @@ class vr_getftns:
         oM     = self.omega_M
         oL     = self.omega_L
 
-        fname   = self.dir_table + 'gyr_%0.5d'%(H0*1000.) + '_%0.5d'%(oM*100000.) + '_%0.5d'%(oL*100000.) + '.pkl'
+        fname   = self.vrobj.dir_table + 'gyr_%0.5d'%(H0*1000.) + '_%0.5d'%(oM*100000.) + '_%0.5d'%(oL*100000.) + '.pkl'
         isfile = os.path.isfile(fname)
 
         if(isfile==True):
@@ -446,5 +450,84 @@ class vr_getftns:
 
             with open(fname, 'wb') as f:
                 pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
+
+        return data
+
+    ##-----
+    ## Compute flux
+    ##-----
+    def g_flux_ssptable(self):
+
+        ssp_type    = self.vrobj.ssp_type
+        fname       = self.vrobj.dir_table + 'ssp_' + ssp_type + '.pkl'
+        isfile      = os.path.isfile(fname)
+
+        if(isfile==True):
+            with open(fname, 'rb') as f:
+                data = pickle.load(f)
+        else:
+            dname   = self.vrobj.dir_table + 'ssp_' + ssp_type
+
+            metal   = np.loadtxt(dname + '/metal.txt', dtype='<f8')
+            age     = np.loadtxt(dname + '/age.txt', dtype='<f8')
+            lambd   = np.loadtxt(dname + '/lambda.txt', dtype='<f8')
+
+            tr_curve    = []
+            for name in flux_list:
+                fname2  = dname + '/' + name + '_tr.txt'
+                tr_curve.append(np.loadtxt(fname2, dtype='<f8'))
+
+            flux    = np.zeros((len(metal), len(lambd), len(age)), dtype='<f8')
+            ind     = np.array(range(len(metal)),dtype='int32')
+            for i in ind:
+                fname2  = dname + '/flux_%0.1d'%i + '.txt'
+                dum     = np.array(np.loadtxt(fname2, dtype='<f8'))
+                dum     = np.reshape(dum, (len(age),len(lambd)))
+                dum     = np.transpose(dum)
+                flux[i,:,:] = dum
+
+            data    = {"metal":metal, "age":age, "lambda":lambd, "tr_curve":tr_curve, "flux":flux}
+
+            with open(fname, 'wb') as f:
+                pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
+        return data
+
+    def g_flux(self, mass, metal, age, fl_name):
+        #----- ALLOCATE
+        dtype   = ['']
+        for name in self.vrobj.vr_fluxlist:
+            dtype   += [(name, '<f8')]
+
+        dtype   = dtype[1:]
+        data    = np.zeros(len(mass), dtype=dtype)
+
+        #----- LOAD SSP TABLE
+        ssp = self.g_flux_ssptable()
+
+        #----- COMPUTE FLUX
+        larr    = np.zeros(20, dtype=np.int32)
+        darr    = np.zeros(20, dtype='<f8')
+        larr[0]     = np.int32(len(mass))
+        larr[1]     = np.int32(len(ssp['age']))
+        larr[2]     = np.int32(len(ssp['metal']))
+        larr[3]     = np.int32(len(ssp['lambda']))
+        larr[10]    = self.vrobj.num_thread
+
+        ind     = np.array(range(len(self.vrobj.vr_fluxlist)),dtype='int32')
+        for i in ind:
+            if(self.vrobj.vr_fluxlist[i]!=fl_name): continue
+            larr[4]     = np.int32(len(ssp['tr_curve'][:][i]))
+            get_flux_py.get_flux(age, metal, mass, ssp['age'], ssp['metal'], ssp['lambda'], ssp['flux'], ssp['tr_curve'][i][:,0], ssp['tr_curve'][i][:,1], larr, darr)
+
+            flux_tmp    = get_flux_py.flux * np.double(3.826e33) / (4. * np.pi * (10.0 * 3.08567758128e18)**2)
+
+            dlambda = ssp['tr_curve'][i][1:,0] - ssp['tr_curve'][i][:-1,0]
+            clambda = (ssp['tr_curve'][i][1:,0] + ssp['tr_curve'][i][:-1,0])/2.
+            trcurve = (ssp['tr_curve'][i][1:,1] + ssp['tr_curve'][i][:-1,1])/2.
+
+            flux0   = np.sum(dlambda * clambda * trcurve * self.vrobj.vr_fluxzp[i])
+
+            data[self.vrobj.vr_fluxlist[i]]    = flux_tmp / flux0
+
 
         return data

@@ -2,7 +2,7 @@
 
 f2py3 -m find_domain_py --fcompiler=gfortran --f90flags='-fopenmp' -lgomp -c find_domain_py.f90
 f2py3 -m get_ptcl_py --fcompiler=gfortran --f90flags='-fopenmp' -lgomp -c get_ptcl_py.f90
-#f2py3 -m get_flux_py --fcompiler=gfortran --f90flags='-fopenmp' -lgomp -c get_flux_py.f90
+f2py3 -m get_flux_py --fcompiler=gfortran --f90flags='-fopenmp' -lgomp -c get_flux_py.f90
 #f2py3 -m jsamr2cell_totnum_py --fcompiler=gfortran --f90flags='-fopenmp' -lgomp -c jsamr2cell_totnum_py.f90
 #f2py3 -m jsamr2cell_py --fcompiler=gfortran --f90flags='-fopenmp' -lgomp -c jsamr2cell_py.f90
 #f2py3 -m js_gasmap_py --fcompiler=gfortran --f90flags='-fopenmp' -lgomp -c js_gasmap_py.f90
