@@ -1,6 +1,6 @@
 !234567
 MODULE js_gasmap_py
-      REAL(KIND=8), DIMENSION(:,:), ALLOCATABLE :: map
+      REAL(KIND=8), DIMENSION(:,:,:), ALLOCATABLE :: map
 CONTAINS
 !234567
       SUBROUTINE js_gasmap(larr, darr, xx, yy, zz, bw, xr, yr)
@@ -24,8 +24,8 @@ CONTAINS
       INTEGER(KIND=4) nrx, nry, nx0, nx1, ny0, ny1, nx, ny
       INTEGER(KIND=4) amrtype
 
-      IF(ALLOCATED(map)) DEALLOCATE(map)
-      ALLOCATE(map(1:larr(2),1:larr(2)))
+      !IF(ALLOCATED(map)) DEALLOCATE(map)
+      IF(.NOT. ALLOCATED(map)) ALLOCATE(map(1:larr(2),1:larr(2),1:2))
       map = 0.
 
       n_cell = larr(1)
@@ -35,8 +35,6 @@ CONTAINS
 
       dx = (xr(2) - xr(1))/n_pix
       dy = (yr(2) - yr(1))/n_pix
-      !nrx= MAX(INT((INT(bw(1)/dx) + 1)/2),1)
-      !nry= MAX(INT((INT(bw(2)/dy) + 1)/2),1)
       nrx = INT(bw(1)/dx/2.) + 1
       nry = INT(bw(2)/dy/2.) + 1
 
@@ -69,29 +67,19 @@ CONTAINS
         DO k=ny0, ny1
           CALL grid_geometry(j, k, dx, dy, xr(1), yr(1), xx(i), yy(i), bw(1), bw(2), geometry)
 
-          IF(amrtype .EQ. 1) THEN !! TEMPERATURE
-            IF(geometry .GT. 0.) map(j,k) = MAX(map(j,k), zz(i,1))
-          ELSE IF(amrtype .EQ. 2) THEN !! DENSITY
-            map(j,k) = map(j,k) + zz(i,2)*bw(1)*geometry
-          ELSE IF(amrtype .EQ. 3) THEN !! Density-weighted TEMPERATURE
-            map(j,k) = map(j,k) + zz(i,2)*zz(i,1)*bw(1)*geometry
+          map(j,k,2)    = map(j,k,2) + zz(i,2) * geometry * bw(1)
+
+          IF(amrtype .EQ. 1) THEN !! Mass-weighted
+                  map(j,k,1) = map(j,k,1) + zz(i,1) * zz(i,2) * geometry * bw(1)
+          ELSE IF (amrtype .EQ. 2) THEN !! Volume-weighted
+                  map(j,k,1) = map(j,k,1) + zz(i,1) * geometry * bw(1)
+          ELSE IF (amrtype .EQ. 3) THEN !! MAX
+                  map(j,k,1) = MAX(map(j,k,1), zz(i,1))
           ENDIF
         ENDDO
         ENDDO
 
 
-        !  IF(amrtype .EQ. 1) THEN !! TEMPERATURE
-        !    IF(zz(i,1) .GT. map(j,k)) map(j,k) = zz(i,1)
-        !  ENDIF
-        !  IF(amrtype .EQ. 2) THEN !! DENSITY
-        !        map(j,k) = map(j,k) + zz(i,2)*bw(1)
-        !  ENDIF
-        !  IF(amrtype .EQ. 3) THEN !! DENSITY WEIGHTED TEMPERATURE
-        !    IF(zz(i,1)*zz(i,2)*bw(1) .GT. map(j,k)) map(j,k) = zz(i,1)*zz(i,2)*bw(1)
-        !        !map(j,k) = map(j,k) + zz(i,1) * zz(i,2)*bw(1)
-        !  ENDIF
-        !ENDDO
-        !ENDDO
       ENDDO
 
       END SUBROUTINE

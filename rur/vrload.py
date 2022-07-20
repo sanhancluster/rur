@@ -14,6 +14,7 @@ from rur.vr.fortran.get_ptcl_py import get_ptcl_py
 from rur.vr.fortran.get_flux_py import get_flux_py
 from rur.vr.fortran.jsamr2cell_totnum_py import jsamr2cell_totnum_py
 from rur.vr.fortran.jsamr2cell_py import jsamr2cell_py
+from rur.vr.fortran.js_gasmap_py import js_gasmap_py
 
 class vr_load:
 
@@ -439,7 +440,7 @@ class vr_load:
         #----- READ AMR (ALLOCATE)
         data    = np.zeros(ntot, dtype=[('xx','<f8'), ('yy','<f8'), ('zz','<f8'),
             ('vx','<f8'), ('vy','<f8'), ('vz','<f8'), ('dx','<f8'), ('mass', '<f8'),
-            ('den','<f8'), ('temp','<f8'), ('metal','<f8'), ('level','int32')])
+            ('den','<f8'), ('temp','<f8'), ('P_thermal','<f8'), ('metal','<f8'), ('level','int32')])
 
         ##----- READ AMR
         larr    = np.zeros(20, dtype=np.int32)
@@ -477,16 +478,126 @@ class vr_load:
         #data['mass'][:] = np.double(10.**(np.log10(hvdum[:,0]) + np.log10(unit_d) + np.double(3.0) * (np.log10(dxdum[:]) + np.log10(unit_l)) - np.log10(1.98892e33)))
         data['mass'][:] = hvdum[:,0] *unit_d * (dxdum[:] * unit_l)**3 / np.double(1.98892e33)
 
-
         data    = data[np.where(lvdum >= 0)]
         dumA = data['temp'][:]
         dumB = data['den'][:]
 
         data['temp'][:] = data['temp'][:] / data['den'][:] * unit_T2    # [K/mu]
         data['den'][:]  *= nH                                           # [atom/cc]
-        return data, boxrange
+        data['P_thermal'][:]    = dumA * unit_m / unit_l / unit_t**2 / np.double(1.3806200e-16)
+
+        units   = {'unit_l':unit_l, 'unit_m':unit_m, 'unit_t':unit_t, 'kms':kms, 'unit_nH':nH, 'unit_T2':unit_T2}
+        return data, boxrange, units
 
 
+##-----
+## Some basic drawing routines
+##-----
+class vr_draw:
+    def __init__(self, vrobj):
+        self.vrobj  = vrobj
+
+    ##-----
+    ## Draw Gas map
+    ##-----
+    def d_gasmap(self, n_snap, id0, cell2, amrtype=None, wtype=None, xr=None, yr=None, n_pix=None, minlev=None, maxlev=None, proj=None):
+
+
+        ##----- Settings
+        if(n_pix==None): n_pix      = 1000
+        if(amrtype==None): amrtype  = 'D'
+        if(wtype==None): wtype      = 'MW'
+        if(minlev==None): minlev    = self.vrobj.rtype_levmin
+        if(maxlev==None): maxlev    = self.vrobj.rtype_levmax
+        if(proj==None): proj        = 'xy'
+
+        cell    = cell2[0]
+        boxrange= cell2[1]
+        units   = cell2[2]
+
+        if(xr==None or yr==None):
+            galtmp  = self.vrobj.f_rdgal(n_snap, id0, horg='g')
+            xr  = np.array([-1, 1.],dtype='<f8') * boxrange + galtmp['Xc']
+            yr  = np.array([-1, 1.],dtype='<f8') * boxrange + galtmp['Yc']
+
+        gasmap  = np.zeros((n_pix,n_pix),dtype='<f8')
+        gasmap_t= np.zeros((n_pix,n_pix),dtype='<f8')
+
+        levind  = np.array(range(maxlev-minlev+1),dtype='int32') + minlev
+
+        ##----- Get cell data from each level
+        for lev in levind:
+            ind = np.where(cell['level'][:]==lev)
+            if(np.size(ind)==0): continue
+
+            if(proj=='xy'):
+                xx  = cell['xx'][ind]
+                yy  = cell['yy'][ind]
+            elif(proj=='xz'):
+                xx  = cell['xx'][ind]
+                yy  = cell['zz'][ind]
+
+            bw  = np.array([1.,1.], dtype='<f8')*cell['dx'][ind[0][0]]
+
+
+            ####----- Extract
+            var = np.zeros((np.size(ind),2),dtype='<f8')
+            var[:,1]    = cell['den'][ind]
+
+            if(amrtype=='D'): var[:,0]      = cell['den'][ind]  ## [/cc]
+            elif(amrtype=='T'): var[:,0]    = cell['temp'][ind] ## [K/mu]
+            elif(amrtype=='PT'): var[:,0]   = cell['P_thermal'][ind]
+            elif(amrtype=='PR'):
+                tvx = cell['vx'][ind] - galtmp['VXc']
+                tvy = cell['vy'][ind] - galtmp['VYc']
+                tvz = cell['vz'][ind] - galtmp['VZc']
+
+                txx = cell['xx'][ind] - galtmp['Xc']
+                tyy = cell['yy'][ind] - galtmp['Yc']
+                tzz = cell['zz'][ind] - galtmp['Zc']
+                vv2 = tvx**2 + tvy**2 + tvz**2
+
+                var[:,0]    = (cell['den'][ind]/units.unit_nH) * (vv2 / units.kms**2) * units.unit_m / units.unit_l / units.unit_t**2 / np.double(1.3806200e-16)
+                    ## [K/cm^-3]
+
+                ## Inward RP Only
+                ind2    = np.where(txx*tvx + tyy*tvy + tzz*tvz > 0)
+                if(np.size(ind)>0): var[ind2,0] = 0.
+
+            elif(amrtype=='Z'): var[:,0]    = cell['metal'][ind]
+
+
+            ####----- Collect map
+            larr    = np.zeros(20, dtype=np.int32)
+            darr    = np.zeros(20, dtype='<f8')
+
+            larr[0] = np.int32(np.size(ind))
+            larr[1] = np.int32(n_pix)
+            larr[2] = np.int32(self.vrobj.num_thread)
+
+            if(wtype=='MW'): larr[10] = 1
+            if(wtype=='VW'): larr[10] = 2
+            if(wtype=='MAX'):larr[10] = 3
+
+            js_gasmap_py.js_gasmap(larr, darr, xx, yy, var, bw, xr, yr)
+            #mapdum  = js_gasmap_py.map
+
+        mapdum  = js_gasmap_py.map
+
+        gasmap  = np.zeros((n_pix,n_pix),dtype='<f8')
+        gasmap_t= np.zeros((n_pix,n_pix),dtype='<f8')
+
+        gasmap      = mapdum[:,:,0]
+        gasmap_t    = mapdum[:,:,1]
+
+        if(wtype == 'MW'):
+            cut = np.where(gasmap_t > 0)
+            if(np.size(cut)>0): gasmap[cut] /= gasmap_t[cut]
+
+            cut = np.where(gasmap_t == 0)
+            if(np.size(cut)>0): gasmap[cut] = 0.
+
+        return gasmap
 
 ##-----
 ## Call FTNs
@@ -494,6 +605,17 @@ class vr_load:
 class vr_getftns:
     def __init__(self, vrobj):
         self.vrobj      = vrobj
+
+    ##-----
+    ## Get img
+    ##-----
+    def g_img(self, gasmap, scale=None):
+
+        if(scale=='log' or scale==None):
+            gasmap  = np.log10(gasmap + 1.)
+            gasmap  = gasmap/np.max(gasmap)
+            gasmap  = np.int32(gasmap * 255.)
+        return gasmap
 
     ##-----
     ## Compute Gyr from conformal time
