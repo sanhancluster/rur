@@ -12,6 +12,8 @@ import scipy.integrate as integrate
 from rur.vr.fortran.find_domain_py import find_domain_py
 from rur.vr.fortran.get_ptcl_py import get_ptcl_py
 from rur.vr.fortran.get_flux_py import get_flux_py
+from rur.vr.fortran.jsamr2cell_totnum_py import jsamr2cell_totnum_py
+from rur.vr.fortran.jsamr2cell_py import jsamr2cell_py
 
 class vr_load:
 
@@ -36,7 +38,6 @@ class vr_load:
             self.rtype_llint    = False     # Whether particle IDs are 64 byte integer
             self.rtype_family   = False     # Whether part_out contains family
             self.rtype_neff     = int(4096) # Effective resolution of the zoom region
-            self.rtype_ndomain  = int(4800) # The number of MPI domains
 
             # VR output related
             self.vr_columnlist  = ['ID', 'ID_mbp', 'hostHaloID', 'numSubStruct', 'Structuretype', 'Mvir', 'Mass_tot', 'Mass_FOF',
@@ -58,7 +59,6 @@ class vr_load:
             self.rtype_llint    = False     # Whether particle IDs are 64 byte integer
             self.rtype_family   = True     # Whether part_out contains family
             self.rtype_neff     = int(4096) # Effective resolution of the zoom region
-            self.rtype_ndomain  = int(480) # The number of MPI domains
 
             # VR output related
             self.vr_columnlist  = ['ID', 'ID_mbp', 'hostHaloID', 'numSubStruct', 'Structuretype', 'Mvir', 'Mass_tot', 'Mass_FOF',
@@ -81,7 +81,6 @@ class vr_load:
             self.rtype_llint    = False     # Whether particle IDs are 64 byte integer
             self.rtype_family   = True     # Whether part_out contains family
             self.rtype_neff     = int(2048) # Effective resolution of the zoom region
-            self.rtype_ndomain  = int(480) # The number of MPI domains
 
             # VR output related
             self.vr_columnlist  = ['ID', 'ID_mbp', 'hostHaloID', 'numSubStruct', 'Structuretype', 'Mvir', 'Mass_tot', 'Mass_FOF',
@@ -99,6 +98,17 @@ class vr_load:
             print(' Wrong argument for the simtype')
             print('     Simtype list: NH, NH2, FORNAX(or FN), NC(not yet)')
             print('%-----')
+
+        ##----- Simulation Parameter load
+        infofile    = self.dir_raw + 'output_00001/info_00001.txt'
+
+        self.H0             = np.double(np.loadtxt(infofile, dtype=object, skiprows=10, max_rows=1)[2])
+        self.omega_M        = np.double(np.loadtxt(infofile, dtype=object, skiprows=11, max_rows=1)[2])
+        self.omega_L        = np.double(np.loadtxt(infofile, dtype=object, skiprows=12, max_rows=1)[2])
+        self.rtype_ndomain  = np.int32( np.loadtxt(infofile, dtype=object, skiprows=0, max_rows=1)[2] )
+        self.rtype_ndim     = np.int32( np.loadtxt(infofile, dtype=object, skiprows=1, max_rows=1)[2] )
+        self.rtype_levmin         = np.int32( np.loadtxt(infofile, dtype=object, skiprows=2, max_rows=1)[2] )
+        self.rtype_levmax         = np.int32( np.loadtxt(infofile, dtype=object, skiprows=3, max_rows=1)[2] )
 
 
     ##-----
@@ -341,12 +351,142 @@ class vr_load:
             ptcl['gyr'][:]  = gyr['gyr'][:]
             ptcl['sfact'][:]= gyr['sfact'][:]
 
-        #---- COMPUTE FLUX
+        ##----- COMPUTE FLUX
         if(p_flux==True):
             for name in self.vr_fluxlist:
                 ptcl['f_' + name][:] = gf.g_flux(ptcl['mass'][:], ptcl['metal'][:], ptcl['gyr'][:],name)[name]
 
         return ptcl, rate, domlist, idlist
+
+
+    ##-----
+    ## LOAD CELL DATA around galaxies
+    ##-----
+    def f_rdamr(self, n_snap, id0, boxrange=None, raw=False, raw_xc=None, raw_yc=None, raw_zc=None):
+
+        ##----- Settings
+        if(boxrange==None): boxrange = 50.
+
+        ##----- Box Size Settings
+        galtmp  = self.f_rdgal(n_snap, id0, horg='g')
+        xr  = np.array([-1, 1.],dtype='<f8') * boxrange + galtmp['Xc']
+        yr  = np.array([-1, 1.],dtype='<f8') * boxrange + galtmp['Yc']
+        zr  = np.array([-1, 1.],dtype='<f8') * boxrange + galtmp['Zc']
+
+        ##------ Unit Load
+        infofile    = self.dir_raw + 'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt"
+        unit_l  = np.double(np.loadtxt(infofile, dtype=object, skiprows=15, max_rows=1)[2])
+        unit_t  = np.double(np.loadtxt(infofile, dtype=object, skiprows=17, max_rows=1)[2])
+        unit_d  = np.double(np.loadtxt(infofile, dtype=object, skiprows=16, max_rows=1)[2])
+        hindex  = np.double(np.loadtxt(infofile, dtype=object, skiprows=21)[:,1:])
+        kms     = np.double(unit_l / unit_t / 1e5)
+        unit_m  = unit_d * unit_l**3
+
+        unit_T2 = np.double(1.6600000e-24) / np.double(1.3806200e-16) * np.double(unit_l / unit_t)**2
+        nH  = np.double(0.76) / np.double(1.6600000e-24) * unit_d
+
+        ##----- Find domain
+        domlist = np.zeros(self.rtype_ndomain, dtype=np.int32) - 1
+        xc  = galtmp['Xc']/unit_l * 3.086e21
+        yc  = galtmp['Yc']/unit_l * 3.086e21
+        zc  = galtmp['Zc']/unit_l * 3.086e21
+
+        #----- Reset Center when loading cells around the arbitrary center
+        if(raw==True):
+            if(raw_xc!=None):xc = np.array(raw_xc/unit_l * 3.086e21)
+            if(raw_yc!=None):yc = np.array(raw_yc/unit_l * 3.086e21)
+            if(raw_zc!=None):zc = np.array(raw_zc/unit_l * 3.086e21)
+
+        rr  = galtmp['R_HalfMass']/unit_l * 3.086e21
+        larr    = np.zeros(20, dtype=np.int32)
+        darr    = np.zeros(20, dtype='<f8')
+
+        larr[0] = np.int32(len(xc))
+        larr[1] = np.int32(len(domlist))
+        larr[2] = np.int32(self.num_thread)
+        larr[3] = np.int32(self.rtype_levmax)
+
+        darr[0] = 50.
+        if(boxrange!=None): darr[0] = boxrange / (rr * unit_l / 3.086e21)
+
+        find_domain_py.find_domain(xc, yc, zc, rr, hindex, larr, darr)
+        domlist     = find_domain_py.dom_list
+        domlist     = domlist[0][:]
+        domlist = np.int32(np.array(np.where(domlist > 0))[0] + 1)
+
+        #----- READ AMR (Get Total number of leaf cells)
+        larr    = np.zeros(20, dtype=np.int32)
+        darr    = np.zeros(20, dtype='<f8')
+
+        file_a  = self.dir_raw + 'output_%0.5d'%n_snap + '/amr_%0.5d'%n_snap + '.out'
+        file_h  = self.dir_raw + 'output_%0.5d'%n_snap + '/hydro_%0.5d'%n_snap + '.out'
+        file_i  = self.dir_raw + 'output_%0.5d'%n_snap + '/info_%0.5d'%n_snap + '.txt'
+
+        larr[0] = np.int32(len(domlist))
+        larr[2] = np.int32(1)#np.int32(num_thread)
+        larr[3] = np.int32(len(file_a))
+        larr[4] = np.int32(len(file_h))
+        larr[5] = np.int32(self.rtype_ndomain)
+        larr[6] = np.int32(self.rtype_ndim)
+        larr[7] = np.int32(self.rtype_levmin)
+        larr[8] = np.int32(self.rtype_levmax)
+
+        jsamr2cell_totnum_py.jsamr2cell_totnum(larr, darr, file_a, file_h, domlist)
+        ntot    = jsamr2cell_totnum_py.ntot
+        nvarh   = jsamr2cell_totnum_py.nvarh
+        mg_ind  = jsamr2cell_totnum_py.mg_ind
+
+        #----- READ AMR (ALLOCATE)
+        data    = np.zeros(ntot, dtype=[('xx','<f8'), ('yy','<f8'), ('zz','<f8'),
+            ('vx','<f8'), ('vy','<f8'), ('vz','<f8'), ('dx','<f8'), ('mass', '<f8'),
+            ('den','<f8'), ('temp','<f8'), ('metal','<f8'), ('level','int32')])
+
+        ##----- READ AMR
+        larr    = np.zeros(20, dtype=np.int32)
+        darr    = np.zeros(20, dtype='<f8')
+
+        larr[0] = np.int32(len(domlist))
+        larr[2] = np.int32(self.num_thread)
+        larr[3] = np.int32(len(file_a))
+        larr[4] = np.int32(len(file_h))
+        larr[5] = np.int32(len(file_i))
+        larr[6] = np.int32(self.rtype_ndomain)
+        larr[7] = np.int32(self.rtype_ndim)
+        larr[8] = np.int32(self.rtype_levmin)
+        larr[9] = np.int32(self.rtype_levmax)
+        larr[10]= np.int32(ntot)
+        larr[11]= np.int32(nvarh)
+
+        jsamr2cell_py.jsamr2cell(larr, darr, file_a, file_h, file_i, mg_ind, domlist)
+        xgdum   = np.array(jsamr2cell_py.mesh_xg,dtype='<f8')
+        hvdum   = np.array(jsamr2cell_py.mesh_hd,dtype='<f8')
+        dxdum   = np.array(jsamr2cell_py.mesh_dx,dtype='<f8')
+        lvdum   = np.array(jsamr2cell_py.mesh_lv,dtype='int32')
+
+        data['xx'][:]   = xgdum[:,0] * unit_l / np.double(3.086e21)
+        data['yy'][:]   = xgdum[:,1] * unit_l / np.double(3.086e21)
+        data['zz'][:]   = xgdum[:,2] * unit_l / np.double(3.086e21)
+        data['vx'][:]   = hvdum[:,1] * kms
+        data['vy'][:]   = hvdum[:,2] * kms
+        data['vz'][:]   = hvdum[:,3] * kms
+        data['den'][:]  = hvdum[:,0]
+        data['temp'][:] = hvdum[:,4]
+        data['metal'][:]= hvdum[:,5]
+        data['dx'][:]   = dxdum[:] * unit_l / np.double(3.086e21)
+        data['level'][:]= lvdum[:]
+        #data['mass'][:] = np.double(10.**(np.log10(hvdum[:,0]) + np.log10(unit_d) + np.double(3.0) * (np.log10(dxdum[:]) + np.log10(unit_l)) - np.log10(1.98892e33)))
+        data['mass'][:] = hvdum[:,0] *unit_d * (dxdum[:] * unit_l)**3 / np.double(1.98892e33)
+
+
+        data    = data[np.where(lvdum >= 0)]
+        dumA = data['temp'][:]
+        dumB = data['den'][:]
+
+        data['temp'][:] = data['temp'][:] / data['den'][:] * unit_T2    # [K/mu]
+        data['den'][:]  *= nH                                           # [atom/cc]
+        return data, boxrange
+
+
 
 ##-----
 ## Call FTNs
@@ -354,9 +494,6 @@ class vr_load:
 class vr_getftns:
     def __init__(self, vrobj):
         self.vrobj      = vrobj
-        self.H0         = np.double(np.loadtxt(self.vrobj.dir_raw+'output_00001/info_00001.txt', dtype=object, skiprows=10, max_rows=1)[2])
-        self.omega_M    = np.double(np.loadtxt(self.vrobj.dir_raw+'output_00001/info_00001.txt', dtype=object, skiprows=11, max_rows=1)[2])
-        self.omega_L    = np.double(np.loadtxt(self.vrobj.dir_raw+'output_00001/info_00001.txt', dtype=object, skiprows=12, max_rows=1)[2])
 
     ##-----
     ## Compute Gyr from conformal time
@@ -365,9 +502,9 @@ class vr_getftns:
 
         # Initial Settings
         aexp    = np.double(np.loadtxt(self.vrobj.dir_raw+'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt", dtype=object, skiprows=9, max_rows=1)[2])
-        H0      = self.H0
-        omega_M = self.omega_M
-        omega_L = self.omega_L
+        H0      = self.vrobj.H0
+        omega_M = self.vrobj.omega_M
+        omega_L = self.vrobj.omega_L
 
         #----- Allocate
         data    = np.zeros(len(t_conf), dtype=[('sfact','<f8'), ('gyr','<f8')])
@@ -395,9 +532,9 @@ class vr_getftns:
 
     def g_cfttable(self):
 
-        H0     = self.H0
-        oM     = self.omega_M
-        oL     = self.omega_L
+        H0     = self.vrobj.H0
+        oM     = self.vrobj.omega_M
+        oL     = self.vrobj.omega_L
 
         # reference path is correct?
         fname   = self.vrobj.dir_table + 'cft_%0.5d'%(H0*1000.) + '_%0.5d'%(oM*100000.) + '_%0.5d'%(oL*100000.) + '.pkl'
@@ -427,9 +564,9 @@ class vr_getftns:
 
     def g_gyrtable(self):
 
-        H0     = self.H0
-        oM     = self.omega_M
-        oL     = self.omega_L
+        H0     = self.vrobj.H0
+        oM     = self.vrobj.omega_M
+        oL     = self.vrobj.omega_L
 
         fname   = self.vrobj.dir_table + 'gyr_%0.5d'%(H0*1000.) + '_%0.5d'%(oM*100000.) + '_%0.5d'%(oL*100000.) + '.pkl'
         isfile = os.path.isfile(fname)
