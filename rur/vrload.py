@@ -2,6 +2,12 @@ import numpy as np
 import h5py
 import os
 import os.path
+import pickle
+import pkg_resources
+
+from scipy import interpolate
+from scipy.io import FortranFile
+import scipy.integrate as integrate
 
 from rur.vr.fortran.find_domain_py import find_domain_py
 from rur.vr.fortran.get_ptcl_py import get_ptcl_py
@@ -14,6 +20,7 @@ class vr_load:
         ##-----
         self.num_thread = int(num_thread)   # The number of cores
         self.simtype    = simtype
+        self.dir_table  = pkg_resources.resource_filename('rur', 'vr/table/')
 
         ##-----
         ## Specify configurations based on the simulation type
@@ -185,6 +192,8 @@ class vr_load:
     def f_rdptcl(self, n_snap, id0, horg='g', p_gyr=False, p_sfactor=False, p_mass=True, p_flux=False,
             p_metal=False, p_id=False, raw=False, boxrange=50., domlist=[0], num_thread=None):
 
+        # Get funtions
+        gf  = vr_getftns(dir_raw=self.dir_raw, dir_table=self.dir_table)
 
         # Initial settings
         if(p_gyr==False and p_flux==True): p_gyr=True
@@ -325,10 +334,10 @@ class vr_load:
         ptcl['metal'][:]= pinfo[:,8]
 
         ##----- COMPUTE GYR
-        #if(p_gyr==True):
-        #    gyr = g_gyr(n_snap, pinfo[:,7])
-        #    ptcl['gyr'][:]  = gyr['gyr'][:]
-        #    ptcl['sfact'][:]= gyr['sfact'][:]
+        if(p_gyr==True):
+            gyr = gf.g_gyr(n_snap, pinfo[:,7])
+            ptcl['gyr'][:]  = gyr['gyr'][:]
+            ptcl['sfact'][:]= gyr['sfact'][:]
 
         ##---- COMPUTE FLUX
         #if(p_flux==True):
@@ -336,3 +345,106 @@ class vr_load:
         #        ptcl[name][:] = g_flux(ptcl['mass'][:], ptcl['metal'][:], ptcl['gyr'][:],name)[name]
 
         return ptcl, rate, domlist, idlist
+
+class vr_getftns:
+    def __init__(self, dir_raw=None, dir_table=None):
+        self.dir_raw    = dir_raw
+        self.dir_table  = dir_table
+        self.H0         = np.double(np.loadtxt(self.dir_raw+'output_00001/info_00001.txt', dtype=object, skiprows=10, max_rows=1)[2])
+        self.omega_M    = np.double(np.loadtxt(self.dir_raw+'output_00001/info_00001.txt', dtype=object, skiprows=11, max_rows=1)[2])
+        self.omega_L    = np.double(np.loadtxt(self.dir_raw+'output_00001/info_00001.txt', dtype=object, skiprows=12, max_rows=1)[2])
+
+    ##-----
+    ## Compute Gyr from conformal time
+    ##-----
+    def g_gyr(self, n_snap, t_conf):
+
+        # Initial Settings
+        aexp    = np.double(np.loadtxt(self.dir_raw+'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt", dtype=object, skiprows=9, max_rows=1)[2])
+        H0      = self.H0
+        omega_M = self.omega_M
+        omega_L = self.omega_L
+
+        #----- Allocate
+        data    = np.zeros(len(t_conf), dtype=[('sfact','<f8'), ('gyr','<f8')])
+
+        #----- Get Confalmal T - Sfact Table
+        c_table = self.g_cfttable()
+
+        #----- Get Sfactor by interpolation
+        lint = interpolate.interp1d(c_table['conft'],c_table['sfact'],kind = 'quadratic')
+        data['sfact'][:]   = lint(t_conf)
+
+        #----- Get Gyr from Sfactor
+        g_table = self.g_gyrtable()
+        lint = interpolate.interp1d(g_table['redsh'],g_table['gyr'],kind = 'quadratic')
+        t0  = lint( 1./aexp - 1.)
+
+        data['gyr'][:]      = lint( 1./data['sfact'][:] - 1.) - t0
+        return data
+
+    ##-----
+    ## Generate or Load Confal-Gyr Table
+    ##-----
+    def g_cfttable_ftn(self, X, oM, oL):
+        return 1./(X**3 * np.sqrt(oM/X**3 + oL))
+
+    def g_cfttable(self):
+
+        H0     = self.H0
+        oM     = self.omega_M
+        oL     = self.omega_L
+
+        # reference path is correct?
+        fname   = self.dir_table + 'cft_%0.5d'%(H0*1000.) + '_%0.5d'%(oM*100000.) + '_%0.5d'%(oL*100000.) + '.pkl'
+        isfile = os.path.isfile(fname)
+        if(isfile==True):
+            with open(fname, 'rb') as f:
+                data = pickle.load(f)
+        else:
+            n_table = np.int32(10000)
+            data    = np.zeros(n_table, dtype=[('sfact','<f8'), ('conft','<f8')])
+            data['sfact'][:]    = np.array(range(n_table),dtype='<f8')/(n_table - 1.) * 0.98 + 0.02
+
+            ind     = np.array(range(n_table),dtype='int32')
+            for i in ind:
+                data['conft'][i]  = integrate.quad(self.g_cfttable_ftn,data['sfact'][i],1.,args=(oM,oL))[0] * (-1.)
+
+            with open(fname, 'wb') as f:
+                pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
+
+        return data
+
+    ##-----
+    ## Generate or Load Sfactor-Gyr Table
+    ##-----
+    def g_gyrtable_ftn(self, X, oM, oL):
+        return 1./(1.+X)/np.sqrt(oM*(1.+X)**3 + oL)
+
+    def g_gyrtable(self):
+
+        H0     = self.H0
+        oM     = self.omega_M
+        oL     = self.omega_L
+
+        fname   = self.dir_table + 'gyr_%0.5d'%(H0*1000.) + '_%0.5d'%(oM*100000.) + '_%0.5d'%(oL*100000.) + '.pkl'
+        isfile = os.path.isfile(fname)
+
+        if(isfile==True):
+            with open(fname, 'rb') as f:
+                data = pickle.load(f)
+        else:
+            n_table = np.int32(10000)
+            data    = np.zeros(n_table, dtype=[('redsh','<f8'),('gyr','<f8')])
+            data['redsh'][:]    = 1./(np.array(range(n_table),dtype='<f8')/(n_table - 1.) * 0.98 + 0.02) - 1.
+            data['gyr'][0]  = 0.
+
+            ind     = np.array(range(n_table),dtype='int32')
+            for i in ind:
+                data['gyr'][i]  = integrate.quad(self.g_gyrtable_ftn,0.,data['redsh'][i], args=(oM, oL))[0]
+                data['gyr'][i]  *= (1./H0 * np.double(3.08568025e19) / np.double(3.1536000e16))
+
+            with open(fname, 'wb') as f:
+                pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
+
+        return data
