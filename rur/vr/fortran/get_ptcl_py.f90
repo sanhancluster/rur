@@ -1,7 +1,7 @@
 !MODULE
 MODULE get_ptcl_py
       REAL(KIND=8), DIMENSION(:, :), ALLOCATABLE :: ptcl
-      INTEGER(KIND=8), DIMENSION(:) :: id_raw
+      INTEGER(KIND=8), DIMENSION(:), ALLOCATABLE :: id_raw
       INTEGER(KIND=4) n_star
 
 CONTAINS
@@ -85,7 +85,7 @@ CONTAINS
           DO j=1, 9
             ptcl(i,j) = raw_dbl2(i,j)
           ENDDO
-          id_raw(i) = raw_int2(i)
+          id_raw(i) = raw_int2(i,1)
         ENDDO
         !$OMP END PARALLEL DO
         !larr(17) = n_star
