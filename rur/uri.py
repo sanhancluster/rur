@@ -124,7 +124,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
     """
 
-    def __init__(self, repo, iout, mode='none', box=None, path_in_repo='', snap=None, longint=False):
+    def __init__(self, repo, iout, mode='none', box=None, path_in_repo=default_path_in_repo['snapshots'], snap=None, longint=False):
         self.repo = repo
         self.path_in_repo = path_in_repo
         self.snap_path = join(repo, path_in_repo)
@@ -402,8 +402,6 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 arr = [*readr.real_table.T, *readr.long_table.T, *readr.integer_table.T, *readr.byte_table.T]
             else:
                 arr = [*readr.real_table.T, *readr.integer_table.T, *readr.byte_table.T]
-
-            dtype = self.part_dtype
 
             if target_fields is not None:
                 target_idx = np.where(np.isin(np.dtype(dtype).names, target_fields))[0]

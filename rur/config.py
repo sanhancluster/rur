@@ -29,7 +29,14 @@ class alias_dict(dict):
     def __missing__(self, key):
         return key
 
-# avaiable modes: none, ng, nh
+# path_related parameters
+# avaiable modes: none, ng, nh, etc.
+default_path_in_repo = {
+    'snapshots'   : 'snapshots',
+    'GalaxyMaker' : 'galaxy',
+    'HaloMaker'   : 'halo',
+}
+
 output_format = 'output_{snap.iout:05d}'
 output_regex = r'output_(?P<iout>\d{5})'
 output_glob = 'output_[0-9][0-9][0-9][0-9][0-9]'
@@ -261,7 +268,7 @@ def custom_units(snap):
         # Energy Density
         'erg/cc': t ** 2 * l / m,
 
-        None  : 1
+        None  : 1E0
     }
 
 # some extra quantities that can be used as key of particle / cell data
