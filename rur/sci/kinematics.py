@@ -4,6 +4,8 @@ from scipy.fft import rfft
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 
+from rur.vr.fortran.get_pot_py import js_getpt
+
 # This module contains useful functions related to galaxy kinematics.
 
 def sig_rad(part: RamsesSnapshot.Particle, gal):
@@ -267,3 +269,122 @@ class kinemetry:
             line['q_diff'] = diff
             line['chisq'] = chisq
         return pars_arr
+
+def f_getpot(pos, mm, num_thread=None, timereport=None, mesh_type=None, pole_type=None, splitval_type=None, splitdim_type=None, bsize=None):
+    """ Potential calculation with KDTree
+
+    This routine gives you the potential value (in (km/s)^2 unit) with efficient calculations.
+    Kinetic energy can be simply derived by velocity^2 (velocity in km/s)
+    If you include cell data, the internal energy can be obtained by
+        temperature / density / (5.d/3. - 1.) * mH/kB * (scale_l / scale_t)^2. / mH * KB * 1e-10
+
+    If you want to use both particles (DM and/or Star) and cell, just merge them to the same array
+
+    Parameters
+    ----------
+    pos : numpy.array with shape (Npart, Ndim)
+        position of particles and/or cell in kpc
+        Npart is the number of particles (+cell)
+        Ndim is the dimension (6 allowed but velocities are not used in the potential calculation)
+    mm : numpy.array with shape (Npart)
+        mass of particles and/or cell in Msun
+    num_thread: integer
+        # of threads to be used
+        Values around 10 gives the best efficiency
+    timereport: 'on' or 'off'
+        Time log report
+    mesh_type, pole_type, splitval_type, splitdim_type:
+        Choices of how to treat grids, and KDTree
+        Don't have to touch these. Just use the default settings
+    bsize : integer
+        The number of particles in the leaf node.
+        Smaller values gives you more accurate estimation. But 1000 is enough
+
+    Attributes
+    ----------
+
+    Examples
+    ----------
+    >>> from rur.sci.kinematics import sk
+    >>> from numpy as np
+
+    Allocate arrays (npart is the number of particles)
+    >>> pos=np.zeros((npart,6))
+    >>> mm=np.zeros(npart)
+
+    Put the position and mass values in to the 'pos' and 'mm' array.
+    In VR case,
+    >>> import rur.vrload as vrload
+    >>> vr       =vrload.vr_load('NH')
+    >>> p=vrgal.f_rdptcl(1026, 100, horg='g')[0] # particle information of the galaxy with ID=100 @ snap=1026
+
+    >>> pos[:,0] = p['xx']
+    >>> pos[:,1] = p['yy']
+    >>> pos[:,2] = p['zz']
+    >>> mm       = p['mass']
+
+    Potential
+    >>> pot=sk.f_getpot(pos, mm)
+    """
+    ##----- Settings
+    if(num_thread==None):       num_thread      = 10
+    if(mesh_type==None):        mesh_type       = 'mesh'    # mesh or pm
+    if(pole_type==None):        pole_type       = 'pole'    # pole or part
+    if(timereport==None):       timereport      = 'on'      # on or off
+    if(splitval_type==None):    splitval_type   = 'median'
+    if(splitdim_type==None):    splitdim_type   = 'maxrange'
+    if(bsize==None):
+        bsize   = np.int32(1024)
+        if(len(mm) < 100000): bsize = np.int32(100)
+        if(len(mm) < 10000):  bsize = np.int32(10)
+
+    ##-----
+    pos = np.double(pos)        # should be in kpc
+    mm  = np.double(mm)         # should be in Msun
+    n_ptcl  = np.int32(len(mm))
+    n_dim   = np.int32(len(pos[0,:]))
+
+    if(mesh_type=='mesh'): p_type = np.int32(0)
+    elif(mesh_type=='pm'): p_type = np.int32(1)
+    else: p_type = np.int32(0)
+
+    if(pole_type=='part'): e_type = np.int32(1)
+    elif(pole_type=='pole'): e_type = np.int32(0)
+    else: e_type = np.int32(0)
+
+    if(timereport=='on'): tonoff = np.int32(1)
+    else: tonoff = np.int32(0)
+
+    if(splitval_type=='median'): v_type = np.int32(0)
+    else: v_type = np.int32(0)       ## has not been implemented yet
+
+    if(splitdim_type=='maxrange'): d_type = np.int32(0)
+    else: d_type = np.int32(0)       ## has not been implemented yet
+
+
+    Gconst  = np.double(6.67408e-11)    ## m^3 kg^-1 s^-2
+    mtoKpc  = np.double(1) / np.double(3.086e19)
+    kgtoMsun= np.double(1) / np.double(1.98892e30)
+    Gconst  *= (mtoKpc / kgtoMsun * np.double(1e-6)) ## (km/s)^2 Kpc/Msun
+
+    ##-----
+    larr    = np.zeros(20, dtype=np.int32)
+    darr    = np.zeros(20, dtype='<f8')
+
+    larr[0] = n_ptcl
+    larr[1] = n_dim
+    larr[2] = num_thread
+    larr[3] = p_type
+    larr[4] = e_type
+    larr[5] = tonoff
+
+    larr[10]= d_type
+    larr[11]= v_type
+    larr[12]= bsize
+
+    darr[0] = Gconst
+
+    js_getpt.js_getpt_ft(larr, darr, pos, mm)
+    pot = js_getpt.pot
+
+    return pot
