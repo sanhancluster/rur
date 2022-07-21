@@ -500,7 +500,7 @@ class vr_draw:
     ##-----
     ## Draw Gas map
     ##-----
-    def d_gasmap(self, n_snap, id0, cell2, amrtype=None, wtype=None, xr=None, yr=None, n_pix=None, minlev=None, maxlev=None, proj=None):
+    def d_gasmap(self, n_snap, id0, cell2, amrtype=None, wtype=None, xr=None, yr=None, zr=None, n_pix=None, minlev=None, maxlev=None, proj=None):
 
 
         ##----- Settings
@@ -515,11 +515,13 @@ class vr_draw:
         boxrange= cell2[1]
         units   = cell2[2]
 
-        if(xr==None or yr==None):
-            galtmp  = self.vrobj.f_rdgal(n_snap, id0, horg='g')
-            xr  = np.array([-1, 1.],dtype='<f8') * boxrange + galtmp['Xc']
-            yr  = np.array([-1, 1.],dtype='<f8') * boxrange + galtmp['Yc']
+        ##----- Boxsize
+        galtmp  = self.vrobj.f_rdgal(n_snap, id0, horg='g')
+        if(xr==None): xr  = np.array([-1, 1.],dtype='<f8') * boxrange + galtmp['Xc']
+        if(yr==None): yr  = np.array([-1, 1.],dtype='<f8') * boxrange + galtmp['Yc']
+        if(zr==None): zr  = np.array([-1, 1.],dtype='<f8') * boxrange + galtmp['Zc']
 
+        ##----- Allocate
         gasmap  = np.zeros((n_pix,n_pix),dtype='<f8')
         gasmap_t= np.zeros((n_pix,n_pix),dtype='<f8')
 
@@ -533,9 +535,13 @@ class vr_draw:
             if(proj=='xy'):
                 xx  = cell['xx'][ind]
                 yy  = cell['yy'][ind]
+                xr0 = xr
+                yr0 = yr
             elif(proj=='xz'):
                 xx  = cell['xx'][ind]
                 yy  = cell['zz'][ind]
+                xr0 = xr
+                yr0 = zr
 
             bw  = np.array([1.,1.], dtype='<f8')*cell['dx'][ind[0][0]]
 
@@ -579,7 +585,7 @@ class vr_draw:
             if(wtype=='VW'): larr[10] = 2
             if(wtype=='MAX'):larr[10] = 3
 
-            js_gasmap_py.js_gasmap(larr, darr, xx, yy, var, bw, xr, yr)
+            js_gasmap_py.js_gasmap(larr, darr, xx, yy, var, bw, xr0, yr0)
             #mapdum  = js_gasmap_py.map
 
         mapdum  = js_gasmap_py.map
@@ -597,7 +603,7 @@ class vr_draw:
             cut = np.where(gasmap_t == 0)
             if(np.size(cut)>0): gasmap[cut] = 0.
 
-        return gasmap
+        return gasmap, xr, yr
 
 ##-----
 ## Call FTNs
@@ -609,12 +615,25 @@ class vr_getftns:
     ##-----
     ## Get img
     ##-----
-    def g_img(self, gasmap, scale=None):
+    def g_img(self, gasmap, zmin=None, zmax=None, scale=None):
+
+        if(zmin==None): zmin = np.min(gasmap)
+        if(zmax==None): zmax = np.max(gasmap)
+
+        ind    = np.where(gasmap < zmin)
+        if(np.size(ind)>0): gasmap[ind] = 0
+
+        ind     = np.where(gasmap > 0)
+        gasmap[ind] -= zmin
+
+        ind = np.where(gasmap > (zmax - zmin))
+        if(np.size(ind)>0): gasmap[ind] = zmax - zmin
+
+        gasmap  /= (zmax - zmin)
 
         if(scale=='log' or scale==None):
-            gasmap  = np.log10(gasmap + 1.)
-            gasmap  = gasmap/np.max(gasmap)
-            gasmap  = np.int32(gasmap * 255.)
+            gasmap  = np.log(gasmap*1000. + 1.) / np.log(1000.)
+            #gasmap  = np.int32(gasmap * 255.)
         return gasmap
 
     ##-----
