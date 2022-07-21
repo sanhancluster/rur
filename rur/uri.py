@@ -17,8 +17,6 @@ import numpy as np
 import warnings
 import glob
 import re
-import ctypes
-from numpy.ctypeslib import as_array
 
 class TimeSeries(object):
     """
@@ -1693,9 +1691,7 @@ def part_density(part, reso, mode='m'):
     return hist
 
 def get_bytes_data(array):
-    pointer = array.__array_interface__['data'][0]
-    shape = array.shape+(array.dtype.itemsize,)
-    barr = as_array(ctypes.cast(pointer, ctypes.POINTER(ctypes.c_byte)), shape=shape)
+    barr = array.view('b').reshape((array.size, array.itemsize))
     return barr
 
 def fromndarrays(ndarrays, dtype):
