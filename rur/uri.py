@@ -403,6 +403,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             else:
                 arr = [*readr.real_table.T, *readr.integer_table.T, *readr.byte_table.T]
 
+            dtype = self.part_dtype
             if target_fields is not None:
                 target_idx = np.where(np.isin(np.dtype(dtype).names, target_fields))[0]
                 arr = [arr[idx] for idx in target_idx]
@@ -471,7 +472,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if(len(arr) != len(names)):
                 raise ValueError(
                     "Number of fields and size of the hydro array does not match\n"
-                    "Consider changing the content of RamsesSnapshot.hydro_names")
+                    "Consider changing the content of RamsesSnapshot.hydro_names\n"
+                    "Recieved: %d, Desired: %d" % (len(names), len(arr)))
 
             if target_fields is not None:
                 target_idx = np.where(np.isin(names, target_fields))[0]
