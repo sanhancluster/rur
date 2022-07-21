@@ -10,11 +10,9 @@ from scipy.stats import mode
 from numpy.lib.recfunctions import append_fields, drop_fields, merge_arrays
 import gc
 import string
-from glob import glob
-import warnings
 from multiprocessing import Process, Queue
 from time import sleep
-import h5py
+from config import default_path_in_repo
 
 chars = string.ascii_lowercase
 
@@ -147,7 +145,7 @@ class HaloMaker:
                 double_precision=False
         if (galaxy):
             if(path_in_repo is None):
-                path_in_repo = 'galaxy'
+                path_in_repo = default_path_in_repo['galaxy']
             if(not double_precision):
                 dtype = HaloMaker.galaxy_dtype
             else:
@@ -225,7 +223,7 @@ class PhantomTree:
     @staticmethod
     def from_halomaker(snap, lookup, rankup=1, path_in_repo=path_in_repo, max_part_size=None,
                        ptree_file_format=ptree_file_format, nparts_min=None,
-                       part_array_buffer=1.1, skip_jumps=False, start_on_middle=False, path_in_repo_halomaker='galaxy', **kwargs):
+                       part_array_buffer=1.1, skip_jumps=False, start_on_middle=False, path_in_repo_halomaker=default_path_in_repo['galaxy'], **kwargs):
         print('Building PhantomTree from HaloMaker data in %s' % snap.repo)
         max_iout = snap.iout
         uri.timer.verbose = 0
@@ -573,7 +571,7 @@ class PhantomTree:
         dump(ptree, path, msg=msg, format=format)
 
     @staticmethod
-    def measure_star_prop(snap, path_in_repo=path_in_repo, halomaker_repo='galaxy', ptree_file=ptree_file,
+    def measure_star_prop(snap, path_in_repo=path_in_repo, halomaker_repo=default_path_in_repo['galaxy'], ptree_file=ptree_file,
                           overwrite=True, backup_freq=30, sfr_measure_Myr=50., mass_cut_refine=2.4E-11,
                           output_file='ptree_SFR.pkl', backup_file='ptree_SFR.pkl.backup'):
         """

@@ -1,0 +1,6 @@
+*.pyc
+*.pyo
+*.pkl
+*.so
+*.o
+.idea/

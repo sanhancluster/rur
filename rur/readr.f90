@@ -6,18 +6,18 @@ module readr
     ! part: x(3), v(3), m, (age, metal)
     ! sink: m, x(3), v(3), j(3), dMBHoverdt, dMEdoverdt, dMsmbh, d_avgptr, c_avgptr, v_avgptr, Esave,
     ! bhspin, spinmag, eps_sink, rho_star, rho_dm, low_star, low_dm, fast_star, fast_dm
-    real(kind=8),    dimension(:,:),   allocatable::real_table
+    real(kind=8),    dimension(:,:),   allocatable :: real_table
 
     ! cell: level, cpu
     ! part: id, level, cpu
     ! sink: id
-    integer(kind=4), dimension(:,:),   allocatable::integer_table
+    integer(kind=4), dimension(:,:),   allocatable :: integer_table
 
     ! part: long id
-    integer(kind=8), dimension(:,:),   allocatable::long_table
+    integer(kind=8), dimension(:,:),   allocatable :: long_table
 
     ! part: family, tag
-    integer(kind=1), dimension(:,:),   allocatable::byte_table
+    integer(kind=1), dimension(:,:),   allocatable :: byte_table
 
     integer :: nhvar
 
@@ -143,8 +143,8 @@ contains
 
         call close()
 
-        allocate(real_table(1:ncell_tot, 1:ndim+nhvar))
-        allocate(integer_table(1:ncell_tot, 1:2))
+        allocate(real_table(1:ndim+nhvar, 1:ncell_tot))
+        allocate(integer_table(1:2, 1:ncell_tot))
 
         icell = 1
 
@@ -221,15 +221,15 @@ contains
                                 do jdim = 1, twotondim
                                     if(leaf(igrid, jdim)) then
                                         do idim = 1, ndim
-                                            real_table(icell + jcell, idim) = xg(igrid, idim) &
+                                            real_table(idim, icell + jcell) = xg(igrid, idim) &
                                                     + oct_offset(jdim, idim) * 0.5**ilevel
                                         end do
                                         do ihvar = 1, nhvar
-                                            real_table(icell + jcell, idim + ihvar-1) = hvar(igrid, jdim, ihvar)
+                                            real_table(idim + ihvar-1, icell + jcell) = hvar(igrid, jdim, ihvar)
                                         end do
 
-                                        integer_table(icell + jcell, 1) = ilevel
-                                        integer_table(icell + jcell, 2) = icpu
+                                        integer_table(1, icell + jcell) = ilevel
+                                        integer_table(2, icell + jcell) = icpu
                                         jcell = jcell + 1
                                     end if
                                 end do
@@ -356,10 +356,10 @@ contains
         call close()
 
         ! Allocate space for particle data
-        allocate(real_table(1:npart_tot, 1:nreal))
-        allocate(integer_table(1:npart_tot, 1:nint))
-        allocate(byte_table(1:npart_tot, 1:nbyte))
-        if(longint)allocate(long_table(1:npart_tot, 1:nlong))
+        allocate(real_table(1:nreal, 1:npart_tot))
+        allocate(integer_table(1:nint, 1:npart_tot))
+        allocate(byte_table(1:nbyte, 1:npart_tot))
+        if(longint)allocate(long_table(1:nlong, 1:npart_tot))
 
         ! Step 3: Read the actual particle data
         ! Current position for particle
@@ -378,62 +378,62 @@ contains
 
             ! Read position(3), velocity(3), mass
             do idim = 1, 2*ndim+1
-                read(part_n) real_table(npart_c:npart_c+npart-1, idim)
+                read(part_n) real_table(idim, npart_c:npart_c+npart-1)
             end do
 
             ! Read id
             pint=1
             if(longint) then
-                read(part_n) long_table(npart_c:npart_c+npart-1, 1)
+                read(part_n) long_table(1, npart_c:npart_c+npart-1)
             else
-                read(part_n) integer_table(npart_c:npart_c+npart-1, pint)
+                read(part_n) integer_table(pint, npart_c:npart_c+npart-1)
                 pint = pint+1
             end if
             ! Read level
-            read(part_n) integer_table(npart_c:npart_c+npart-1, pint)
+            read(part_n) integer_table(pint, npart_c:npart_c+npart-1)
             pint = pint+1
             if(mode == 'nh' .or. mode == 'yzics' .or. mode == 'hagn') then
                 ! If star or sink particles are activated, RAMSES adds epoch, metallicity information for particles.
                 if(nstar > 0 .or. nsink > 0) then
-                    read(part_n) real_table(npart_c:npart_c+npart-1, 2*ndim+2)
-                    read(part_n) real_table(npart_c:npart_c+npart-1, 2*ndim+3)
+                    read(part_n) real_table(2*ndim+2, npart_c:npart_c+npart-1)
+                    read(part_n) real_table(2*ndim+3, npart_c:npart_c+npart-1)
                 end if
 
                 ! Add CPU information
-                integer_table(npart_c:npart_c+npart-1, pint) = icpu
+                integer_table(pint, npart_c:npart_c+npart-1) = icpu
 
             elseif(mode == 'iap' .or. mode == 'gem' .or. mode == 'none' .or. mode == 'fornax' &
                 & .or. mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc') then
                 ! family, tag
-                read(part_n) byte_table(npart_c:npart_c+npart-1, 1)
-                read(part_n) byte_table(npart_c:npart_c+npart-1, 2)
+                read(part_n) byte_table(1, npart_c:npart_c+npart-1)
+                read(part_n) byte_table(2, npart_c:npart_c+npart-1)
 
                 ! If star or sink particles are activated, RAMSES adds epoch, metallicity information for particles.
                 if(nstar > 0 .or. nsink > 0) then
-                    read(part_n) real_table(npart_c:npart_c+npart-1, 2*ndim+2)
-                    read(part_n) real_table(npart_c:npart_c+npart-1, 2*ndim+3)
+                    read(part_n) real_table(2*ndim+2, npart_c:npart_c+npart-1)
+                    read(part_n) real_table(2*ndim+3, npart_c:npart_c+npart-1)
                     if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4') then
                         ! Initial mass
-                        read(part_n) real_table(npart_c:npart_c+npart-1, 2*ndim+4)
+                        read(part_n) real_table(2*ndim+4, npart_c:npart_c+npart-1)
                         ! Chemical elements
                         do j=1,nchem
-                            read(part_n) real_table(npart_c:npart_c+npart-1, 2*ndim+4+j)
+                            read(part_n) real_table(2*ndim+4+j, npart_c:npart_c+npart-1)
                         end do
                     end if
                     if(mode == 'y3' .or. mode == 'y4') then
                         ! Stellar densities at formation
-                        read(part_n) real_table(npart_c:npart_c+npart-1, 2*ndim+nchem+5)
+                        read(part_n) real_table(2*ndim+nchem+5, npart_c:npart_c+npart-1)
                     end if
                 else
-                    real_table(npart_c:npart_c+npart-1, 2*ndim+2:2*ndim+3) = 0d0
+                    real_table(2*ndim+2:2*ndim+3, npart_c:npart_c+npart-1) = 0d0
                 end if
                 if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4') then
                     ! Parent indices
-                    read(part_n) integer_table(npart_c:npart_c+npart-1, pint+1)
+                    read(part_n) integer_table(pint+1, npart_c:npart_c+npart-1)
                 end if
 
                 ! Add CPU information
-                integer_table(npart_c:npart_c+npart-1, pint) = icpu
+                integer_table(pint, npart_c:npart_c+npart-1) = icpu
             end if
             npart_c = npart_c + npart
             close(part_n)
@@ -477,39 +477,39 @@ contains
         end if
         if(mode == 'fornax') nreal = nreal + 1
         if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc') nreal = nreal + 4
-        allocate(real_table(1:nsink, 1:nreal))
-        allocate(integer_table(1:nsink, 1:nint))
+        allocate(real_table(1:nreal, 1:nsink))
+        allocate(integer_table(1:nint, 1:nsink))
 
         iint = 1
         ireal = 1
 
-        read(sink_n) integer_table(:,iint)
+        read(sink_n) integer_table(iint, :)
         iint = iint + 1
         do i=1,22
-            read(sink_n) real_table(:, ireal)
+            read(sink_n) real_table(ireal, :)
             ireal = ireal + 1
         end do
         if(mode == 'fornax' .or. mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc') then
-            read(sink_n) real_table(:, ireal)
+            read(sink_n) real_table(ireal, :)
             ireal = ireal + 1
         end if
         if(drag_part) then
             do i=1,8
-                read(sink_n) real_table(:, ireal)
+                read(sink_n) real_table(ireal, :)
                 ireal = ireal + 1
             end do
             do i=1,2
-                read(sink_n) integer_table(:, iint)
+                read(sink_n) integer_table(iint, :)
                 iint = iint + 1
             end do
             do i=1,4
-                read(sink_n) real_table(:, ireal)
+                read(sink_n) real_table(ireal, :)
                 ireal = ireal + 1
             end do
         end if
         if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc') then
             do i=1,3
-                read(sink_n) real_table(:, ireal)
+                read(sink_n) real_table(ireal, :)
                 ireal = ireal + 1
             end do
         end if
@@ -541,16 +541,16 @@ contains
         nreal = 20+nstat
         nint = 1
 
-        allocate(real_table(1:nsink, 1:nreal))
-        allocate(integer_table(1:nsink, 1:nint))
+        allocate(real_table(1:nreal, 1:nsink))
+        allocate(integer_table(1:nint, 1:nsink))
 
         if(nsink>0) then
-            read(sink_n) integer_table(1:nsink, 1) ! id
+            read(sink_n) integer_table(1, 1:nsink) ! id
             do i=1,20
-                read(sink_n) real_table(:, i) ! mass, pos*3, vel*3, t, dM*3, Esave, j*3, spin*3, spinmag, eps
+                read(sink_n) real_table(i, :) ! mass, pos*3, vel*3, t, dM*3, Esave, j*3, spin*3, spinmag, eps
             end do
             do i=21,21+nstat-1
-                read(sink_n) real_table(:, i) ! stats
+                read(sink_n) real_table(i, :) ! stats
             end do
         endif
         close(sink_n)
