@@ -6,13 +6,13 @@ FORT=gfortran
 BASEDIR=$(dirname "$0")
 
 cd $BASEDIR/rur
-#for f in $FILES
-#do
-#    bn=$(basename "$f" .f90)
-#    $FORT -x f95-cpp-input -c $f
-#    $F2PY -c --f90exec=$FORT --f77exec=$FORT $f -m $bn --opt='-O3 -x f95-cpp-input'
-#done
-#rm *.o *.mod
+for f in $FILES
+do
+    bn=$(basename "$f" .f90)
+    $FORT -x f95-cpp-input -c $f
+    $F2PY -c --f90exec=$FORT --f77exec=$FORT $f -m $bn --opt='-O3 -x f95-cpp-input'
+done
+rm *.o *.mod
 
 #For VR part
 cd ..
