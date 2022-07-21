@@ -17,6 +17,8 @@ import numpy as np
 import warnings
 import glob
 import re
+import ctypes
+from numpy.ctypeslib import as_array
 
 class TimeSeries(object):
     """
@@ -240,8 +242,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         custom_units(self)
 
     def set_box(self, center, extent, unit=None):
-        # set center and extent of the current target bounding box of the simulation.
-        # if unit is None, it is recognized as code unit
+        """set center and extent of the current target bounding box of the simulation.
+        if unit is None, it is recognized as code unit
+        """
         if(unit is not None):
             extent = extent / self.unit[unit]
             center = center / self.unit[unit]
@@ -344,7 +347,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.set_unit()
 
     def get_involved_cpu(self, box=None, binlvl=None, n_divide=5):
-        # get the list of involved cpu domain for specific region.
+        """Get the list of involved cpu domain for specific region.
+
+        """
         if(box is None):
             box = self.box
         if(self.classic_format and not box is None):
@@ -398,20 +403,27 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             readr.read_part(self.snap_path, self.iout, cpulist, mode, progress_bar, self.longint)
             timer.record()
 
-            if(self.longint):
-                arr = [*readr.real_table.T, *readr.long_table.T, *readr.integer_table.T, *readr.byte_table.T]
-            else:
-                arr = [*readr.real_table.T, *readr.integer_table.T, *readr.byte_table.T]
-
+            timer.start('Building table for %d particles... ' % readr.integer_table.shape[1], 1)
             dtype = self.part_dtype
-            if target_fields is not None:
-                target_idx = np.where(np.isin(np.dtype(dtype).names, target_fields))[0]
-                arr = [arr[idx] for idx in target_idx]
-                dtype = [dtype[idx] for idx in target_idx]
+            if(target_fields is not None):
+                if(self.longint):
+                    arr = [*readr.real_table, *readr.long_table, *readr.integer_table, *readr.byte_table]
+                else:
+                    arr = [*readr.real_table, *readr.integer_table, *readr.byte_table]
 
-            timer.start('Building table for %d particles... ' % readr.integer_table.shape[0], 1)
-            part = fromarrays(arr, dtype=dtype)
+                    target_idx = np.where(np.isin(np.dtype(dtype).names, target_fields))[0]
+                    arr = [arr[idx] for idx in target_idx]
+                    dtype = [dtype[idx] for idx in target_idx]
+                part = fromarrays(arr, dtype=dtype)
+            else:
+                if(self.longint):
+                    arrs = [readr.real_table.T, readr.long_table.T, readr.integer_table.T, readr.byte_table.T]
+                else:
+                    arrs = [readr.real_table.T, readr.integer_table.T, readr.byte_table.T]
+                part = fromndarrays(arrs, dtype)
+
             readr.close()
+
 
             bound = compute_boundary(part['cpu'], cpulist)
             if (self.part_data is None):
@@ -464,10 +476,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             timer.record()
 
             formats = ['f8'] * self.params['ndim'] + ['f8'] * self.params['nhvar'] + ['i4'] * 2
-
             names = list(dim_keys[:self.params['ndim']]) + self.hydro_names + ['level', 'cpu']
 
-            arr = [*readr.real_table.T, *readr.integer_table.T]
+            arr = [*readr.real_table, *readr.integer_table]
 
             if(len(arr) != len(names)):
                 raise ValueError(
@@ -475,14 +486,18 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                     "Consider changing the content of RamsesSnapshot.hydro_names\n"
                     "Recieved: %d, Desired: %d" % (len(names), len(arr)))
 
+            timer.start('Building table for %d cells... ' % (arr[0].size), 1)
             if target_fields is not None:
                 target_idx = np.where(np.isin(names, target_fields))[0]
                 arr = [arr[idx] for idx in target_idx]
                 formats = [formats[idx] for idx in target_idx]
                 names = [names[idx] for idx in target_idx]
 
-            timer.start('Building table for %d cells... ' % (arr[0].size), 1)
-            cell = fromarrays(arr, formats=formats, names=names)
+                cell = fromarrays(arr, formats=formats, names=names)
+            else:
+                dtype = np.format_parser(formats=formats, names=names, titles=None).dtype
+                arrs = [readr.real_table.T, readr.integer_table.T]
+                cell = fromndarrays(arrs, dtype)
             readr.close()
 
             bound = compute_boundary(cell['cpu'], cpulist)
@@ -570,7 +585,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
     def read_sink_raw(self, icpu, path_in_repo=''):
         path = join(self.repo, path_in_repo)
         readr.read_sink(path, self.iout, icpu, self.levelmin, self.levelmax)
-        arr = [*readr.integer_table.T, *readr.real_table.T]
+        arr = [readr.integer_table.T, readr.real_table.T]
         readr.close()
         return arr
 
@@ -588,21 +603,25 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         return np.array(icoarses)
 
     def read_sinkprop(self, path_in_repo='SINKPROPS', icoarse=None, drag_part=True, raw_data=False, return_aexp=False):
+        """Reads single sinkprop file from given coarse step number,
+        if icoarse not specified, reads the step number of current snapshot
+        if file is not found, tries to search for sinkprop file with nearest step number
+        """
         if(icoarse is None):
             icoarses = self.search_sinkprops(path_in_repo)
             icoarse = icoarses[np.argmin(np.abs((self.nstep_coarse) - icoarses))]
             if(icoarse != self.nstep_coarse):
-                warnings.warn('Targeted SINKPROP file not found with icoarse = %d\nFile with icoarse = %d loaded instead.' % (self.nstep_icoarse, icoarse))
+                warnings.warn('Targeted SINKPROP file not found with icoarse = %d\nFile with icoarse = %d is loaded instead.' % (self.nstep_coarse, icoarse))
         path = join(self.repo, path_in_repo)
         check = join(path, sinkprop_format.format(icoarse=icoarse))
         if(not exists(check)):
             raise FileNotFoundError('Sinkprop file not found: %s' % check)
         readr.read_sinkprop(path, icoarse, drag_part, self.mode)
-        arr = [*readr.integer_table.T, *readr.real_table.T]
+        arrs = [readr.integer_table.T, readr.real_table.T]
 
-        timer.start('Building table for %d smbhs... ' % readr.integer_table.shape[0], 1)
+        timer.start('Building table for %d smbhs... ' % arrs[0].shape[0], 1)
         if(raw_data):
-            return arr
+            return arrs
         if(drag_part):
             dtype = sink_prop_dtype_drag
         else:
@@ -611,11 +630,11 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             dtype = sink_prop_dtype_drag_fornax
         if(self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4' or self.mode == 'nc'):
             dtype = sink_prop_dtype_drag_y2
-        if(len(arr) != len(dtype)):
+        if(arrs[0].shape[1] + arrs[1].shape[1] != len(dtype)):
             readr.close()
             raise ValueError('Number of fields mismatch\n'
-                             'Received: %d, Allocated: %d' % (len(arr), len(dtype)))
-        sink = fromarrays(arr, dtype=dtype)
+                             'Received: %d, Allocated: %d' % (arrs[0].shape[1] + arrs[1].shape[1], len(dtype)))
+        sink = fromndarrays(arrs, dtype=dtype)
         timer.record()
         aexp = np.copy(readr.aexp)
         readr.close()
@@ -627,6 +646,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
     def read_sinkprops(self, path_in_repo='SINKPROPS', drag_part=True, use_cache=False, cache_name='sinkprops.pkl',
                        reset_cache=False, cache_format='pkl', progress=False):
+        """Searches and reads all files in the sinkprops directory and returns as single table.
+        if use_cache=True, it saves pickle file to save reading time
+        """
         icoarses = self.search_sinkprops(path_in_repo)
         path = join(self.repo, path_in_repo)
 
@@ -652,11 +674,11 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             iterator = icoarses
         for icoarse in iterator:
             readr.read_sinkprop(path, icoarse, drag_part, self.mode)
-            nsink = readr.integer_table.shape[0]
+            nsink = readr.integer_table.shape[1]
             nsinks.append(nsink)
 
-            int_table.append(np.copy(readr.integer_table))
-            real_table.append(np.copy(readr.real_table))
+            int_table.append(np.copy(readr.integer_table.T))
+            real_table.append(np.copy(readr.real_table.T))
             aexps.append(np.copy(readr.aexp))
 
         int_table = np.concatenate(int_table)
@@ -665,7 +687,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         aexp_table = np.repeat(aexps, nsinks)
         icoarse_table = np.repeat(icoarses, nsinks)
 
-        arr = [*int_table.T, *real_table.T]
+        arrs = [int_table, real_table]
 
         if(drag_part):
             dtype = sink_prop_dtype_drag
@@ -679,13 +701,13 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             dtype = sink_prop_dtype_drag_fornax
         if(self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4' or self.mode == 'nc'):
             dtype = sink_prop_dtype_drag_y2
-        if(len(arr) != len(dtype)):
+        if(arrs[0].shape[1] + arrs[1].shape[1] != len(dtype)):
             readr.close()
             raise ValueError('Number of fields mismatch\n'
-                             'Received: %d, Allocated: %d' % (len(arr), len(dtype)))
+                             'Received: %d, Allocated: %d' % (arrs[0].shape[1] + arrs[1].shape[1], len(dtype)))
 
-        timer.start('Building sinkprop table... (%d)' % arr[0].size)
-        sink = fromarrays(arr, dtype=dtype)
+        timer.start('Building table for %d smbhs...' % arrs[0].shape[0])
+        sink = fromndarrays(arrs, dtype=dtype)
         sink = append_fields(sink, ['aexp', 'icoarse'], [aexp_table, icoarse_table], usemask=False)
 
         timer.record()
@@ -694,7 +716,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             sink = np.concatenate([cache, sink])
 
         if(reset_cache or use_cache):
-            cache_file =join(path, cache_name)
+            cache_file = join(path, cache_name)
             utool.dump(sink, cache_file, format=cache_format)
 
         return sink
@@ -1669,3 +1691,38 @@ def part_density(part, reso, mode='m'):
             sig2 += mom2/mhist - (mom1/mhist)**2
         hist = np.sqrt(sig2)
     return hist
+
+def get_bytes_data(array):
+    pointer = array.__array_interface__['data'][0]
+    shape = array.shape+(array.dtype.itemsize,)
+    barr = as_array(ctypes.cast(pointer, ctypes.POINTER(ctypes.c_byte)), shape=shape)
+    return barr
+
+def fromndarrays(ndarrays, dtype):
+    """
+    convert list of ndarray to structured array with given dtype
+    faster than np.rec.fromarrays
+    only works for 2d arrays for now
+    """
+    if dtype is not None:
+        descr = np.dtype(dtype)
+
+    itemsize = 0
+    nitem = None
+    for nda in ndarrays:
+        if(nitem is None):
+            nitem = nda.shape[0]
+        elif(nitem != nda.shape[0]):
+            raise ValueError("Array shape does not match")
+        itemsize += nda.shape[1] * nda.dtype.itemsize
+    if(descr.itemsize != itemsize):
+        raise ValueError("Sum of itemsize does not match with desired dtype")
+
+    array = np.zeros(nitem, descr)
+    barr = get_bytes_data(array)
+    col = 0
+    for nda in ndarrays:
+        bnda = nda.view('b')
+        barr[:, col:col + bnda.shape[1]] = bnda
+        col += bnda.shape[1]
+    return array
