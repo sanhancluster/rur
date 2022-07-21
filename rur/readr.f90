@@ -318,7 +318,7 @@ contains
         end do
 
         ! Set coulum spaces of each datatype for different versions of RAMSES
-        if(mode == 'nh' .or. mode == 'yzics') then ! New Horizon / YZiCS / Horizon-AGN
+        if(mode == 'nh' .or. mode == 'yzics' .or. mode == 'hagn') then ! New Horizon / YZiCS / Horizon-AGN
             if(nstar > 0 .or. nsink > 0) then
                 nreal = 2*ndim + 3
             else
@@ -392,7 +392,7 @@ contains
             ! Read level
             read(part_n) integer_table(pint, npart_c:npart_c+npart-1)
             pint = pint+1
-            if(mode == 'nh' .or. mode == 'yzics') then
+            if(mode == 'nh' .or. mode == 'yzics' .or. mode == 'hagn') then
                 ! If star or sink particles are activated, RAMSES adds epoch, metallicity information for particles.
                 if(nstar > 0 .or. nsink > 0) then
                     read(part_n) real_table(2*ndim+2, npart_c:npart_c+npart-1)
