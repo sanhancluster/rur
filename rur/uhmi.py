@@ -5,14 +5,13 @@ from rur.utool import Timer, get_vector, dump, load, pairing, get_distance, rss,
     set_vector, discrete_hist2d, weighted_quantile, expand_shape
 from rur.readhtm import readhtm as readh
 from rur import uri
-from rur.config import Table, tqdm
+from rur.config import Table, tqdm, default_path_in_repo
 from scipy.stats import mode
 from numpy.lib.recfunctions import append_fields, drop_fields, merge_arrays
 import gc
 import string
 from multiprocessing import Process, Queue
 from time import sleep
-from config import default_path_in_repo
 
 chars = string.ascii_lowercase
 
