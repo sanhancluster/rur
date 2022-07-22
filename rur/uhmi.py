@@ -222,7 +222,7 @@ class PhantomTree:
     @staticmethod
     def from_halomaker(snap, lookup, rankup=1, path_in_repo=path_in_repo, max_part_size=None,
                        ptree_file_format=ptree_file_format, nparts_min=None,
-                       part_array_buffer=1.1, skip_jumps=False, start_on_middle=False, path_in_repo_halomaker=default_path_in_repo['galaxy'], **kwargs):
+                       part_array_buffer=1.1, skip_jumps=False, start_on_middle=False, path_in_repo_halomaker=default_path_in_repo['GalaxyMaker'], **kwargs):
         print('Building PhantomTree from HaloMaker data in %s' % snap.repo)
         max_iout = snap.iout
         uri.timer.verbose = 0
