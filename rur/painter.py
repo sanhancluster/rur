@@ -15,7 +15,7 @@ from warnings import warn
 from rur.sci import geometry as geo
 import os
 from astropy.visualization import make_lupton_rgb
-from config import default_path_in_repo
+from rur.config import default_path_in_repo
 
 verbose = 1
 timer = Timer(verbose=verbose)
