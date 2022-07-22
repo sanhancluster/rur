@@ -144,7 +144,7 @@ class HaloMaker:
                 double_precision=False
         if (galaxy):
             if(path_in_repo is None):
-                path_in_repo = default_path_in_repo['galaxy']
+                path_in_repo = default_path_in_repo['GalaxyMaker']
             if(not double_precision):
                 dtype = HaloMaker.galaxy_dtype
             else:
@@ -570,7 +570,7 @@ class PhantomTree:
         dump(ptree, path, msg=msg, format=format)
 
     @staticmethod
-    def measure_star_prop(snap, path_in_repo=path_in_repo, halomaker_repo=default_path_in_repo['galaxy'], ptree_file=ptree_file,
+    def measure_star_prop(snap, path_in_repo=path_in_repo, halomaker_repo=default_path_in_repo['GalaxyMaker'], ptree_file=ptree_file,
                           overwrite=True, backup_freq=30, sfr_measure_Myr=50., mass_cut_refine=2.4E-11,
                           output_file='ptree_SFR.pkl', backup_file='ptree_SFR.pkl.backup'):
         """
