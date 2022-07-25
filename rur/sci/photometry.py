@@ -158,7 +158,10 @@ def measure_magnitude(stars, filter_name, alpha=1, total=False, model='cb07'):
     else:
         raise ValueError("Unknown model '%s'" % model)
 
-    ip = LinearNDInterpolator(np.stack([grid1, grid2], axis=-1), table[filter_aliases[filter_name]], fill_value=np.nan)
+    try:
+        ip = LinearNDInterpolator(np.stack([grid1, grid2], axis=-1), table[filter_aliases[filter_name]], fill_value=np.nan)
+    except:
+        ip = LinearNDInterpolator(np.stack([grid1, grid2], axis=-1), table[filter_name], fill_value=np.nan)
     mags = ip(arr1, arr2)
     mags = mags - 2.5*np.log10(stars['m', 'Msol']/m_unit)
     if(total):
