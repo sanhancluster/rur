@@ -229,7 +229,6 @@ class vr_load:
     ##-----
     ## Load Particle of a galaxy
     ##  To do list
-    ##      *) INCLUDE FLUX & TIME COMPUTATION PARTS
     ##      *) Halo member load is not implemented
     ##-----
     def f_rdptcl(self, n_snap, id0, horg='g', p_gyr=False, p_sfactor=False, p_mass=True, p_flux=False,
