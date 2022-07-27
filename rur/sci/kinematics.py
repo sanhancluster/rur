@@ -4,7 +4,7 @@ from scipy.fft import rfft
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 
-from rur.vr.fortran.get_pot_py import js_getpt
+from rur.vr.fortran.js_getpt_ft import js_getpt
 
 # This module contains useful functions related to galaxy kinematics.
 

@@ -262,6 +262,7 @@ CONTAINS
       ENDIF
       DEALLOCATE(orgind, recind)
       DEALLOCATE(lf)
+      DEALLOCATE(root)
       RETURN
 CONTAINS
 !!--------------------------------------------------
