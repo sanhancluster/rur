@@ -1000,8 +1000,10 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
                 print('Number of       star particles: %d with total mass of %.3e Msol, Min. particle mass: %.3e Msol' % (star.size, star_tot, star_min))
                 if(star.size>0):
-                    sfr = np.sum(star[star['age', 'Myr']<100]['m', 'Msol'])/1E8
-                    print('SFR within the box (last 100Myr): %.3e Msol/yr' % sfr)
+                    sfr100 = np.sum(star[star['age', 'Myr']<100]['m', 'Msol'])/1E8
+                    sfr10 = np.sum(star[star['age', 'Myr']<10]['m', 'Msol'])/1E7
+                    sfr1 = np.sum(star[star['age', 'Myr']<1]['m', 'Msol'])/1E6
+                    print('SFR within the box (last 100, 10, 1Myr): %.3e, %.3e %.3e Msol/yr' % (sfr100, sfr10, sfr1))
 
                 if(smbh.size>0):
                     smbh_tot = np.sum(smbh['m', 'Msol'])
