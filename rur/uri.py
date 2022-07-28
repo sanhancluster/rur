@@ -39,7 +39,7 @@ class TimeSeries(object):
         return self.get_snap(item)
 
     def __getattr__(self, item):
-        return self.basesnap.item
+        return self.basesnap.__getattribute__(item)
 
     def set_box_halo(self, halo, radius=1, use_halo_radius=True, radius_name='rvir', iout_name='timestep'):
         snap = self.get_snap(halo[iout_name])
@@ -63,6 +63,31 @@ class TimeSeries(object):
 
         return np.interp(icoarse, self.icoarse_table, self.aexp_table)
 
+    def write_iout_avail(self, use_cache=False):
+        path = join(self.repo, 'list_iout_avail.txt')
+        timer.start("Writing available timesteps in %s..." % path, 1)
+        iouts = self.basesnap.get_iout_avail()
+        if(use_cache and exists(path)):
+            self.read_iout_avail()
+        iout_table = np.zeros(len(iouts), dtype=iout_avail_dtype)
+        for i, iout in enumerate(iouts):
+            if(use_cache and iout in self.iout_avail['iout']):
+                iout_table[i] = self.iout_avail[np.searchsorted(self.iout_avail['iout'], iout)]
+            else:
+                snap = self.get_snap(iout)
+                iout_table[i]['iout'] = snap.iout
+                iout_table[i]['aexp'] = snap.aexp
+                iout_table[i]['age'] = snap.age
+                iout_table[i]['icoarse'] = snap.nstep_coarse
+                iout_table[i]['time'] = snap.time
+        names = iout_table.dtype.names
+        self.iout_avail = iout_table
+        np.savetxt(path, iout_table,
+                   fmt='%18d %18.9e %18.9e %18d %18.9e', header=('%16s'+' %18s'*(len(names)-1)) % names)
+        timer.record()
+
+    def read_iout_avail(self):
+        self.iout_avail = np.loadtxt(join(self.repo, 'list_iout_avail.txt'), dtype=iout_avail_dtype)
 
 class RamsesSnapshot(object):
     """A handy object to store RAMSES AMR/Particle snapshot data.
@@ -130,9 +155,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.snap_path = join(repo, path_in_repo)
 
         if(iout<0):
-            output_names = glob.glob(join(self.snap_path, output_glob))
-            iouts = [int(arr[-5:]) for arr in output_names]
-            iouts = np.sort(iouts)
+            iouts = self.get_iout_avail()
             iout = iouts[iout]
         self.iout = iout
 
@@ -172,6 +195,11 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.region = BoxRegion(self.box)
         self.box_cell = None
         self.box_part = None
+
+    def get_iout_avail(self):
+        output_names = glob.glob(join(self.snap_path, output_glob))
+        iouts = [int(arr[-5:]) for arr in output_names]
+        return np.sort(iouts)
 
     def switch_iout(self, iout):
         # returns to other snapshot while maintaining repository, box, etc.
