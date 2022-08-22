@@ -15,6 +15,7 @@ from warnings import warn
 from rur.sci import geometry as geo
 import os
 from astropy.visualization import make_lupton_rgb
+from rur.config import default_path_in_repo
 
 verbose = 1
 timer = Timer(verbose=verbose)
@@ -1036,7 +1037,7 @@ def viewer(snap:uri.RamsesSnapshot, gal=None, source=None, rank=1, hmid=None, ra
     if (source is not None and gal is not None):
         warn("Getting data from %s, ignoring predefined gal..." % source)
     if (source == 'GalaxyMaker'):
-        gals = uhmi.HaloMaker.load(snap, path_in_repo='galaxy', galaxy=True, double_precision=True)
+        gals = uhmi.HaloMaker.load(snap, path_in_repo=default_path_in_repo['GalaxyMaker'], galaxy=True, double_precision=True)
         gals = np.sort(gals, order='m')
         if(hmid is not None):
             gal = gals[gals['hmid']==hmid]
