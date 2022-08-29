@@ -368,18 +368,18 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         return table
 
     def read_only_star(self, cpulist, mode):
-        if mode == 'yzics':
+        if mode=='yzics' or mode=='nh' or mode=='hagn':
             import os
             files = os.listdir(f"{self.snap_path}/output_{self.iout:05d}")
             files = np.array([file for file in files if file.startswith("part")])
             nstar_tot = 0
 
             with FortranFile(f"{self.snap_path}/output_{self.iout:05d}/{files[0]}", mode='r') as f:
-                f.read_ints(np.int32)
-                f.read_ints(np.int32)
-                f.read_ints(np.int32)
-                f.read_ints(np.int32)
-                nstar_tot += f.read_ints(np.int32)[0]
+                f.read_ints(np.int32) # ncpu
+                f.read_ints(np.int32) # ndim
+                f.read_ints(np.int32) # npart
+                f.read_ints(np.int32) # ??
+                nstar_tot += f.read_ints(np.int32 if not self.longint else np.int64)[0] # nstar
             
             part = np.empty(nstar_tot, dtype=self.part_dtype)
         
@@ -388,14 +388,14 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 icpu = int( fname[-5:] )
                 if icpu in cpulist:
                     with FortranFile(f"{self.snap_path}/output_{self.iout:05d}/{fname}", mode='r') as f:
-                        f.read_ints(np.int32)
-                        f.read_ints(np.int32)
-                        f.read_ints(np.int32)
-                        f.read_ints(np.int32)
-                        f.read_ints(np.int32)
-                        f.read_ints(np.int32)
-                        f.read_ints(np.int32)
-                        f.read_ints(np.int32)
+                        f.read_ints(np.int32) # ncpu
+                        f.read_ints(np.int32) # ndim
+                        f.read_ints(np.int32) # npart
+                        f.read_ints(np.int32) # ??
+                        f.read_ints(np.int32) # nstar
+                        f.read_ints(np.int32) # ??
+                        f.read_ints(np.int32) # ??
+                        f.read_ints(np.int32) # nsink
                         
             
                         x = f.read_reals(np.float64) # x
@@ -406,7 +406,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                         vz = f.read_reals(np.float64) # vz
                         m = f.read_reals(np.float64) # m
                         
-                        id = f.read_ints(np.int32) # id
+                        id = f.read_ints(np.int32 if not self.longint else np.int64) # id
                         level = f.read_ints(np.int32) # level
                         epoch = f.read_reals(np.float64) # epoch
                         metal = f.read_reals(np.float64) # metal
@@ -430,7 +430,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                         cursor += nstar
             return part[:cursor]
         else:
-            raise ValueError("Currently only `yzics` mode is supported!")
+            raise ValueError("Currently only `yzics`, `hagn`, `nh` modes are supported!")
 
 
     def read_part(self, target_fields=None, cpulist=None, onlystar=False):
