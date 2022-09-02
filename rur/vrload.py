@@ -18,7 +18,7 @@ from rur.vr.fortran.js_gasmap_py import js_gasmap_py
 
 class vr_load:
 
-    def __init__(self, simtype, num_thread=1):
+    def __init__(self, simtype, cname=False, num_thread=1):
         ##-----
         ## General settings
         ##-----
@@ -97,6 +97,36 @@ class vr_load:
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
                                                                 # flux zero points
             self.vr_treefile    = '/storage5/FORNAX/VELOCIraptor/Galaxy/tree/l3/ctree.dat'
+        elif(simtype == 'YZiCS'):
+            if(cname == False):
+                print('%-----')
+                print(' YZiCS load requires the name of cluster (ex: cname=01605)')
+                print('     Default cluster has been chosen (29172)')
+                print('%-----')
+                cname   = 29172
+
+            cname_str   = '%0.5d'%cname
+            # Path related
+            self.dir_raw        = '/storage3/Clusters/%0.5d'%cname + '/snapshots/' 
+            self.dir_catalog    = '/storage3/Clusters/VELOCIraptor/c%0.5d'%cname + '/' 
+
+            # Ramses related
+            self.rtype_llint    = False     # Whether particle IDs are 64 byte integer
+            self.rtype_family   = False     # Whether part_out contains family
+            self.rtype_neff     = int(2048) # Effective resolution of the zoom region
+
+            # VR output related
+            self.vr_columnlist  = ['ID', 'ID_mbp', 'hostHaloID', 'numSubStruct', 'Structuretype', 'Mvir', 'Mass_tot', 'Mass_FOF',
+                       'Mass_200mean', 'Efrac', 'Mass_200crit', 'Rvir', 'R_size', 'R_200mean', 'R_200crit',
+                       'R_HalfMass', 'R_HalfMass_200mean', 'R_HalfMass_200crit', 'Rmax', 'Xc', 'Yc', 'Zc', 'VXc',
+                       'VYc', 'VZc', 'Lx', 'Ly', 'Lz', 'sigV', 'Vmax', 'npart']
+                                                                # Catalog output
+            self.vr_galprop     = ['SFR', 'ABmag']              # Bulk properties computed in the post-processing
+            self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
+            self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
+                                                                # flux zero points
+            self.vr_treefile    = 'Null'
+            
         else:
             print('%-----')
             print(' Wrong argument for the simtype')
@@ -202,7 +232,6 @@ class vr_load:
     ##-----
     ## Load Particle of a galaxy
     ##  To do list
-    ##      *) INCLUDE FLUX & TIME COMPUTATION PARTS
     ##      *) Halo member load is not implemented
     ##-----
     def f_rdptcl(self, n_snap, id0, horg='g', p_gyr=False, p_sfactor=False, p_mass=True, p_flux=False,
