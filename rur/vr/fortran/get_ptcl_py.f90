@@ -34,7 +34,7 @@ CONTAINS
       n_str     = larr(11)
       longint   = larr(20)
       horg      = larr(12)
-      IF(horg .EQ.0) horg = 1   !! star particle search as a default
+      IF(horg.EQ.0) horg = 1   !! star particle search as a default
       dmp_mass  = darr(12)
 
       !ALLOCATE(ptcl(1:n_ptcl,1:9))
@@ -61,7 +61,7 @@ CONTAINS
         CALL GET_PTCL_NUM(raw_int, raw_dbl, n_raw, n_star, n_thread, &
                 horg, dmp_mass)
       IF(larr(19) .LT. 10) &
-        CALL GET_PTCL_NUM_YZiCS(raw_dbl, n_raw, n_star, n_thread, &
+        CALL GET_PTCL_NUM_YZiCS(raw_int, raw_dbl, n_raw, n_star, n_thread, &
                 horg, dmp_mass)
 
       ALLOCATE(raw_dbl2(1:n_star,1:9))
@@ -195,7 +195,7 @@ CONTAINS
       Integer(kind=4) i, j, nn
 
       nn = 1
-      IF(horg .GT. 0.) THEN !STAR
+      IF(horg .EQ. 1.) THEN !STAR
         Do i=1, n_raw
           IF(p_int(i,2) .eq. 2) THEN
             DO j=1, 9
@@ -206,7 +206,7 @@ CONTAINS
             nn = nn + 1
           ENDIF
         ENDDO
-      ELSE IF (horg .LT. 0) THEN !DM
+      ELSE IF (horg .EQ. 2) THEN !DM
         Do i=1, n_raw
           IF(p_int(i,2) .eq. 1) THEN
             IF(ABS(p_dbl(i,7)-dmp_mass)/dmp_mass .LT. 1e-5) THEN
@@ -217,6 +217,17 @@ CONTAINS
               p_int2(nn,1) = p_int(i,1)
               nn = nn + 1
             ENDIF
+          ENDIF
+        ENDDO
+      ELSE IF (horg .EQ. 3) THEN !SINK
+        Do i=1, n_raw
+          IF(p_int(i,2) .EQ. 3) THEN
+            DO j=1, 9
+              p_dbl2(nn,j) = p_dbl(i,j)
+            ENDDO
+
+            p_int2(nn,1) = p_int(i,1)
+            nn = nn + 1
           ENDIF
         ENDDO
       ENDIF
@@ -237,7 +248,7 @@ CONTAINS
       Integer(kind=4) i, j, nn
 
       nn = 1
-      IF(horg .GT. 0) THEN !STAR
+      IF(horg .EQ. 1) THEN !STAR
         Do i=1, n_raw
           IF(p_dbl(i,8) .LT. 0) THEN
             DO j=1, 9
@@ -248,7 +259,7 @@ CONTAINS
             nn = nn + 1
           ENDIF
         ENDDO
-      ELSE IF (horg .LT. 0) THEN !DM
+      ELSE IF (horg .EQ. 2) THEN !DM
         Do i=1, n_raw
           IF(p_dbl(i,8) .EQ. 0) THEN
             IF(ABS(p_dbl(i,7)-dmp_mass)/dmp_mass .LT. 1e-5) THEN
@@ -259,6 +270,17 @@ CONTAINS
               p_int2(nn,1) = p_int(i,1)
               nn = nn + 1
             ENDIF
+          ENDIF
+        ENDDO
+      ELSE IF (horg .EQ. 3) THEN !SINK
+        Do i=1, n_raw
+          IF(p_int(i,1) .LT. 0) THEN
+            DO j=1, 9
+              p_dbl2(nn,j) = p_dbl(i,j)
+            ENDDO
+
+            p_int2(nn,1) = p_int(i,1)
+            nn = nn + 1
           ENDIF
         ENDDO
       ENDIF
@@ -281,19 +303,25 @@ CONTAINS
       CALL OMP_SET_NUM_THREADS(n_thread)
       n_star = 0
 
-      IF(horg .GT. 0.) THEN ! STAR
+      IF(horg .EQ. 1) THEN ! STAR
         !$OMP PARALLEL DO default(shared) schedule(static) reduction(+:n_star)
         DO i=1, n_raw
           IF(rint(i,2) .EQ. 2) n_star = n_star + 1
         ENDDO
         !$OMP END PARALLEL DO
-      ELSE IF (horg .LT. 0.) THEN !DM
+      ELSE IF (horg .EQ. 2) THEN !DM
         !$OMP PARALLEL DO default(shared) schedule(static) reduction(+:n_star)
         DO i=1, n_raw
           IF(rint(i,2) .EQ. 1) THEN
             IF(ABS(rdbl(i,7) - dmp_mass)/dmp_mass .LT. 1e-5) &
                 n_star = n_star + 1
           ENDIF
+        ENDDO
+        !$OMP END PARALLEL DO
+      ELSE IF (horg .EQ. 3) THEN !SINK
+        !$OMP PARALLEL DO default(shared) schedule(static) reduction(+:n_star)
+        DO i=1, n_raw
+          IF(rint(i,2) .EQ. 3) n_star = n_star + 1
         ENDDO
         !$OMP END PARALLEL DO
       ENDIF
@@ -304,11 +332,12 @@ CONTAINS
 !!!!!
 !! GET PARTICLE NUM_YZiCS
 !!!!!
-      SUBROUTINE GET_PTCL_NUM_YZiCS(age, n_raw, n_star, n_thread, &
+      SUBROUTINE GET_PTCL_NUM_YZiCS(id, age, n_raw, n_star, n_thread, &
         horg, dmp_mass)
 
       IMPLICIT NONE
       INTEGER(KIND=4) n_raw, n_star, n_thread
+      INTEGER(KIND=8) id(n_raw, 2)
       REAL(KIND=8) age(n_raw,9), dmp_mass
 
       INTEGER(KIND=4) i, j, k, horg
@@ -316,13 +345,13 @@ CONTAINS
       CALL OMP_SET_NUM_THREADS(n_thread)
       n_star = 0
 
-      IF(horg .GT. 0) THEN !STAR
+      IF(horg .EQ. 1) THEN !STAR
         !$OMP PARALLEL DO default(shared) schedule(static) reduction(+:n_star)
         DO i=1, n_raw
           IF(age(i,8) .LT. 0) n_star = n_star + 1
         ENDDO
         !$OMP END PARALLEL DO
-      ELSE IF (horg .LT. 0) THEN
+      ELSE IF (horg .EQ. 2) THEN !DM
         !$OMP PARALLEL DO default(shared) schedule(static) reduction(+:n_star)
         DO i=1, n_raw
           IF(age(i,8) .EQ. 0) THEN
@@ -331,8 +360,13 @@ CONTAINS
           ENDIF
         ENDDO
         !$OMP END PARALLEL DO
+      ELSE IF(horg .EQ. 3) THEN !SINK
+        !$OMP PARALLEL DO default(shared) schedule(static) reduction(+:n_star)
+        DO i=1, n_raw
+          IF(id(i,1) .LT. 0) n_star = n_star + 1
+        ENDDO
+        !$OMP END PARALLEL DO
       ENDIF
-
 
       END subroutine
 
@@ -394,7 +428,7 @@ CONTAINS
           rdbl(i+nn,7) = dum_dbl(i)
         ENDDO
 
-        IF(longint .ge. 10) THEN
+        IF(longint .ge. 10) THEN          !! ID
           read(uout) dum_int_ll
           Do i=1, nbody
             rint(i+nn,1) = dum_int_ll(i)
@@ -409,7 +443,7 @@ CONTAINS
         read(uout) dum_int
 
         read(uout) dum_int_byte
-        Do i=1, nbody
+        Do i=1, nbody                     !! FAMILY
           rint(i+nn,2) = dum_int_byte(i)
           IF(rint(i+nn,2) .gt. 100) rint(i+nn,2) = rint(i+nn,2) - 255
         ENDDO

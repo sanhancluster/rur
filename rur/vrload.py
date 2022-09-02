@@ -34,6 +34,7 @@ class vr_load:
             # Path related
             self.dir_raw        = '/storage6/NewHorizon/snapshots/'
             self.dir_catalog    = '/storage5/NewHorizon/VELOCIraptor/'
+            self.dir_sink       = '/storage6/NewHorizon/snapshots/sinkdum/'
 
             # Ramses related
             self.rtype_llint    = False     # Whether particle IDs are 64 byte integer
@@ -55,6 +56,7 @@ class vr_load:
             # Path related
             self.dir_raw        = '/storage7/NH2/snapshots/'
             self.dir_catalog    = '/storage7/NH2/VELOCIraptor/'
+            self.dir_sink       = '/storage7/NH2/SINKPROPS/'
 
             # Ramses related
             self.rtype_llint    = False     # Whether particle IDs are 64 byte integer
@@ -77,6 +79,7 @@ class vr_load:
             # Path related
             self.dir_raw        = '/storage5/FORNAX/KISTI_OUTPUT/l10006/'
             self.dir_catalog    = '/storage5/FORNAX/VELOCIraptor/l10006/'
+            self.dir_sink       = '/storage5/FORNAX/KISTI_OUTPUT/l10006/SINKPROPS/'
 
             # Ramses related
             self.rtype_llint    = False     # Whether particle IDs are 64 byte integer
@@ -203,7 +206,7 @@ class vr_load:
     ##      *) Halo member load is not implemented
     ##-----
     def f_rdptcl(self, n_snap, id0, horg='g', p_gyr=False, p_sfactor=False, p_mass=True, p_flux=False,
-            p_metal=False, p_id=False, raw=False, boxrange=50., domlist=[0], num_thread=None):
+            p_metal=False, p_id=False, raw=False, boxrange=50., domlist=[0], num_thread=None, sink=False):
 
         # Get funtions
         gf  = vr_getftns(self)
@@ -224,6 +227,10 @@ class vr_load:
 
         dmp_mass    = 1.0/(self.rtype_neff*self.rtype_neff*self.rtype_neff)*(omega_M - omega_B)/omega_M
 
+        if(sink==True):
+            raw =True
+            p_id=True
+
         # READ PTCL ID & Domain List (Might be skipped when raw==True)
         if(raw==False):
             if(horg=='h'): fname = self.dir_catalog + 'Halo/VR_Halo/snap_%0.4d'%n_snap+"/"
@@ -239,7 +246,7 @@ class vr_load:
             domlist = np.zeros(self.rtype_ndomain, dtype=np.int32) - 1
 
             #----- Find Domain
-            galtmp  = f_rdgal(n_snap, id0, horg=horg)
+            galtmp  = self.f_rdgal(n_snap, id0, horg=horg)
 
             xc  = galtmp['Xc']/unit_l * 3.086e21
             yc  = galtmp['Yc']/unit_l * 3.086e21
@@ -275,8 +282,8 @@ class vr_load:
             larr[10]    = np.int32(len(self.dir_raw))
             larr[17]    = 0
 
-            if(horg=='g'): larr[11] = 10
-            else: larr[11] = -10
+            if(horg=='g'): larr[11] = 1 # STAR
+            else: larr[11] = 2 # DM
 
             if(self.rtype_family==True): larr[18] = 100
             else: larr[18] = 0
@@ -294,12 +301,13 @@ class vr_load:
             larr[1] = np.int32(len(domlist))
             larr[2] = np.int32(n_snap)
             larr[3] = np.int32(num_thread)
-            larr[10]= np.int32(len(dir_raw))
+            larr[10]= np.int32(len(self.dir_raw))
             larr[17]= 100
 
-            if(horg=='g'): larr[11] = 10
-            else: larr[11] = -10
-
+            if(horg=='g'): larr[11] = 1 # STAR
+            else: larr[11] = 2 # DM
+            if(sink==True): larr[11] = 3 # SINK
+            
             if(self.rtype_family==True): larr[18] = 100
             else: larr[18] = 0
             if(self.rtype_llint==True): larr[19] = 100
@@ -307,7 +315,7 @@ class vr_load:
 
             if(horg=='h'): darr[11] = dmp_mass
 
-            get_ptcl_py.get_ptcl(dir_raw, idlist, domlist, larr, darr)
+            get_ptcl_py.get_ptcl(self.dir_raw, idlist, domlist, larr, darr)
             pinfo   = get_ptcl_py.ptcl
             idlist  = get_ptcl_py.id_raw
 
@@ -809,3 +817,27 @@ class vr_getftns:
 
 
         return data
+"""
+    Currently aborted because some snapshots do not have the corresponding sinkprops.dat
+    Last updated 22.09.01 Jinsu
+
+
+    def g_sink(self, snap, xr=None, yr=None, zr=None):
+        #----- GET COARSE STEP & SIM units
+        ncoarse    = np.int64(np.loadtxt(self.vrobj.dir_raw+'output_%0.5d'%snap+"/info_%0.5d"%snap+".txt", dtype=object, skiprows=5, max_rows=1)[1])
+
+        #----- READ sink_*.dat
+        fname   = self.vrobj.dir_sink + 'sink_%0.5d'%ncoarse+'.dat'
+        f       = FortranFile(fname, 'r')
+
+        nsink   = f.read_ints(np.int32)
+        ndim    = f.read_ints(np.int32)
+        aexp    = f.read_reals(np.double)
+        unit_l  = f.read_reals(np.double)
+        unit_d  = f.read_reals(np.double)
+        unit_t  = f.read_reals(np.double)
+
+        f.close()
+
+        return nsink, ndim, aexp, unit_l, unit_d, unit_t
+"""
