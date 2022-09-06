@@ -807,11 +807,13 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         if(part):
             self.part_data = None
             self.part = None
+            self.box_part = None
             self.cpulist_part = np.array([], dtype='i4')
             self.bound_part = np.array([0], dtype='i4')
         if(cell):
             self.cell_data = None
             self.cell = None
+            self.box_cell = None
             self.cpulist_cell = np.array([], dtype='i4')
             self.bound_cell = np.array([0], dtype='i4')
 
