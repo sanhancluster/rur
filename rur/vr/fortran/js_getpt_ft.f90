@@ -68,6 +68,7 @@ CONTAINS
 
       IF(ALLOCATED(pot)) DEALLOCATE(pot)
       ALLOCATE(pot(1:n_ptcl))
+      pot = 0.
 
       !!-----
       !! GET TREE
@@ -82,7 +83,7 @@ CONTAINS
       ENDDO
 
       time(1)   = omp_get_wtime()
-
+      IF(ALLOCATED(root)) DEALLOCATE(root)
       root = js_kdtree_mktree(pos, mm, orgind, bsize, d_type, v_type)
 
       time(2)   = omp_get_wtime()
