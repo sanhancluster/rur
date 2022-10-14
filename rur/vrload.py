@@ -73,7 +73,7 @@ class vr_load:
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
                                                                 # flux zero points
-            self.vr_treefile    = 'void'
+            self.vr_treefile    = '/storage7/NH2/VELOCIraptor/tree/l3/ctee.dat'
 
         elif(simtype == 'FORNAX' or simtype == 'FN'):
             # Path related
