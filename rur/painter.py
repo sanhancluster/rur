@@ -15,10 +15,7 @@ from warnings import warn
 from rur.sci import geometry as geo
 import os
 from astropy.visualization import make_lupton_rgb
-from rur.config import default_path_in_repo
-
-verbose = 1
-timer = Timer(verbose=verbose)
+from rur.config import default_path_in_repo, timer
 
 default_box = np.array([[0, 1], [0, 1], [0, 1]])
 
@@ -84,7 +81,7 @@ def set_bins(known_lvls, minlvl, maxlvl, box_proj, shape):
     basebin = edgeidx[:, 1] - edgeidx[:, 0]
     edge = mingrid[edgeidx]
 
-    if(verbose>=2):
+    if(timer.verbose>=2):
         print('box', list(box_proj))
         print('edge', list(edge))
         print('basebin', basebin)
@@ -109,7 +106,7 @@ def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, sub
 
     known_lvls = np.arange(minlvl, maxlvl+1)
 
-    if(verbose>=1):
+    if(timer.verbose>=1):
         print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl), (basebin * 2.**(maxlvl-minlvl)).astype(int))
     timer.start('Drawing Refinement Level Map... ', 1)
 
@@ -145,7 +142,7 @@ def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, sub
             image = resize(image, shape, mode='constant')
 
     timer.record()
-    if(verbose>=1):
+    if(timer.verbose>=1):
         print("Cropped Image Size: ", image.shape)
 
     return image.T
@@ -218,7 +215,7 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
 
     known_lvls = np.arange(minlvl, np.max(known_lvls)+1)
 
-    if(verbose>=1):
+    if(timer.verbose>=1):
         print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl), (basebin * 2.**(maxlvl-minlvl)).astype(int))
     timer.start('Drawing gas map... ', 1)
 
@@ -302,7 +299,7 @@ def velmap(data, box=None, proj=[0, 1], shape=500, unit=None, minlvl=None, maxlv
 
         known_lvls = np.arange(minlvl, np.max(known_lvls)+1)
 
-        if(verbose>=1):
+        if(timer.verbose>=1):
             print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl), basebin * 2**(maxlvl-minlvl))
         timer.start('Drawing gas velocity map... ', 1)
 
@@ -408,7 +405,7 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
 
     known_lvls = np.arange(minlvl, np.max(known_lvls)+1)
 
-    if(verbose>=1):
+    if(timer.verbose>=1):
         print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl), basebin * 2**(maxlvl-minlvl))
     timer.start('Drawing tracer map... ', 1)
 
@@ -730,7 +727,7 @@ def draw_grid(cell, box=None, ax=None, proj=[0, 1], minlvl=None, maxlvl=None, co
 
     known_lvls = np.arange(minlvl, maxlvl+1)
 
-    if(verbose>=1):
+    if(timer.verbose>=1):
         print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl), basebin * 2**(maxlvl-minlvl))
     timer.start('Drawing grids... ', 1)
 
@@ -876,7 +873,7 @@ def composite_image(images, cmaps, weights=None, vmins=None, vmaxs=None, qscales
     if(normmodes is None):
         normmodes = np.full(nimg, 'log')
 
-    if(verbose>=2):
+    if(timer.verbose>=2):
         print('vmins:', vmins)
         print('vmaxs:', vmaxs)
 
@@ -924,7 +921,7 @@ def norm(v, vmin=None, vmax=None, qscale=3., mode='log', nanzero=False):
         v = pow((v - vmin) / (vmax - vmin))
 
 
-    if(verbose>=2):
+    if(timer.verbose>=2):
         print('vmin: %f' % vmin)
         print('vmax: %f' % vmax)
         print('qscale: %f' % qscale)
