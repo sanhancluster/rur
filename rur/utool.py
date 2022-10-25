@@ -669,10 +669,12 @@ def k_partitioning(centers_init, points, weights,
 
     def relax(centers):
         centers = centers.copy()
+        # get closest centers in each points
         tree = KDTree(centers)
         dists, idx = tree.query(points, k=n_nei, n_jobs=n_jobs)
         idx_closest = idx[:, 0]
 
+        # get number of points in each Voronoi bin
         sums = np.zeros(centers.shape[0], dtype='f8')
         np.add.at(sums, idx_closest, weights)
 

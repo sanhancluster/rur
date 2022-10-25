@@ -89,6 +89,10 @@ class TimeSeries(object):
     def read_iout_avail(self):
         self.iout_avail = np.loadtxt(join(self.repo, 'list_iout_avail.txt'), dtype=iout_avail_dtype)
 
+    def clear(self):
+        self.snaps = None
+        self.basesnap = None
+
 class RamsesSnapshot(object):
     """A handy object to store RAMSES AMR/Particle snapshot data.
 
@@ -249,8 +253,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
     def epoch_to_age(self, epoch):
         table = self.cosmo_table
-        ages = self.params['age'] - np.interp(epoch, table['u'], table['t'])
-        return ages * self.unit['Gyr']
+        ages = np.interp(epoch, table['u'], table['t'])
+        return ages
 
     def epoch_to_aexp(self, epoch):
         table = self.cosmo_table
@@ -1730,8 +1734,7 @@ def fromndarrays(ndarrays, dtype):
     faster than np.rec.fromarrays
     only works for 2d arrays for now
     """
-    if dtype is not None:
-        descr = np.dtype(dtype)
+    descr = np.dtype(dtype)
 
     itemsize = 0
     nitem = None
@@ -1749,6 +1752,6 @@ def fromndarrays(ndarrays, dtype):
     col = 0
     for nda in ndarrays:
         bnda = nda.view('b')
-        barr[:, col:col + bnda.shape[1]] = bnda
+        barr[:, col:col+bnda.shape[1]] = bnda
         col += bnda.shape[1]
     return array
