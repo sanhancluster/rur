@@ -75,18 +75,19 @@ def axlabel(text, pos='right top', offset=0.03, **kwargs):
     # va: top, bottom
 
     ha, va = tuple(pos.split(' '))
+    offset = np.atleast_1d(offset) * [1, 1]
     if(ha == 'right'):
-        x = 1 - offset
+        x = 1 - offset[0]
     elif(ha == 'left'):
-        x = offset
+        x = offset[0]
     elif (ha == 'center'):
         x = 0.5
     else:
         raise ValueError("Unknown horizontal position %s" % ha)
     if(va == 'top'):
-        y = 1 - offset
+        y = 1 - offset[1]
     elif(va == 'bottom'):
-        y = offset
+        y = offset[1]
     elif(va == 'center'):
         y = 0.5
     else:
@@ -633,7 +634,7 @@ def binned_plot(x, y, weights=None, errors=None, bins=10, weighted_binning=False
         if(mode[1] == 'line'):
             color = p0[0].get_color()
         elif(mode[1] == 'marker'):
-            color = p0.get_facecolor()[0]
+            color = p0.get_edgecolor()[0]
     else:
         color = None
 
