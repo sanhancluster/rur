@@ -142,6 +142,8 @@ grafic_header_dtype = [('nx', 'i4'), ('ny', 'i4'), ('nz', 'i4'),
              ('aexp_start', 'f4'),
              ('Om', 'f4'), ('Ol', 'f4'), ('H0', 'f4')]
 
+iout_avail_dtype=[('iout', 'i4'), ('aexp', 'f8'), ('age', 'f8'), ('icoarse', 'i4'), ('time', 'f8')]
+
 # columns for hydro quantity table, all float64, see readr.f90
 hydro_names = {
     'nh': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],

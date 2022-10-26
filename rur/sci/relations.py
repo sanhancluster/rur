@@ -69,8 +69,6 @@ class mgal_mdmh:
 
         return 10. ** (logmg - logmh)
 
-    evaluate()
-
 class mgal_size:
     # mass-size relation
     def V14(self, mlog, z=0, shape='circular', radius_type=1, gal_type='late', return_error=False): # van der Wel+ 2014 (SDSS)
