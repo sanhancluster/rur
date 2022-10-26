@@ -441,6 +441,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if 'cpu' not in target_fields:
                 target_fields = np.append(target_fields, 'cpu')
             part_dtype = [idtype for idtype in part_dtype if idtype[0] in target_fields]
+        else:
+            target_fields = [idtype[0] for idtype in part_dtype]
         part = np.empty(nstar_tot, dtype=part_dtype)
 
         # Read files
