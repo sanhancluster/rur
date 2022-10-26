@@ -60,7 +60,7 @@ default = [('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('
 # columns for particle table, see readr.f90
 part_dtype = {
     'yzics': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
-    'hagn': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
+    'hagn': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'),('H','f8'),('O','f8'),('Fe','f8'),('C','f8'),('N','f8'),('Mg','f8'),('Si','f8')],
     'yzics_dm_only': default + [('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
 
     'nh': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
@@ -69,7 +69,7 @@ part_dtype = {
     'none': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('family', 'i1'), ('tag', 'i1')],
     'iap': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('family', 'i1'), ('tag', 'i1')],
     'gem': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('family', 'i1'), ('tag', 'i1')],
-    'fornax': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('family', 'i1'), ('tag', 'i1')],
+    'fornax': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i8'), ('level', 'i4'), ('cpu', 'i4'), ('family', 'i1'), ('tag', 'i1')],
     'y2': default + [('epoch', 'f8'), ('metal', 'f8'), ('m0', 'f8'),
                      ('H', 'f8'), ('O', 'f8'), ('Fe', 'f8'), ('Mg', 'f8'),
                      ('C', 'f8'), ('N', 'f8'), ('Si', 'f8'), ('S', 'f8'),
@@ -221,8 +221,8 @@ def custom_units(snap):
         'Mpc' : Mpc / l,
         'ly'  : ly / l,
 
-        'ckpc/h': 1E-3 / snap.boxsize / snap.h,
-        'cMpc/h': 1E0 / snap.boxsize / snap.h,
+        'ckpc/h': 1E-3 / snap.boxsize_comoving / snap.h,
+        'cMpc/h': 1E0 / snap.boxsize_comoving / snap.h,
 
         'kpc/h': kpc / l / snap.h,
         'Mpc/h': Mpc / l / snap.h,

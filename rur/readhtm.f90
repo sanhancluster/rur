@@ -64,12 +64,12 @@ contains
          read(unitfile) real_table_dp(ihalo,16:18) ! ek, ep, et
          read(unitfile) real_table_dp(ihalo,19) ! spin
          if(galaxy) then
-            read(unitfile) real_table_dp(ihalo,20:22)
-            read(unitfile) real_table_dp(ihalo,23:26)
-            read(unitfile) real_table_dp(ihalo,27:28)
-            read(unitfile) ! some additional surface profiles data ...
-            read(unitfile)
-            read(unitfile)
+            read(unitfile) real_table_dp(ihalo,20:22) ! sigma, sigma_bulge, m_bulge
+            read(unitfile) real_table_dp(ihalo,23:26) ! rvir, mvir, tvir, cvel
+            read(unitfile) real_table_dp(ihalo,27:28) ! rho0, rc
+            read(unitfile) ! some additional surface profiles data ... (nbin)
+            read(unitfile) ! rbin
+            read(unitfile) ! density? at r
          else
             read(unitfile) real_table_dp(ihalo,20:23) ! rvir, mvir, tvir, cvel
             read(unitfile) real_table_dp(ihalo,24:25) ! rho0, rc
