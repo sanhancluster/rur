@@ -1875,7 +1875,7 @@ def fromndarrays(ndarrays, dtype):
             raise ValueError("Array shape does not match")
         itemsize += nda.shape[1] * nda.dtype.itemsize
     if(descr.itemsize != itemsize):
-        raise ValueError("Sum of itemsize does not match with desired dtype")
+        raise ValueError(f"Sum of itemsize ({itemsize}) does not match with desired dtype ({descr.itemsize})")
 
     array = np.zeros(nitem, descr)
     barr = get_bytes_data(array)
