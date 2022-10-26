@@ -50,7 +50,6 @@ class vr_load:
             self.vr_galprop     = ['SFR', 'ABmag']              # Bulk properties computed in the post-processing
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
-            self.vr_treefile    = '/storage5/NewHorizon/VELOCIraptor/Galaxy/tree/l1/ctree.dat'
                                                                 # flux zero points
         elif(simtype == 'NH2'):
             # Path related
@@ -73,7 +72,6 @@ class vr_load:
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
                                                                 # flux zero points
-            self.vr_treefile    = 'void'
 
         elif(simtype == 'FORNAX' or simtype == 'FN'):
             # Path related
@@ -96,7 +94,6 @@ class vr_load:
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
                                                                 # flux zero points
-            self.vr_treefile    = '/storage5/FORNAX/VELOCIraptor/Galaxy/tree/l3/ctree.dat'
         elif(simtype == 'YZiCS'):
             if(cname == False):
                 print('%-----')
@@ -125,8 +122,6 @@ class vr_load:
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
                                                                 # flux zero points
-            self.vr_treefile    = 'Null'
-            
         else:
             print('%-----')
             print(' Wrong argument for the simtype')
@@ -526,6 +521,106 @@ class vr_load:
         units   = {'unit_l':unit_l, 'unit_m':unit_m, 'unit_t':unit_t, 'kms':kms, 'unit_nH':nH, 'unit_T2':unit_T2}
         return data, boxrange, units
 
+##-----
+## Get Tree Data
+##-----
+    def f_gettree_readdat(self, filename):
+        with open(filename,'rb') as f:
+            longtype    = np.dtype(np.int32)
+            bdata       = np.fromfile(f,dtype=longtype)
+
+            ## READ
+            n_branch    = bdata[0]
+            b_startind  = np.zeros(n_branch, dtype='int32')
+
+            ind0    = np.int32(1)
+            ind = np.array(range(n_branch),dtype='int32')
+            for i in ind:
+                #if(ind0>59775170):print(i)
+                b_startind[i]   = ind0
+                ind0    += np.int32(bdata[ind0] * 2 + 1)
+                ind0    += np.int32(bdata[ind0] * 4 + 1)
+
+
+            tree_key    = bdata[ind0+1:-1]
+            return bdata, b_startind, tree_key
+    def f_gettree(self, n_snap, id0, horg='g'):
+
+
+        directory   = self.dir_catalog
+        ## Initialize
+        if(horg=='g'):
+            dir_tree    = directory + 'Galaxy/tree/'
+        elif(horg=='h'):
+            dir_tree    = directory + 'Halo/tree/'
+
+        ## Is pickle?
+        fname   = dir_tree + 'ctree.pkl'
+        isfile = os.path.isfile(fname)
+
+        if(isfile==True):
+            with open(fname, 'rb') as f:
+                data = pickle.load(f)
+        else:
+            fname_bin   = dir_tree + 'ctree.dat'
+            data    = self.f_gettree_readdat(fname_bin)
+            with open(fname, 'wb') as f:
+                pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
+
+        branch  = data[0]
+        bind    = data[1]
+        key     = data[2]
+
+        keyval  = n_snap + key[0]*id0
+        kind    = key[keyval]
+        ind0    = bind[kind]
+
+        n_link  = branch[ind0]
+
+        idlist  = branch[ind0+1:ind0+n_link+1]
+        snlist  = branch[ind0+n_link+1:ind0+n_link*2+1]
+
+        ind1    = ind0 + n_link*2+1
+        n_prog  = branch[ind1]
+
+        m_idlist    = np.zeros(1, dtype=np.int32) - 1
+        m_snaplist  = np.zeros(1, dtype=np.int32) - 1
+        m_merit     = np.zeros(1, dtype='<f8') - 1.
+        m_bid       = np.zeros(1, dtype=np.int32) - 1
+        if(n_prog>0):
+            m_idlist    = branch[ind1+1:ind1+n_prog+1]
+            m_snaplist  = branch[ind1+n_prog+1:ind1+n_prog*2+1]
+            m_merit     = np.double(branch[ind1+n_prog*2+1:ind1+n_prog*3+1])/1e10
+            m_bid       = branch[ind1+n_prog*3+1:ind1+n_prog*4+1]
+
+        return idlist, snlist, m_idlist, m_snaplist, m_merit, m_bid
+##-----
+## Get Merger Tree
+##-----
+    def f_getevol(self, n_snap, id0, horg='g'):#, gprop=gal_properties, directory=dir_catalog):
+
+        # Get funtions
+        gf  = vr_getftns(self)
+
+        ## Get tree of this galaxy
+        tree    = self.f_gettree(n_snap, id0, horg)
+
+        idlist  = np.array(tree[0],dtype='int32')
+        snlist  = np.array(tree[1],dtype='int32')
+        n_link  = len(idlist)
+
+        ## First read the galaxy
+        g0  = self.f_rdgal(n_snap, id0, horg=horg)
+
+        ## ALLOCATE
+        gal = np.zeros(n_link, dtype=g0.dtype)
+
+        ## READ
+        ind = np.array(range(n_link),dtype='int32')
+        for i in ind:
+            gal[i]  = self.f_rdgal(snlist[i], idlist[i], horg)
+
+        return gal
 
 ##-----
 ## Some basic drawing routines
