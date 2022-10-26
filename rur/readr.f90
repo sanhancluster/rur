@@ -318,9 +318,18 @@ contains
         end do
 
         ! Set coulum spaces of each datatype for different versions of RAMSES
-        if(mode == 'nh' .or. mode == 'yzics' .or. mode == 'hagn') then ! New Horizon / YZiCS / Horizon-AGN
+        if(mode == 'nh' .or. mode == 'yzics') then ! New Horizon / YZiCS / Horizon-AGN
             if(nstar > 0 .or. nsink > 0) then
                 nreal = 2*ndim + 3
+            else
+                nreal = 2*ndim + 1
+            end if
+            nint = 3
+            nbyte = 0
+        elseif(mode == 'hagn') then
+            if(nstar > 0 .or. nsink > 0) then
+                nchem = 7
+                nreal = 2*ndim + 3 + nchem
             else
                 nreal = 2*ndim + 1
             end if
@@ -397,8 +406,12 @@ contains
                 if(nstar > 0 .or. nsink > 0) then
                     read(part_n) real_table(2*ndim+2, npart_c:npart_c+npart-1)
                     read(part_n) real_table(2*ndim+3, npart_c:npart_c+npart-1)
+                    if(mode=='hagn') then
+                        do j=1,nchem
+                            read(part_n) real_table(2*ndim+3+j, npart_c:npart_c+npart-1)
+                        end do
+                    endif
                 end if
-
                 ! Add CPU information
                 integer_table(pint, npart_c:npart_c+npart-1) = icpu
 

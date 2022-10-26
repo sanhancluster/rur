@@ -4,3 +4,5 @@
 *.so
 *.o
 .idea/
+**build**
+**/rur.egg-info/**

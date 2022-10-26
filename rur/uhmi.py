@@ -131,7 +131,7 @@ class HaloMaker:
 
 
     @staticmethod
-    def load(snap, path_in_repo=None, galaxy=False, full_path=None, load_parts=False, double_precision=None):
+    def load(snap, path_in_repo=None, galaxy=False, full_path=None, load_parts=False, double_precision=None, copy_part_id=True):
         # boxsize: comoving length of the box in Mpc
         repo = snap.repo
         start = snap.iout
@@ -171,7 +171,10 @@ class HaloMaker:
             print("No tree_brick file found, or no halo found in %s" % path)
 
         if(load_parts):
-            return array, readh.part_ids
+            part_ids = readh.part_ids
+            if(copy_part_id):
+                part_ids = part_ids.copy()
+            return array, part_ids
         else:
             return array
 

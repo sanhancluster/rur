@@ -18,7 +18,7 @@ from rur.vr.fortran.js_gasmap_py import js_gasmap_py
 
 class vr_load:
 
-    def __init__(self, simtype, num_thread=1):
+    def __init__(self, simtype, cname=False, num_thread=1):
         ##-----
         ## General settings
         ##-----
@@ -34,6 +34,7 @@ class vr_load:
             # Path related
             self.dir_raw        = '/storage6/NewHorizon/snapshots/'
             self.dir_catalog    = '/storage5/NewHorizon/VELOCIraptor/'
+            self.dir_sink       = '/storage6/NewHorizon/snapshots/sinkdum/'
 
             # Ramses related
             self.rtype_llint    = False     # Whether particle IDs are 64 byte integer
@@ -49,12 +50,12 @@ class vr_load:
             self.vr_galprop     = ['SFR', 'ABmag']              # Bulk properties computed in the post-processing
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
-            self.vr_treefile    = '/storage5/NewHorizon/VELOCIraptor/Galaxy/tree/l1/ctree.dat'
                                                                 # flux zero points
         elif(simtype == 'NH2'):
             # Path related
             self.dir_raw        = '/storage7/NH2/snapshots/'
             self.dir_catalog    = '/storage7/NH2/VELOCIraptor/'
+            self.dir_sink       = '/storage7/NH2/SINKPROPS/'
 
             # Ramses related
             self.rtype_llint    = False     # Whether particle IDs are 64 byte integer
@@ -71,12 +72,12 @@ class vr_load:
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
                                                                 # flux zero points
-            self.vr_treefile    = 'void'
 
         elif(simtype == 'FORNAX' or simtype == 'FN'):
             # Path related
             self.dir_raw        = '/storage5/FORNAX/KISTI_OUTPUT/l10006/'
             self.dir_catalog    = '/storage5/FORNAX/VELOCIraptor/l10006/'
+            self.dir_sink       = '/storage5/FORNAX/KISTI_OUTPUT/l10006/SINKPROPS/'
 
             # Ramses related
             self.rtype_llint    = False     # Whether particle IDs are 64 byte integer
@@ -93,7 +94,34 @@ class vr_load:
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
                                                                 # flux zero points
-            self.vr_treefile    = '/storage5/FORNAX/VELOCIraptor/Galaxy/tree/l3/ctree.dat'
+        elif(simtype == 'YZiCS'):
+            if(cname == False):
+                print('%-----')
+                print(' YZiCS load requires the name of cluster (ex: cname=01605)')
+                print('     Default cluster has been chosen (29172)')
+                print('%-----')
+                cname   = 29172
+
+            cname_str   = '%0.5d'%cname
+            # Path related
+            self.dir_raw        = '/storage3/Clusters/%0.5d'%cname + '/snapshots/' 
+            self.dir_catalog    = '/storage3/Clusters/VELOCIraptor/c%0.5d'%cname + '/' 
+
+            # Ramses related
+            self.rtype_llint    = False     # Whether particle IDs are 64 byte integer
+            self.rtype_family   = False     # Whether part_out contains family
+            self.rtype_neff     = int(2048) # Effective resolution of the zoom region
+
+            # VR output related
+            self.vr_columnlist  = ['ID', 'ID_mbp', 'hostHaloID', 'numSubStruct', 'Structuretype', 'Mvir', 'Mass_tot', 'Mass_FOF',
+                       'Mass_200mean', 'Efrac', 'Mass_200crit', 'Rvir', 'R_size', 'R_200mean', 'R_200crit',
+                       'R_HalfMass', 'R_HalfMass_200mean', 'R_HalfMass_200crit', 'Rmax', 'Xc', 'Yc', 'Zc', 'VXc',
+                       'VYc', 'VZc', 'Lx', 'Ly', 'Lz', 'sigV', 'Vmax', 'npart']
+                                                                # Catalog output
+            self.vr_galprop     = ['SFR', 'ABmag']              # Bulk properties computed in the post-processing
+            self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
+            self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
+                                                                # flux zero points
         else:
             print('%-----')
             print(' Wrong argument for the simtype')
@@ -199,11 +227,10 @@ class vr_load:
     ##-----
     ## Load Particle of a galaxy
     ##  To do list
-    ##      *) INCLUDE FLUX & TIME COMPUTATION PARTS
     ##      *) Halo member load is not implemented
     ##-----
     def f_rdptcl(self, n_snap, id0, horg='g', p_gyr=False, p_sfactor=False, p_mass=True, p_flux=False,
-            p_metal=False, p_id=False, raw=False, boxrange=50., domlist=[0], num_thread=None):
+            p_metal=False, p_id=False, raw=False, boxrange=50., domlist=[0], num_thread=None, sink=False):
 
         # Get funtions
         gf  = vr_getftns(self)
@@ -224,6 +251,10 @@ class vr_load:
 
         dmp_mass    = 1.0/(self.rtype_neff*self.rtype_neff*self.rtype_neff)*(omega_M - omega_B)/omega_M
 
+        if(sink==True):
+            raw =True
+            p_id=True
+
         # READ PTCL ID & Domain List (Might be skipped when raw==True)
         if(raw==False):
             if(horg=='h'): fname = self.dir_catalog + 'Halo/VR_Halo/snap_%0.4d'%n_snap+"/"
@@ -239,7 +270,7 @@ class vr_load:
             domlist = np.zeros(self.rtype_ndomain, dtype=np.int32) - 1
 
             #----- Find Domain
-            galtmp  = f_rdgal(n_snap, id0, horg=horg)
+            galtmp  = self.f_rdgal(n_snap, id0, horg=horg)
 
             xc  = galtmp['Xc']/unit_l * 3.086e21
             yc  = galtmp['Yc']/unit_l * 3.086e21
@@ -275,8 +306,8 @@ class vr_load:
             larr[10]    = np.int32(len(self.dir_raw))
             larr[17]    = 0
 
-            if(horg=='g'): larr[11] = 10
-            else: larr[11] = -10
+            if(horg=='g'): larr[11] = 1 # STAR
+            else: larr[11] = 2 # DM
 
             if(self.rtype_family==True): larr[18] = 100
             else: larr[18] = 0
@@ -294,12 +325,13 @@ class vr_load:
             larr[1] = np.int32(len(domlist))
             larr[2] = np.int32(n_snap)
             larr[3] = np.int32(num_thread)
-            larr[10]= np.int32(len(dir_raw))
+            larr[10]= np.int32(len(self.dir_raw))
             larr[17]= 100
 
-            if(horg=='g'): larr[11] = 10
-            else: larr[11] = -10
-
+            if(horg=='g'): larr[11] = 1 # STAR
+            else: larr[11] = 2 # DM
+            if(sink==True): larr[11] = 3 # SINK
+            
             if(self.rtype_family==True): larr[18] = 100
             else: larr[18] = 0
             if(self.rtype_llint==True): larr[19] = 100
@@ -307,7 +339,7 @@ class vr_load:
 
             if(horg=='h'): darr[11] = dmp_mass
 
-            get_ptcl_py.get_ptcl(dir_raw, idlist, domlist, larr, darr)
+            get_ptcl_py.get_ptcl(self.dir_raw, idlist, domlist, larr, darr)
             pinfo   = get_ptcl_py.ptcl
             idlist  = get_ptcl_py.id_raw
 
@@ -489,6 +521,106 @@ class vr_load:
         units   = {'unit_l':unit_l, 'unit_m':unit_m, 'unit_t':unit_t, 'kms':kms, 'unit_nH':nH, 'unit_T2':unit_T2}
         return data, boxrange, units
 
+##-----
+## Get Tree Data
+##-----
+    def f_gettree_readdat(self, filename):
+        with open(filename,'rb') as f:
+            longtype    = np.dtype(np.int32)
+            bdata       = np.fromfile(f,dtype=longtype)
+
+            ## READ
+            n_branch    = bdata[0]
+            b_startind  = np.zeros(n_branch, dtype='int32')
+
+            ind0    = np.int32(1)
+            ind = np.array(range(n_branch),dtype='int32')
+            for i in ind:
+                #if(ind0>59775170):print(i)
+                b_startind[i]   = ind0
+                ind0    += np.int32(bdata[ind0] * 2 + 1)
+                ind0    += np.int32(bdata[ind0] * 4 + 1)
+
+
+            tree_key    = bdata[ind0+1:-1]
+            return bdata, b_startind, tree_key
+    def f_gettree(self, n_snap, id0, horg='g'):
+
+
+        directory   = self.dir_catalog
+        ## Initialize
+        if(horg=='g'):
+            dir_tree    = directory + 'Galaxy/tree/'
+        elif(horg=='h'):
+            dir_tree    = directory + 'Halo/tree/'
+
+        ## Is pickle?
+        fname   = dir_tree + 'ctree.pkl'
+        isfile = os.path.isfile(fname)
+
+        if(isfile==True):
+            with open(fname, 'rb') as f:
+                data = pickle.load(f)
+        else:
+            fname_bin   = dir_tree + 'ctree.dat'
+            data    = self.f_gettree_readdat(fname_bin)
+            with open(fname, 'wb') as f:
+                pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
+
+        branch  = data[0]
+        bind    = data[1]
+        key     = data[2]
+
+        keyval  = n_snap + key[0]*id0
+        kind    = key[keyval]
+        ind0    = bind[kind]
+
+        n_link  = branch[ind0]
+
+        idlist  = branch[ind0+1:ind0+n_link+1]
+        snlist  = branch[ind0+n_link+1:ind0+n_link*2+1]
+
+        ind1    = ind0 + n_link*2+1
+        n_prog  = branch[ind1]
+
+        m_idlist    = np.zeros(1, dtype=np.int32) - 1
+        m_snaplist  = np.zeros(1, dtype=np.int32) - 1
+        m_merit     = np.zeros(1, dtype='<f8') - 1.
+        m_bid       = np.zeros(1, dtype=np.int32) - 1
+        if(n_prog>0):
+            m_idlist    = branch[ind1+1:ind1+n_prog+1]
+            m_snaplist  = branch[ind1+n_prog+1:ind1+n_prog*2+1]
+            m_merit     = np.double(branch[ind1+n_prog*2+1:ind1+n_prog*3+1])/1e10
+            m_bid       = branch[ind1+n_prog*3+1:ind1+n_prog*4+1]
+
+        return idlist, snlist, m_idlist, m_snaplist, m_merit, m_bid
+##-----
+## Get Merger Tree
+##-----
+    def f_getevol(self, n_snap, id0, horg='g'):#, gprop=gal_properties, directory=dir_catalog):
+
+        # Get funtions
+        gf  = vr_getftns(self)
+
+        ## Get tree of this galaxy
+        tree    = self.f_gettree(n_snap, id0, horg)
+
+        idlist  = np.array(tree[0],dtype='int32')
+        snlist  = np.array(tree[1],dtype='int32')
+        n_link  = len(idlist)
+
+        ## First read the galaxy
+        g0  = self.f_rdgal(n_snap, id0, horg=horg)
+
+        ## ALLOCATE
+        gal = np.zeros(n_link, dtype=g0.dtype)
+
+        ## READ
+        ind = np.array(range(n_link),dtype='int32')
+        for i in ind:
+            gal[i]  = self.f_rdgal(snlist[i], idlist[i], horg)
+
+        return gal
 
 ##-----
 ## Some basic drawing routines
@@ -809,3 +941,27 @@ class vr_getftns:
 
 
         return data
+"""
+    Currently aborted because some snapshots do not have the corresponding sinkprops.dat
+    Last updated 22.09.01 Jinsu
+
+
+    def g_sink(self, snap, xr=None, yr=None, zr=None):
+        #----- GET COARSE STEP & SIM units
+        ncoarse    = np.int64(np.loadtxt(self.vrobj.dir_raw+'output_%0.5d'%snap+"/info_%0.5d"%snap+".txt", dtype=object, skiprows=5, max_rows=1)[1])
+
+        #----- READ sink_*.dat
+        fname   = self.vrobj.dir_sink + 'sink_%0.5d'%ncoarse+'.dat'
+        f       = FortranFile(fname, 'r')
+
+        nsink   = f.read_ints(np.int32)
+        ndim    = f.read_ints(np.int32)
+        aexp    = f.read_reals(np.double)
+        unit_l  = f.read_reals(np.double)
+        unit_d  = f.read_reals(np.double)
+        unit_t  = f.read_reals(np.double)
+
+        f.close()
+
+        return nsink, ndim, aexp, unit_l, unit_d, unit_t
+"""

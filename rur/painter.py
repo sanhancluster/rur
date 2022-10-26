@@ -15,10 +15,7 @@ from warnings import warn
 from rur.sci import geometry as geo
 import os
 from astropy.visualization import make_lupton_rgb
-from rur.config import default_path_in_repo
-
-verbose = 1
-timer = Timer(verbose=verbose)
+from rur.config import default_path_in_repo, timer
 
 default_box = np.array([[0, 1], [0, 1], [0, 1]])
 
@@ -84,7 +81,7 @@ def set_bins(known_lvls, minlvl, maxlvl, box_proj, shape):
     basebin = edgeidx[:, 1] - edgeidx[:, 0]
     edge = mingrid[edgeidx]
 
-    if(verbose>=2):
+    if(timer.verbose>=2):
         print('box', list(box_proj))
         print('edge', list(edge))
         print('basebin', basebin)
@@ -109,7 +106,7 @@ def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, sub
 
     known_lvls = np.arange(minlvl, maxlvl+1)
 
-    if(verbose>=1):
+    if(timer.verbose>=1):
         print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl), (basebin * 2.**(maxlvl-minlvl)).astype(int))
     timer.start('Drawing Refinement Level Map... ', 1)
 
@@ -145,7 +142,7 @@ def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, sub
             image = resize(image, shape, mode='constant')
 
     timer.record()
-    if(verbose>=1):
+    if(timer.verbose>=1):
         print("Cropped Image Size: ", image.shape)
 
     return image.T
@@ -218,7 +215,7 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
 
     known_lvls = np.arange(minlvl, np.max(known_lvls)+1)
 
-    if(verbose>=1):
+    if(timer.verbose>=1):
         print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl), (basebin * 2.**(maxlvl-minlvl)).astype(int))
     timer.start('Drawing gas map... ', 1)
 
@@ -302,7 +299,7 @@ def velmap(data, box=None, proj=[0, 1], shape=500, unit=None, minlvl=None, maxlv
 
         known_lvls = np.arange(minlvl, np.max(known_lvls)+1)
 
-        if(verbose>=1):
+        if(timer.verbose>=1):
             print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl), basebin * 2**(maxlvl-minlvl))
         timer.start('Drawing gas velocity map... ', 1)
 
@@ -408,7 +405,7 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
 
     known_lvls = np.arange(minlvl, np.max(known_lvls)+1)
 
-    if(verbose>=1):
+    if(timer.verbose>=1):
         print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl), basebin * 2**(maxlvl-minlvl))
     timer.start('Drawing tracer map... ', 1)
 
@@ -730,7 +727,7 @@ def draw_grid(cell, box=None, ax=None, proj=[0, 1], minlvl=None, maxlvl=None, co
 
     known_lvls = np.arange(minlvl, maxlvl+1)
 
-    if(verbose>=1):
+    if(timer.verbose>=1):
         print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl), basebin * 2**(maxlvl-minlvl))
     timer.start('Drawing grids... ', 1)
 
@@ -876,7 +873,7 @@ def composite_image(images, cmaps, weights=None, vmins=None, vmaxs=None, qscales
     if(normmodes is None):
         normmodes = np.full(nimg, 'log')
 
-    if(verbose>=2):
+    if(timer.verbose>=2):
         print('vmins:', vmins)
         print('vmaxs:', vmaxs)
 
@@ -924,7 +921,7 @@ def norm(v, vmin=None, vmax=None, qscale=3., mode='log', nanzero=False):
         v = pow((v - vmin) / (vmax - vmin))
 
 
-    if(verbose>=2):
+    if(timer.verbose>=2):
         print('vmin: %f' % vmin)
         print('vmax: %f' % vmax)
         print('qscale: %f' % qscale)
@@ -994,10 +991,18 @@ def get_tickvalues(range, nticks=4):
         ticks = ticks.astype(int)
     return ticks
 
-def viewer(snap:uri.RamsesSnapshot, gal=None, source=None, rank=1, hmid=None, radius=10, radius_unit='kpc', mode=['star', 'gas'], show_smbh=True,
-           savefile=None, part_method='hist', align=False, age_cut=None, center=None, proj=[0, 1], smbh_minmass=1E4, interp_order=1,
-           smbh_labels=True, figsize=(10, 5), dpi=150, vmaxs=None, qscales=None, phot_filter='SDSS_u', shape=1000, drag_part=True):
-    # Simple galaxy viewer integrated with GalaxyMaker data.
+def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=None, source='GalaxyMaker', rank=None, rank_order='m',
+           id=None, id_name='id', radius=10, radius_unit='kpc', mode=['star', 'gas'], show_smbh=True,
+           savefile=None, part_method='hist', align=False, age_cut=None, proj=[0, 1], smbh_minmass=1E4, interp_order=1,
+           smbh_labels=True, figsize=None, dpi=150, vmaxs=None, qscales=None, phot_filter='SDSS_u', shape=1000, drag_part=True):
+    """Simple galaxy viewer integrated with GalaxyMaker data.
+    parameters are used in following priorities, inputs with lower priorities are ignored
+    - box
+    - center
+    - target
+    - catalog
+    - source
+    """
 
     cell = None
     part = None
@@ -1034,30 +1039,54 @@ def viewer(snap:uri.RamsesSnapshot, gal=None, source=None, rank=1, hmid=None, ra
         'sdss':  None,
     }
 
-    if (source is not None and gal is not None):
-        warn("Getting data from %s, ignoring predefined gal..." % source)
-    if (source == 'GalaxyMaker'):
-        gals = uhmi.HaloMaker.load(snap, path_in_repo=default_path_in_repo['GalaxyMaker'], galaxy=True, double_precision=True)
-        gals = np.sort(gals, order='m')
-        if(hmid is not None):
-            gal = gals[gals['hmid']==hmid]
-        else:
-            gal = gals[-rank]
-    elif(source == 'SINKPROPS'):
-        sinks = snap.read_sinkprop(drag_part=drag_part)
-        sinks.sort(order='m')
-        gal = sinks[-rank]
-
-    if (radius_unit in snap.unit):
-        radius = radius * snap.unit[radius_unit]
-    elif radius_unit is not None:
-        warn("Unknown radius_unit, assuming as code unit...")
-    if (gal is not None):
-        if(radius_unit in gal.dtype.names):
-            radius = radius * gal[radius_unit]
-        snap.set_box_halo(gal, radius=radius, use_halo_radius=False)
+    # complex parameter handling comes here...
+    if (box is not None):
+        # if box is specified, use it
+        snap.box = box
     elif (center is not None):
-        snap.set_box(center, radius * 2)
+        # if center is specified, use it
+        snap.set_box(center, radius * 2 * snap.unit[radius_unit])
+    elif (rank is None and id is None and target is None
+          and not (np.array_equal(snap.box, default_box) or snap.box is None)):
+        # if there is predefined box in snap, use it
+        pass
+    else:
+        if(target is None):
+            # if target is not specified, get one from catalog using rank / id
+            if(catalog is None):
+                # if catalog is not specified, get it using source
+                if (source == 'GalaxyMaker'):
+                    catalog = uhmi.HaloMaker.load(snap, path_in_repo=default_path_in_repo['GalaxyMaker'], galaxy=True, double_precision=True)
+                elif(source == 'SINKPROPS'):
+                    catalog = snap.read_sinkprop(drag_part=drag_part)
+                else:
+                    raise ValueError("Unknown source: %s" % source)
+
+            if(rank is None):
+                rank = 1
+
+            catalog = np.sort(catalog, order=rank_order)
+            if(id is not None):
+                # use id if specified
+                target = catalog[catalog[id_name] == id]
+                if(target.size == 0):
+                    raise ValueError("No target found with the matching id")
+                elif(target.size > 1):
+                    # print("Multiple targets with same id are selected, using rank to select 1 target")
+                    target = catalog[catalog[id_name] == id][-rank]
+                else:
+                    target = catalog[catalog[id_name] == id][0]
+            else:
+                # use rank instead, default value is 1
+                target = catalog[-rank]
+
+        if (radius_unit in snap.unit):
+            radius = radius * snap.unit[radius_unit]
+        elif (radius_unit in target.dtype.names):
+            radius = radius * target[radius_unit]
+        elif radius_unit is not None:
+            warn("Unknown radius_unit, assuming as code unit...")
+        snap.set_box_halo(target, radius=radius, use_halo_radius=False)
 
     if(isinstance(mode, str)):
         mode = np.repeat(mode, ncols)
@@ -1068,8 +1097,8 @@ def viewer(snap:uri.RamsesSnapshot, gal=None, source=None, rank=1, hmid=None, ra
 
     if ('star' in mode or 'dm' or 'sdss' or 'phot' in mode or True in show_smbh):
         snap.get_part()
-        if (gal is not None and align):
-            part = measure.align_axis(snap.part, gal)
+        if (target is not None and align):
+            part = measure.align_axis(snap.part, target)
         else:
             part = snap.part
         if(True in show_smbh):
@@ -1077,12 +1106,13 @@ def viewer(snap:uri.RamsesSnapshot, gal=None, source=None, rank=1, hmid=None, ra
             smbh = smbh[smbh['m', 'Msol']>=smbh_minmass]
     if ('gas' in mode or 'dust' in mode or 'metal' in mode or 'temp' in mode):
         snap.get_cell()
-        if (gal is not None and align):
-            cell = measure.align_axis_cell(snap.cell, gal)
+        if (target is not None and align):
+            cell = measure.align_axis_cell(snap.cell, target)
         else:
             cell = snap.cell
 
-    plt.figure(figsize=(10, 5), dpi=150)
+    if(figsize is None):
+        figsize = (4*ncols, 4)
     fig, axes = plt.subplots(figsize=figsize, dpi=dpi, ncols=ncols, nrows=1, squeeze=False)
 
     for icol in np.arange(ncols):
@@ -1152,6 +1182,16 @@ def viewer(snap:uri.RamsesSnapshot, gal=None, source=None, rank=1, hmid=None, ra
             mode_label = 'Gas - Metallicity'
         else:
             raise ValueError('Unknown mode: ', mode_now)
+
+        ax_label = ''
+        if(mode_now in ['star', 'phot', 'sdss']):
+            ax_label += 'M$_*$ = %.2e M$_{\odot}$\n' % np.sum(star['m', 'Msol'])
+        elif(mode_now in ['dm']):
+            ax_label += 'M$_{DM}$ = %.2e M$_{\odot}$\n' % np.sum(dm['m', 'Msol'])
+        elif (mode_now in ['gas', 'rho']):
+            ax_label += 'M$_{gas}$ = %.2e M$_{\odot}$\n' % np.sum(cell['m', 'Msol'])
+
+
         if(show_smbh[icol]):
             if(smbh_labels[icol]):
                 labels = ['%.2f' % m for m in np.log10(smbh['m', 'Msol'])]
@@ -1161,14 +1201,16 @@ def viewer(snap:uri.RamsesSnapshot, gal=None, source=None, rank=1, hmid=None, ra
                        fontsize=7, mass_range=[4, 8], facecolor='none', s=100)
         set_ticks_unit(snap, proj_now, 'kpc')
         if(icol == 0):
-            if (gal is not None):
+            if (target is not None):
                 if(source == 'SINKPROPS'):
-                    dr.axlabel('M$_{BH}$ = %.3e M$_{sol}$' % (gal['m']/snap.unit['Msol']), 'left top', color='white', fontsize=10)
+                    ax_label += 'M$_{\\bullet}$ = %.2e M$_{\odot}$' % (target['m']/snap.unit['Msol'])
                 elif(source == 'GalaxyMaker'):
-                    dr.axlabel('M$_*$ = %.3e M$_{sol}$' % gal['m'], 'left top', color='white', fontsize=10)
+                    ax_label += 'M$_{gal}$ = %.2e M$_{\odot}$' % target['m']
                 else:
-                    dr.axlabel('M = %.3e M$_{sol}$' % gal['m'], 'left top', color='white', fontsize=10)
+                    ax_label += 'M = %.3e M$_{\odot}$' % target['m']
             dr.axlabel('z = %.3f' % snap.z, 'right top', color='white', fontsize=10)
+
+        dr.axlabel(ax_label, 'left top', color = 'white', fontsize = 10)
         if(mode_label is not None):
             dr.axlabel(mode_label, 'left bottom', color='white', fontsize=10)
 
