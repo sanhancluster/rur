@@ -517,7 +517,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                     # (read & write) parent indices
                     if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc'):
                         if('partp' in target_fields): part['partp'][cursor:cursor+nstar] = f.read_ints(np.int32)[mask]
-                        else: f.read_reals(np.float64)
+                        else: f.read_ints(np.int32)
                     # Write cpu info
                     part['cpu'][cursor:cursor+nstar] = icpu
 
