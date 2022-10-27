@@ -441,6 +441,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if 'cpu' not in target_fields:
                 target_fields = np.append(target_fields, 'cpu')
             part_dtype = [idtype for idtype in part_dtype if idtype[0] in target_fields]
+        else:
+            target_fields = [idtype[0] for idtype in part_dtype]
         part = np.empty(nstar_tot, dtype=part_dtype)
 
         # Read files
@@ -515,7 +517,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                     # (read & write) parent indices
                     if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc'):
                         if('partp' in target_fields): part['partp'][cursor:cursor+nstar] = f.read_ints(np.int32)[mask]
-                        else: f.read_reals(np.float64)
+                        else: f.read_ints(np.int32)
                     # Write cpu info
                     part['cpu'][cursor:cursor+nstar] = icpu
 
@@ -1873,7 +1875,7 @@ def fromndarrays(ndarrays, dtype):
             raise ValueError("Array shape does not match")
         itemsize += nda.shape[1] * nda.dtype.itemsize
     if(descr.itemsize != itemsize):
-        raise ValueError("Sum of itemsize does not match with desired dtype")
+        raise ValueError(f"Sum of itemsize ({itemsize}) does not match with desired dtype ({descr.itemsize})")
 
     array = np.zeros(nitem, descr)
     barr = get_bytes_data(array)
