@@ -70,16 +70,22 @@ class TimeSeries(object):
         if(use_cache and exists(path)):
             self.read_iout_avail()
         iout_table = np.zeros(len(iouts), dtype=iout_avail_dtype)
-        for i, iout in enumerate(iouts):
+        i = 0
+        for iout in iouts:
             if(use_cache and iout in self.iout_avail['iout']):
                 iout_table[i] = self.iout_avail[np.searchsorted(self.iout_avail['iout'], iout)]
             else:
-                snap = self.get_snap(iout)
-                iout_table[i]['iout'] = snap.iout
+                try:
+                    snap = self.get_snap(iout)
+                except:
+                    continue
+                iout_table[i]['iout'] = iout
                 iout_table[i]['aexp'] = snap.aexp
                 iout_table[i]['age'] = snap.age
                 iout_table[i]['icoarse'] = snap.nstep_coarse
                 iout_table[i]['time'] = snap.time
+                i += 1
+        iout_table = iout_table[:i]
         names = iout_table.dtype.names
         self.iout_avail = iout_table
         np.savetxt(path, iout_table,
