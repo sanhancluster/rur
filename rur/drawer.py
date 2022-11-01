@@ -70,28 +70,36 @@ def remove_keys(dic, keys):
     return dic
 
 
-def axlabel(text, pos='right top', offset=0.03, **kwargs):
+def axlabel(text, pos='right top', loc=None, offset=0.03, **kwargs):
     # ha: right, left
-    # va: top, bottom
+    # va: top (or upper), bottom (or lower)
 
-    ha, va = tuple(pos.split(' '))
+    if loc is not None:
+        pos = loc
+    pos = tuple(pos.split(' '))
     offset = np.atleast_1d(offset) * [1, 1]
-    if(ha == 'right'):
+    if 'right' in pos:
         x = 1 - offset[0]
-    elif(ha == 'left'):
+        ha = 'right'
+    elif 'left' in pos:
         x = offset[0]
-    elif (ha == 'center'):
+        ha = 'left'
+    elif 'center' in pos:
         x = 0.5
+        ha = 'center'
     else:
-        raise ValueError("Unknown horizontal position %s" % ha)
-    if(va == 'top'):
+        raise ValueError("Unknown horizontal position")
+    if 'top' in pos or 'upper' in pos:
         y = 1 - offset[1]
-    elif(va == 'bottom'):
+        va = 'top'
+    elif 'bottom' in pos or 'lower' in pos:
         y = offset[1]
-    elif(va == 'center'):
+        va = 'bottom'
+    elif 'center' in pos:
         y = 0.5
+        va = 'center'
     else:
-        raise ValueError("Unknown vertical position %s" % va)
+        raise ValueError("Unknown vertical position")
     plt.text(x, y, text, ha=ha, va=va, transform=plt.gca().transAxes, **kwargs)
 
 
