@@ -236,6 +236,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             uarr = cumtrapz(duda[::-1], aarr[::-1], initial=0)[::-1]
             tarr = cumtrapz(dtda, aarr, initial=0)
             self.cosmo_table = fromarrays([aarr, tarr, uarr], dtype=[('aexp', 'f8'), ('t', 'f8'), ('u', 'f8')])
+            self.cosmo_table = rec2arr(self.cosmo_table)
         else:
             self.cosmo_table = snap.cosmo_table
 
@@ -573,6 +574,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                         arr = [arr[idx] for idx in target_idx]
                         dtype = [dtype[idx] for idx in target_idx]
                     part = fromarrays(arr, dtype=dtype)
+                    part = rec2arr(part)
                 else:
                     if(self.longint):
                         arrs = [readr.real_table.T, readr.long_table.T, readr.integer_table.T, readr.byte_table.T]
@@ -652,6 +654,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 names = [names[idx] for idx in target_idx]
 
                 cell = fromarrays(arr, formats=formats, names=names)
+                cell = rec2arr(cell)
             else:
                 dtype = np.format_parser(formats=formats, names=names, titles=None).dtype
                 arrs = [readr.real_table.T, readr.integer_table.T]
@@ -724,6 +727,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
             timer.start('Building table for %d cells... ' % (arr[0].size), 1)
             cell = fromarrays(arr, formats=formats, names=names)
+            cell = rec2arr(cell)
             io_ramses.close()
 
             bound = compute_boundary(cell['cpu'], cpulist)
@@ -1218,6 +1222,7 @@ def write_parts_rockstar(part: RamsesSnapshot.Particle, snap: RamsesSnapshot, fi
     pos = get_vector(part) * snap.params['boxsize']
     vel = get_vector(part, 'v') * snap.get_unit('v', 'km/s')
     table = fromarrays([*pos.T, *vel.T, part['id']], formats=['f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'i4'])
+    table = rec2arr(table)
     np.savetxt(filepath, table, fmt=('%.16e',)*6 + ('%d',))
 
     timer.record()
@@ -1885,3 +1890,11 @@ def fromndarrays(ndarrays, dtype):
         barr[:, col:col+bnda.shape[1]] = bnda
         col += bnda.shape[1]
     return array
+
+def rec2arr(recarray):
+    dtype = recarray.dtype
+    shape = recarray.shape
+    arr = np.empty(shape, dtype=dtype)
+    for iname in dtype.names:
+        arr[iname] = recarray[iname]
+    return arr
