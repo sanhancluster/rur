@@ -271,7 +271,7 @@ class FortranFile(object):
 
             second_size = self._read_size()
             if first_size != second_size:
-                raise IOError('Sizes do not agree in the header and footer for '
+                raise IOError(f'Sizes do not agree in the header({first_size}) and footer({second_size}) for '
                               'this record - check header dtype')
 
     def read_ints(self, dtype='i4'):
