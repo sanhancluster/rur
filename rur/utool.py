@@ -45,9 +45,10 @@ class Table:
     Table class to store RAMSES particle/AMR data.
     Basically acts as numpy.recarray, but some functions do not work.
     """
-    def __init__(self, table, snap):
+    def __init__(self, table, snap, ptype=None):
         self.table = table
         self.snap = snap
+        self.ptype=ptype
 
     def __getitem__(self, item):
         pass
