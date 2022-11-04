@@ -532,7 +532,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                     #   (read) family, tag
                     if isfamily:
                         family = f.read_ints(np.int8) # family
-                        f.read_ints(np.int8) # tag
+                        tag = readorskip_int(f, np.int8, 'tag', target_fields) # tag
                     else: pass                    
                     #   (read) epoch, metal
                     epoch = f.read_reals(np.float64) # epoch
@@ -582,24 +582,28 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                     if('metal' in target_fields):part['metal'][cursor:cursor+nsize] = metal[mask]
                     if('id' in target_fields):part['id'][cursor:cursor+nsize] = id[mask]
                     if('level' in target_fields):part['level'][cursor:cursor+nsize] = level[mask]
-                    # (read & write) initial mass
-                    if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc'):
-                        if('m0' in target_fields): part['m0'][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
-                        else: f.read_reals(np.float64)
-                        # (read & write) chemical elements
-                    if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='hagn'):
-                        if len(chem)>0:
-                            for ichem in chem:
-                                if(ichem in target_fields): part[ichem][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
-                                else: f.read_reals(np.float64)
-                    # (read & write) stellar density at formation
-                    if(mode=='y3') or (mode=='y4') or (mode=='nc'):
-                        if('rho0' in target_fields): part['rho0'][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
-                        else: f.read_reals(np.float64)
-                    # (read & write) parent indices
-                    if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc'):
-                        if('partp' in target_fields): part['partp'][cursor:cursor+nsize] = f.read_ints(np.int32)[mask]
-                        else: f.read_ints(np.int32)
+                    if('family' in target_fields):part['family'][cursor:cursor+nsize] = family[mask]
+                    if('tag' in target_fields):part['tag'][cursor:cursor+nsize] = tag[mask]
+                    newtypes = ["m0", "rho0", "partp"] + chem
+                    if True in np.isin(newtypes, target_fields):
+                        # (read & write) initial mass
+                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc'):
+                            if('m0' in target_fields): part['m0'][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
+                            else: f.read_reals(np.float64)
+                            # (read & write) chemical elements
+                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='hagn'):
+                            if len(chem)>0:
+                                for ichem in chem:
+                                    if(ichem in target_fields): part[ichem][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
+                                    else: f.read_reals(np.float64)
+                        # (read & write) stellar density at formation
+                        if(mode=='y3') or (mode=='y4') or (mode=='nc'):
+                            if('rho0' in target_fields): part['rho0'][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
+                            else: f.read_reals(np.float64)
+                        # (read & write) parent indices
+                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc'):
+                            if('partp' in target_fields): part['partp'][cursor:cursor+nsize] = f.read_ints(np.int32)[mask]
+                            else: f.read_ints(np.int32)
                     # Write cpu info
                     part['cpu'][cursor:cursor+nsize] = icpu
 
@@ -624,8 +628,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         if(cpulist is None):
             cpulist = self.get_involved_cpu()
         if (self.part_data is not None):
-            if(timer.verbose>=1): print('Searching for extra files...')
-            cpulist = cpulist[np.isin(cpulist, self.cpulist_part, assume_unique=True, invert=True)]
+            if pname == self.part.ptype:
+                if(timer.verbose>=1): print('Searching for extra files...')
+                cpulist = cpulist[np.isin(cpulist, self.cpulist_part, assume_unique=True, invert=True)]
 
         if (cpulist.size > 0):
             filesize = 0
@@ -662,8 +667,6 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                     part = fromndarrays(arrs, dtype)
 
                 readr.close()
-
-
             bound = compute_boundary(part['cpu'], cpulist)
             if (self.part_data is None):
                 self.part_data = part
@@ -1128,8 +1131,17 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 warnings.warn("cpulist cannot be set without domain_slicing!", UserWarning)
                 domain_slicing = True
             exact_box = False
-
-        if(self.box is None or not np.array_equal(self.box, self.box_part) or cpulist is not None):
+        do=False
+        if self.part is not None:
+            if pname != self.part.ptype:
+                print(f"\nYou loaded part only `{self.part.ptype}` but now you want `{pname}`!\nIt forces to remove `{self.part.ptype}` data and retry get_part (so it's inefficient!)\n")
+                self.part_data=None
+                self.part=None
+                self.box_part = None
+                self.cpulist_part = np.array([], dtype='i4')
+                self.bound_part = np.array([0], dtype='i4')
+                do=True
+        if(self.box is None or not np.array_equal(self.box, self.box_part) or cpulist is not None or do):
             if(cpulist is None):
                 cpulist = self.get_involved_cpu()
             else:
@@ -1138,6 +1150,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname)
             if(domain_slicing):
                 part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
+                if pname is not None:
+                    part = classify_part(part, pname)
             else:
                 part = self.part_data
 
@@ -1147,7 +1161,6 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                     timer.start('Masking particles... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask)/mask.size), 1)
                     part = part[mask]
                     timer.record()
-
             part = self.Particle(part, self, ptype=pname)
             self.box_part = self.box
             self.part = part
@@ -1160,17 +1173,30 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 if item in part_extra.keys():
                     return part_extra[item](self)
                 elif item in part_family.keys():
-                    print(self.table.shape)
-                    return RamsesSnapshot.Particle(classify_part(self.table, item, ptype=self.ptype), self.snap)
+                    if self.ptype is not None:
+                        if item == self.ptype:
+                            return self
+                        else:
+                            print(f"\nYou loaded part only `{self.ptype}` but now you want `{item}`!\nIt forces to clear `{self.ptype}` data and retry get_part (so it's inefficient!)\n")
+                            self.snap.part_data = None
+                            self.snap.part = None
+                            self.snap.box_part = None
+                            cpulist = np.unique(self.snap.cpulist_part) if(self.snap.box is None or np.array_equal(self.snap.box, default_box)) else None
+                            self.snap.cpulist_part = np.array([], dtype='i4')
+                            self.snap.bound_part = np.array([0], dtype='i4')
+                            part = self.snap.get_part(box=self.snap.box, target_fields=self.table.dtype.names, domain_slicing=True, exact_box=True, cpulist=cpulist, pname=item)
+                            return part
+                    else:
+                        return RamsesSnapshot.Particle(classify_part(self.table, item, ptype=self.ptype), self.snap, ptype=item)
                 elif item == 'smbh':
-                    return RamsesSnapshot.Particle(find_smbh(self.table), self.snap)
+                    return RamsesSnapshot.Particle(find_smbh(self.table), self.snap, ptype='smbh')
                 else:
                     return self.table[item]
             elif isinstance(item, tuple):
                 letter, unit = item
                 return self.__getitem__(letter) / self.snap.unit[unit]
             else:
-                return RamsesSnapshot.Particle(self.table[item], self.snap)
+                return RamsesSnapshot.Particle(self.table[item], self.snap, ptype=self.ptype)
 
 
     def get_halos_cpulist(self, halos, radius=3., use_halo_radius=True, radius_name='rvir', n_divide=4):
@@ -1399,11 +1425,14 @@ def classify_part(part, pname, ptype=None):
     # classify particles, if familty exists in the data, use it.
     # if not, use id, mass and epoch instead.
     timer.start('Classifying %d particles... ' % part.size, 2)
-    if ptype is not None:
-        if(pname == ptype):
-            return part
+    if (ptype is not None):
+        if isinstance(ptype, str):
+            if(pname == ptype):
+                return part
+            else:
+                return np.array([], dtype=part.dtype)
         else:
-            raise ValueError(f"This table consists of only `{ptype}`, but you want to load `{pname}`!")
+            raise TypeError(f"Invalid type of given `ptype`({type(ptype)}) instead of `list` or `str`!")
 
     names = part.dtype.names
     if('family' in names):

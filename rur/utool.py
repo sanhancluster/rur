@@ -48,8 +48,8 @@ class Table:
     def __init__(self, table, snap, ptype=None):
         self.table = table
         self.snap = snap
-        self.ptype=ptype
-
+        self.ptype = ptype
+        
     def __getitem__(self, item):
         pass
 
