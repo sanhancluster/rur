@@ -214,6 +214,113 @@ class HaloMaker:
         snap.get_part()
         star = snap.part['star']
 
+    from uri import RamsesSnapshot
+    @staticmethod
+    def findhalo_NH_pair(ihaloid:int, iout:int, jout:int=None, ipart_ids:np.ndarray=None, isnap:RamsesSnapshot=None, jsnap:RamsesSnapshot=None, jtable:np.recarray=None, jpart_ids:np.ndarray=None, mcut:float=0.01, base='nh', verbose=True, **snapkwargs:dict):
+        """
+        This function find NH2 pair halo of given NH halo (or, vice-versa).\n
+        Scores are calculated based on 'maximum refined DM particles'  
+
+        Parameters
+        ----------
+        ihaloid :   int
+            ID of given halo
+        iout :      int
+            iout of given halo
+        base =      str
+            Simulation mode of given halo (one of `nh` or `nh2`). Default is `nh`
+        mcut =      float
+            Mass ratio cut. Default is 0.01
+        
+        Optional
+        --------
+        * You may want to iterate this function for more than 1 halo.
+        * Then, I recommend you to fill below kwargs.
+        
+        jout :      int
+            iout of pair candidates
+        iparts_ids: np.ndarray or Iterable
+            IDs of member particles of given halo
+        isnap:      uri.RamsesSnapshot
+            Snapshot object of given halo
+        jsnap:      uri.RamsesSnapshot
+            Snapshot object of pair candidates
+        jtable:     np.recarray
+            HaloMaker catalogue of pair candidates
+        jpart_ids:  np.ndarray or Iterable
+            IDs of member particles of pair candidates (should be aligned with `jtable`)
+        verbose:    bool
+            Print messages if True. Default is True.
+        snapkwargs: dict
+            Any other kwargs for `uri.RamsesSnapshot.__init__()`
+
+        Returns
+        -------
+        jout:       int
+            iout of candidate pair halos
+        halo_ids:   np.ndarray with int
+            ID of candidate pair halos (sorted by occurence)
+        occurence:  np.ndarray with float
+            Fraction of matched particles
+
+        """
+        if not verbose:
+            iverbose = int(uri.timer.verbose)
+            uri.timer.verbose=0
+        nhrepo = "/storage6/NewHorizon"
+        nh2repo = "/storage7/NH2"
+        if base == 'nh':
+            irepo = nhrepo; jrepo = nh2repo; iname="NH"; jname="NH2"
+        elif base == 'nh2':
+            irepo = nh2repo; jrepo = nhrepo; iname="NH2"; jname="NH"
+        else:
+            raise ValueError("You should choose one of [`nh`, `nh2`]!")
+        avail1 = np.loadtxt(f"{irepo}/list_iout_avail.txt", usecols=[0,1], dtype=[("iout",int), ("aexp", float)])
+        avail2 = np.loadtxt(f"{jrepo}/list_iout_avail.txt", usecols=[0,1], dtype=[("iout",int), ("aexp", float)])
+        aexp1 = avail1[avail1['iout'] == iout]['aexp'][0]
+        if jout is None:
+            if verbose: print(f"(No specified iout of {jname} ... Auto finding ...)")
+            arg = np.argmin(np.abs(avail2['aexp'] - aexp1))
+            jout = avail2['iout'][arg]
+        aexp2 = avail2[avail2['iout'] == jout]['aexp'][0]
+        if verbose: print(f"Given: {iname} halo({ihaloid}) at {iout}(a={aexp1:.4f}) <-> Find: {jname} halo(?) at {jout}(a={aexp2:.4f})")
+
+        if ipart_ids is None:
+            if verbose: print("(No specified particle IDs ... Auto finding ...)")
+            if isnap is None:
+                isnap = uri.RamsesSnapshot(irepo, iout)
+            itable, hmpids = HaloMaker.load(isnap, galaxy=False, load_parts=True, **snapkwargs)
+            if len(itable) == 0:
+                if verbose: print("(Find tree bricks in `halo_iap` ...)")
+                itable, hmpids = HaloMaker.load(isnap, galaxy=False, load_parts=True, path_in_repo="halo_iap",**snapkwargs)
+            nparts = itable['nparts']
+            cparts = np.insert(np.cumsum(nparts), 0, 0)
+            ipart_ids = hmpids[ cparts[ihaloid-1] : cparts[ihaloid] ]
+
+        if jsnap is None:
+            jsnap = uri.RamsesSnapshot(jrepo, jout)
+
+        if (jtable is None) or (jpart_ids is None):
+            jtable, jpart_ids = HaloMaker.load(jsnap, galaxy=False, load_parts=True, **snapkwargs)
+            if len(jtable) == 0:
+                if verbose: print("(Find tree bricks in `halo_iap` ...)")
+                jtable, jpart_ids = HaloMaker.load(jsnap, galaxy=False, load_parts=True, path_in_repo="halo_iap",**snapkwargs)
+        matchid = load(f"{irepo}/DMID_{iname}_to_{jname}.pickle", format='pkl', msg=False)[1][ipart_ids-1]
+        matchid = matchid[(matchid > 0) & np.isin(matchid, jpart_ids)]
+        if len(matchid) == 0:
+            if verbose: print(f"Warning! This {iname} halo does not have matched high-res particles in {jname}!\n\t--> return 0, 0")
+            return 0, 0
+        halo_ids = np.repeat(jtable['id'], jtable['nparts'])
+        arg = np.isin(jpart_ids, matchid)
+        halo_ids, occurence = np.unique(halo_ids[arg], return_counts=True)
+        occurence = occurence/len(ipart_ids)
+        mask = occurence > mcut
+        arg = np.argsort(occurence[mask])
+        if verbose: print(f"{len(mask[mask])} halos are found!")
+        else:
+            uri.timer.verbose = iverbose
+        return jout, halo_ids[mask][arg][::-1], occurence[mask][arg][::-1]
+        
 
 class PhantomTree:
     path_in_repo = 'ptree'
