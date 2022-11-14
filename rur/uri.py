@@ -338,6 +338,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
         self.part_dtype = part_dtype[self.mode]
         self.hydro_names = hydro_names[self.mode]
+        if(self.mode == 'nh2')&(self.iout<60):
+            self.hydro_names = hydro_names['y3']
+            self.part_dtype = part_dtype['y3']
 
         if(self.classic_format):
             opened.readline()
@@ -405,20 +408,20 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             raise ValueError('This function works only for NH-version RAMSES')
         return table
 
-    def read_specific(self, pname, cpulist, mode, target_fields=None):
+    def read_specific(self, pname:str, cpulist:Iterable, mode:str, target_fields=None):
         # 0) Mode check
         import os
-        modes = ['hagn', 'yzics', 'nh', 'fornax', 'y2', 'y3', 'y4', 'nc']
+        modes = ['hagn', 'yzics', 'nh', 'fornax', 'y2', 'y3', 'y4', 'nc', 'nh2']
         if mode not in modes:
             raise ValueError(f"{mode} is not supported! \n(currently only {modes} are available)")
         
         # 1) Read or skip functions
-        def readorskip_real(f, dtype, key, search):
+        def readorskip_real(f:FortranFile, dtype:type, key:str, search:Iterable):
             if key in search:
                 return f.read_reals(dtype)
             else:
                 f.skip_records()
-        def readorskip_int(f, dtype, key, search):
+        def readorskip_int(f:FortranFile, dtype:type, key:str, search:Iterable):
             if key in search:
                 return f.read_ints(dtype)
             else:
@@ -430,7 +433,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             'yzics':[], 'nh':[], "fornax":[], "y2":[], 
             "y3":['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S'], 
             "y4":['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D'], 
-            "nc":['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D']}
+            "nc":['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D'],
+            'nh2':['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D']}
         chem = chems[mode]
 
         # 3) Check numbers of particles from txt (or from output file)
@@ -537,14 +541,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                     #   (read) epoch, metal
                     epoch = f.read_reals(np.float64) # epoch
                     metal = readorskip_real(f, np.float64, 'metal', target_fields)
-
                     #############################################
                     ###     Mask stars (From `classify_part`)
                     #############################################
                     if(isfamily):
                         # Do a family-based classification
                         mask = np.isin(family, part_family[pname])
-
                     elif(nstar_tot>0):
                         # Do a parameter-based classification
                         if(pname == 'dm'):
@@ -1150,11 +1152,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname)
             if(domain_slicing):
                 part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
-                if pname is not None:
-                    part = classify_part(part, pname)
             else:
                 part = self.part_data
-
             if(self.box is not None):
                 if(exact_box):
                     mask = box_mask(get_vector(part), self.box)

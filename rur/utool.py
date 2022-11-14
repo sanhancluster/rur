@@ -49,10 +49,11 @@ class Table:
         self.table = table
         self.snap = snap
         self.ptype = ptype
-        
+
     def __getitem__(self, item):
         pass
-
+    def __len__(self):
+        return len(self.table)
     def __str__(self):
         return self.table.__str__()
     def __repr__(self):
