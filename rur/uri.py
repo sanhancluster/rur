@@ -338,6 +338,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
         self.part_dtype = part_dtype[self.mode]
         self.hydro_names = hydro_names[self.mode]
+        if(self.mode == 'nh2')&(self.iout<60):
+            self.hydro_names = hydro_names['y3']
+            self.part_dtype = part_dtype['y3']
 
         if(self.classic_format):
             opened.readline()
@@ -405,43 +408,90 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             raise ValueError('This function works only for NH-version RAMSES')
         return table
 
-    def read_only_star(self, cpulist, mode, target_fields=None):
-        modes = ['hagn', 'yzics', 'nh', 'fornax', 'y2', 'y3', 'y4', 'nc']
+    def read_specific(self, pname:str, cpulist:Iterable, mode:str, target_fields=None):
+        # 0) Mode check
+        import os
+        modes = ['hagn', 'yzics', 'nh', 'fornax', 'y2', 'y3', 'y4', 'nc', 'nh2']
         if mode not in modes:
             raise ValueError(f"{mode} is not supported! \n(currently only {modes} are available)")
-
+        
+        # 1) Read or skip functions
+        def readorskip_real(f:FortranFile, dtype:type, key:str, search:Iterable):
+            if key in search:
+                return f.read_reals(dtype)
+            else:
+                f.skip_records()
+        def readorskip_int(f:FortranFile, dtype:type, key:str, search:Iterable):
+            if key in search:
+                return f.read_ints(dtype)
+            else:
+                f.skip_records()
+        
+        # 2) Chemical elements list
         chems = {
             'hagn':['H','O','Fe', 'C', 'N', 'Mg', 'Si'], 
             'yzics':[], 'nh':[], "fornax":[], "y2":[], 
             "y3":['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S'], 
             "y4":['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D'], 
-            "nc":['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D']}
+            "nc":['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D'],
+            'nh2':['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D']}
         chem = chems[mode]
 
-        def readorskip_real(f, dtype, key, search):
-            if key in search:
-                return f.read_reals(dtype)
-            else:
-                f.read_reals(dtype)
-        def readorskip_int(f, dtype, key, search):
-            if key in search:
-                return f.read_ints(dtype)
-            else:
-                f.read_ints(dtype)
-
-        chem = chems[mode]
+        # 3) Check numbers of particles from txt (or from output file)
         files = glob.glob(f"{self.snap_path}/output_{self.iout:05d}/part*out*")
-        nstar_tot = 0
-        int_ = np.int64 if self.longint else np.int32
+        header = f"{self.snap_path}/output_{self.iout:05d}/header_{self.iout:05d}.txt"
+        sinkinfo = f"{self.snap_path}/output_{self.iout:05d}/sink_{self.iout:05d}.info"
 
-        with FortranFile(f"{files[0]}", mode='r') as f:
-            f.read_ints(int_) # ncpu
-            f.read_ints(int_) # ndim
-            f.read_ints(int_) # npart
-            f.read_ints(int_) # ??
-            nstar_tot += f.read_ints(int_)[0] # nstar
-        
-        # Base array
+        isfamily = False
+        if os.path.isfile(header): # (NH, NH2, Fornax, NC)
+            with open(header, "rt") as f:
+                temp = f.readline()
+                if "Family" in temp: # (Fornax, NH2, NC)
+                    isfamily = True
+                    ntracer_tot = int( f.readline()[14:] ) # other_tracer
+                    for _ in range(5):
+                        # tracers of debris, cloud, star, other, gas
+                        ntracer_tot += int( f.readline()[14:] ) # debris_tracer
+                    ndm_tot = int( f.readline()[14:] )
+                    nstar_tot = int( f.readline()[14:] )
+                    ncloud_tot = int( f.readline()[14:] )
+                    npart_tot = ntracer_tot + ndm_tot + nstar_tot + ncloud_tot
+                    for _ in range(3):
+                        # debris, other, undefined
+                        npart_tot += int( f.readline()[14:] ) # debris
+                    
+                    if os.path.isfile(sinkinfo): # (NH2, NC)
+                        with open(sinkinfo, 'rt') as f:
+                            nsink_tot = int(f.readline().split()[-1])
+                    else: # (Fornax)
+                        with FortranFile(f"{files[0]}", mode='r') as f:
+                            f.skip_records(7)
+                            nsink_tot = f.read_ints(np.int32)[0]
+                else: # (NH)
+                    npart_tot = int(f.readline()); f.readline()
+                    ndm_tot = int(f.readline()); f.readline()
+                    nstar_tot = int(f.readline()); f.readline()
+                    nsink_tot = int(f.readline()); f.readline()
+                    ncloud_tot = nsink_tot * 2109
+                    ntracer_tot = 0
+        else: # (hagn, yzics)
+            with FortranFile(f"{files[0]}", mode='r') as f:
+                f.skip_records(4) # ncpu, ndim, npart, localseed(+tracer_seed)
+                nstar_tot = f.read_ints(np.int32)[0] # nstar
+                f.skip_records(2) # mstar_tot, mstar_lost
+                nsink_tot = f.read_ints(np.int32)[0] # nsink
+                ncloud_tot = 2109 * nsink_tot
+            ndm_tot = 0
+            ntracer_tot = 0
+            if(pname == 'dm'):
+                npart_tot = 0
+                for file in files:
+                    with FortranFile(f"{file}", mode='r') as f:
+                        f.skip_records(2)
+                        npart_tot += f.read_ints(np.int32)[0]
+                ndm_tot = npart_tot - nstar_tot - ncloud_tot
+
+        # 4) Allocate base array
         part_dtype = self.part_dtype
         if target_fields is not None:
             if 'cpu' not in target_fields:
@@ -449,24 +499,29 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             part_dtype = [idtype for idtype in part_dtype if idtype[0] in target_fields]
         else:
             target_fields = [idtype[0] for idtype in part_dtype]
-        part = np.empty(nstar_tot, dtype=part_dtype)
+        tracers = ["tracer","cloud_tracer","star_tracer","gas_tracer"]
+        if(pname == 'star'):
+            size = nstar_tot
+        elif(pname == 'dm'):
+            size = ndm_tot
+        elif(pname == 'sink'):
+            size = ncloud_tot
+        elif(pname in tracers):
+            size = ntracer_tot
+        else:
+            raise ValueError(f"{pname} is currently not supported!")
+        part = np.empty(size, dtype=part_dtype)
 
-        # Read files
+        # 5) Read output part files
         cursor = 0
+        temp = 0
         for fname in files:
             icpu = int( fname[-5:] )
             if icpu in cpulist:
                 with FortranFile(f"{fname}", mode='r') as f:
                     # Read fortran file
                     #   (read) header
-                    f.read_ints(int_) # ncpu
-                    f.read_ints(int_) # ndim
-                    f.read_ints(int_) # npart
-                    f.read_ints(int_) # ??
-                    f.read_ints(int_) # nstar
-                    f.read_ints(int_) # ??
-                    f.read_ints(int_) # ??
-                    f.read_ints(int_) # nsink
+                    f.skip_records(8) # ncpu, ndim, npart, localseed(+tracer_seed), nstar, mstar_tot, mstar_lost, nsink
                     #   (read) pos, vel, m
                     x = readorskip_real(f, np.float64, 'x', target_fields)
                     y = readorskip_real(f, np.float64, 'y', target_fields)
@@ -474,64 +529,90 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                     vx = readorskip_real(f, np.float64, 'vx', target_fields)
                     vy = readorskip_real(f, np.float64, 'vy', target_fields)
                     vz = readorskip_real(f, np.float64, 'vz', target_fields)
-                    m = readorskip_real(f, np.float64, 'm', target_fields)
+                    m = f.read_reals(np.float64)
                     #   (read) id, level
-                    id = f.read_ints(int_) # id
+                    id = f.read_ints(np.int32) # id
                     level = readorskip_int(f, np.int32, 'level', target_fields)
                     #   (read) family, tag
-                    if mode=='yzics' or mode=='nh' or mode=='hagn': pass
-                    else:
+                    if isfamily:
                         family = f.read_ints(np.int8) # family
-                        f.read_ints(np.int8) # tag
+                        tag = readorskip_int(f, np.int8, 'tag', target_fields) # tag
+                    else: pass                    
                     #   (read) epoch, metal
                     epoch = f.read_reals(np.float64) # epoch
                     metal = readorskip_real(f, np.float64, 'metal', target_fields)
-
-                    # Mask stars
-                    if mode=='yzics' or mode=='nh' or mode=='hagn':
-                        mask = ((epoch<0)&(id>0)) | ((epoch!=0)&(id<0))
+                    #############################################
+                    ###     Mask stars (From `classify_part`)
+                    #############################################
+                    if(isfamily):
+                        # Do a family-based classification
+                        mask = np.isin(family, part_family[pname])
+                    elif(nstar_tot>0):
+                        # Do a parameter-based classification
+                        if(pname == 'dm'):
+                            mask = (epoch == 0) & (id > 0)
+                        elif(pname == 'star'):
+                            mask = ((epoch < 0) & (id > 0))\
+                                   | ((epoch != 0) & (id < 0))
+                        elif(pname == 'sink' or pname == 'cloud'):
+                            mask = (id < 0) & (m > 0) & (epoch == 0)
+                        elif(pname in tracers):
+                            mask = (id < 0) & (m == 0)
+                        else:
+                            mask = False
                     else:
-                        mask = (family == part_family['star'])
+                        # DM-only simulation
+                        if(pname == 'dm'):
+                            mask =  id > 0
+                        elif(pname in tracers):
+                            mask = (id < 0) & (m == 0)
+                        else:
+                            mask = False
+                    #############################################
                     
                     # Write masked data only for requested columns
-                    nstar = len(mask[mask])
-                    if('x' in target_fields):part['x'][cursor:cursor+nstar] = x[mask]
-                    if('y' in target_fields):part['y'][cursor:cursor+nstar] = y[mask]
-                    if('z' in target_fields):part['z'][cursor:cursor+nstar] = z[mask]
-                    if('vx' in target_fields):part['vx'][cursor:cursor+nstar] = vx[mask]
-                    if('vy' in target_fields):part['vy'][cursor:cursor+nstar] = vy[mask]
-                    if('vz' in target_fields):part['vz'][cursor:cursor+nstar] = vz[mask]
-                    if('m' in target_fields):part['m'][cursor:cursor+nstar] = m[mask]
-                    if('epoch' in target_fields):part['epoch'][cursor:cursor+nstar] = epoch[mask]
-                    if('metal' in target_fields):part['metal'][cursor:cursor+nstar] = metal[mask]
-                    if('id' in target_fields):part['id'][cursor:cursor+nstar] = id[mask]
-                    if('level' in target_fields):part['level'][cursor:cursor+nstar] = level[mask]
-                    # (read & write) initial mass
-                    if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc'):
-                        if('m0' in target_fields): part['m0'][cursor:cursor+nstar] = f.read_reals(np.float64)[mask]
-                        else: f.read_reals(np.float64)
-                        # (read & write) chemical elements
-                    if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='hagn'):
-                        if len(chem)>0:
-                            for ichem in chem:
-                                if(ichem in target_fields): part[ichem][cursor:cursor+nstar] = f.read_reals(np.float64)[mask]
-                                else: f.read_reals(np.float64)
-                    # (read & write) stellar density at formation
-                    if(mode=='y3') or (mode=='y4') or (mode=='nc'):
-                        if('rho0' in target_fields): part['rho0'][cursor:cursor+nstar] = f.read_reals(np.float64)[mask]
-                        else: f.read_reals(np.float64)
-                    # (read & write) parent indices
-                    if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc'):
-                        if('partp' in target_fields): part['partp'][cursor:cursor+nstar] = f.read_ints(np.int32)[mask]
-                        else: f.read_ints(np.int32)
+                    nsize = len(mask[mask])
+                    temp += nsize
+                    if('x' in target_fields):part['x'][cursor:cursor+nsize] = x[mask]
+                    if('y' in target_fields):part['y'][cursor:cursor+nsize] = y[mask]
+                    if('z' in target_fields):part['z'][cursor:cursor+nsize] = z[mask]
+                    if('vx' in target_fields):part['vx'][cursor:cursor+nsize] = vx[mask]
+                    if('vy' in target_fields):part['vy'][cursor:cursor+nsize] = vy[mask]
+                    if('vz' in target_fields):part['vz'][cursor:cursor+nsize] = vz[mask]
+                    if('m' in target_fields):part['m'][cursor:cursor+nsize] = m[mask]
+                    if('epoch' in target_fields):part['epoch'][cursor:cursor+nsize] = epoch[mask]
+                    if('metal' in target_fields):part['metal'][cursor:cursor+nsize] = metal[mask]
+                    if('id' in target_fields):part['id'][cursor:cursor+nsize] = id[mask]
+                    if('level' in target_fields):part['level'][cursor:cursor+nsize] = level[mask]
+                    if('family' in target_fields):part['family'][cursor:cursor+nsize] = family[mask]
+                    if('tag' in target_fields):part['tag'][cursor:cursor+nsize] = tag[mask]
+                    newtypes = ["m0", "rho0", "partp"] + chem
+                    if True in np.isin(newtypes, target_fields):
+                        # (read & write) initial mass
+                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc'):
+                            if('m0' in target_fields): part['m0'][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
+                            else: f.read_reals(np.float64)
+                            # (read & write) chemical elements
+                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='hagn'):
+                            if len(chem)>0:
+                                for ichem in chem:
+                                    if(ichem in target_fields): part[ichem][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
+                                    else: f.read_reals(np.float64)
+                        # (read & write) stellar density at formation
+                        if(mode=='y3') or (mode=='y4') or (mode=='nc'):
+                            if('rho0' in target_fields): part['rho0'][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
+                            else: f.read_reals(np.float64)
+                        # (read & write) parent indices
+                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc'):
+                            if('partp' in target_fields): part['partp'][cursor:cursor+nsize] = f.read_ints(np.int32)[mask]
+                            else: f.read_ints(np.int32)
                     # Write cpu info
-                    part['cpu'][cursor:cursor+nstar] = icpu
+                    part['cpu'][cursor:cursor+nsize] = icpu
 
-                    cursor += nstar
+                    cursor += nsize
         return part[:cursor]
 
-
-    def read_part(self, target_fields=None, cpulist=None, onlystar=False):
+    def read_part(self, target_fields=None, cpulist=None, pname=None):
         """Reads particle data from current box.
 
         Parameters
@@ -549,16 +630,17 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         if(cpulist is None):
             cpulist = self.get_involved_cpu()
         if (self.part_data is not None):
-            if(timer.verbose>=1): print('Searching for extra files...')
-            cpulist = cpulist[np.isin(cpulist, self.cpulist_part, assume_unique=True, invert=True)]
+            if pname == self.part.ptype:
+                if(timer.verbose>=1): print('Searching for extra files...')
+                cpulist = cpulist[np.isin(cpulist, self.cpulist_part, assume_unique=True, invert=True)]
 
         if (cpulist.size > 0):
             filesize = 0
             for icpu in cpulist:
                 filesize += getsize(self.get_path('part', icpu))
             timer.start('Reading %d part files (%s) in %s... ' % (cpulist.size, utool.format_bytes(filesize), self.path), 1)
-            if onlystar:
-                part = self.read_only_star(cpulist, self.mode, target_fields=target_fields)
+            if pname is not None:
+                part = self.read_specific(pname, cpulist, self.mode, target_fields=target_fields)
             else:
                 progress_bar = cpulist.size > progress_bar_limit and timer.verbose >= 1
                 mode = self.mode
@@ -587,8 +669,6 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                     part = fromndarrays(arrs, dtype)
 
                 readr.close()
-
-
             bound = compute_boundary(part['cpu'], cpulist)
             if (self.part_data is None):
                 self.part_data = part
@@ -1038,7 +1118,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 return RamsesSnapshot.Cell(self.table[item], self.snap)
 
 
-    def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, onlystar=False):
+    def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None):
         if(box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -1053,27 +1133,34 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 warnings.warn("cpulist cannot be set without domain_slicing!", UserWarning)
                 domain_slicing = True
             exact_box = False
-
-        if(self.box is None or not np.array_equal(self.box, self.box_part) or cpulist is not None):
+        do=False
+        if self.part is not None:
+            if pname != self.part.ptype:
+                print(f"\nYou loaded part only `{self.part.ptype}` but now you want `{pname}`!\nIt forces to remove `{self.part.ptype}` data and retry get_part (so it's inefficient!)\n")
+                self.part_data=None
+                self.part=None
+                self.box_part = None
+                self.cpulist_part = np.array([], dtype='i4')
+                self.bound_part = np.array([0], dtype='i4')
+                do=True
+        if(self.box is None or not np.array_equal(self.box, self.box_part) or cpulist is not None or do):
             if(cpulist is None):
                 cpulist = self.get_involved_cpu()
             else:
                 domain_slicing = True
                 exact_box = False
-            self.read_part(target_fields=target_fields, cpulist=cpulist, onlystar=onlystar)
+            self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname)
             if(domain_slicing):
                 part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
             else:
                 part = self.part_data
-
             if(self.box is not None):
                 if(exact_box):
                     mask = box_mask(get_vector(part), self.box)
                     timer.start('Masking particles... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask)/mask.size), 1)
                     part = part[mask]
                     timer.record()
-
-            part = self.Particle(part, self)
+            part = self.Particle(part, self, ptype=pname)
             self.box_part = self.box
             self.part = part
         return self.part
@@ -1085,16 +1172,30 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 if item in part_extra.keys():
                     return part_extra[item](self)
                 elif item in part_family.keys():
-                    return RamsesSnapshot.Particle(classify_part(self.table, item), self.snap)
+                    if self.ptype is not None:
+                        if item == self.ptype:
+                            return self
+                        else:
+                            print(f"\nYou loaded part only `{self.ptype}` but now you want `{item}`!\nIt forces to clear `{self.ptype}` data and retry get_part (so it's inefficient!)\n")
+                            self.snap.part_data = None
+                            self.snap.part = None
+                            self.snap.box_part = None
+                            cpulist = np.unique(self.snap.cpulist_part) if(self.snap.box is None or np.array_equal(self.snap.box, default_box)) else None
+                            self.snap.cpulist_part = np.array([], dtype='i4')
+                            self.snap.bound_part = np.array([0], dtype='i4')
+                            part = self.snap.get_part(box=self.snap.box, target_fields=self.table.dtype.names, domain_slicing=True, exact_box=True, cpulist=cpulist, pname=item)
+                            return part
+                    else:
+                        return RamsesSnapshot.Particle(classify_part(self.table, item, ptype=self.ptype), self.snap, ptype=item)
                 elif item == 'smbh':
-                    return RamsesSnapshot.Particle(find_smbh(self.table), self.snap)
+                    return RamsesSnapshot.Particle(find_smbh(self.table), self.snap, ptype='smbh')
                 else:
                     return self.table[item]
             elif isinstance(item, tuple):
                 letter, unit = item
                 return self.__getitem__(letter) / self.snap.unit[unit]
             else:
-                return RamsesSnapshot.Particle(self.table[item], self.snap)
+                return RamsesSnapshot.Particle(self.table[item], self.snap, ptype=self.ptype)
 
 
     def get_halos_cpulist(self, halos, radius=3., use_halo_radius=True, radius_name='rvir', n_divide=4):
@@ -1319,10 +1420,19 @@ def cut_halo(table, halo, radius=1, use_halo_radius=True, inverse=False, radius_
         radius = radius
     return cut_spherical(table, center, radius, inverse=inverse)
 
-def classify_part(part, pname):
+def classify_part(part, pname, ptype=None):
     # classify particles, if familty exists in the data, use it.
     # if not, use id, mass and epoch instead.
     timer.start('Classifying %d particles... ' % part.size, 2)
+    if (ptype is not None):
+        if isinstance(ptype, str):
+            if(pname == ptype):
+                return part
+            else:
+                return np.array([], dtype=part.dtype)
+        else:
+            raise TypeError(f"Invalid type of given `ptype`({type(ptype)}) instead of `list` or `str`!")
+
     names = part.dtype.names
     if('family' in names):
         # Do a family-based classification
