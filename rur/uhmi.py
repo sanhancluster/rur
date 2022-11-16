@@ -214,7 +214,7 @@ class HaloMaker:
         snap.get_part()
         star = snap.part['star']
 
-    from uri import RamsesSnapshot
+    from rur.uri import RamsesSnapshot
     @staticmethod
     def findhalo_NH_pair(ihaloid:int, iout:int, jout:int=None, ipart_ids:np.ndarray=None, isnap:RamsesSnapshot=None, jsnap:RamsesSnapshot=None, jtable:np.recarray=None, jpart_ids:np.ndarray=None, mcut:float=0.01, base='nh', verbose=True, **snapkwargs:dict):
         """
