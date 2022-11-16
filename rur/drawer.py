@@ -274,6 +274,7 @@ def gaussian_filter_border(image, sigma, **kwargs):
     return gaussian_filter(image, sigma_int, **kwargs) * fraction + gaussian_filter(image, sigma_int+1, **kwargs) * (1-fraction)
 
 def gauss_img(x, y, lims, reso=100, weights=None, subdivide=3, kernel_size=1):
+    # apply kde-like image convolution using gaussian filter
     x, y = np.array(x), np.array(y)
     mask = np.isfinite(x) & np.isfinite(y)
     x, y = x[mask], y[mask]
@@ -296,7 +297,7 @@ def gauss_img(x, y, lims, reso=100, weights=None, subdivide=3, kernel_size=1):
 
     return hist
 
-def kde_img(x, y, lims, reso=100, weights=None, tree=True, bw_method='siverman'):
+def kde_img(x, y, lims, reso=100, weights=None, tree=True, bw_method='siverman', nsearch=100, smooth_factor=3):
     x, y = np.array(x), np.array(y)
     mask = np.isfinite(x) & np.isfinite(y)
     x, y = x[mask], y[mask]
@@ -304,7 +305,7 @@ def kde_img(x, y, lims, reso=100, weights=None, tree=True, bw_method='siverman')
         weights = weights[mask]
 
     if(tree):
-        kde = gaussian_kde_tree(np.stack([x, y], axis=-1), weights=weights, smooth_factor=3)
+        kde = gaussian_kde_tree(np.stack([x, y], axis=-1), weights=weights, nsearch=nsearch, smooth_factor=smooth_factor)
         return fun_img(kde, lims, reso, axis=-1)
     else:
         kde = gaussian_kde(np.stack([x, y], axis=0), weights=weights, bw_method=bw_method)
@@ -386,9 +387,11 @@ def dtfe_img(x, y, lims, reso=100, weights=None, smooth=0):
         np.add.at(neighbor_nums, center_indices, 1)
 
         for _ in np.arange(smooth):
-            hull_areas_new = np.zeros(hull_areas.shape, dtype='f8')
-            np.add.at(hull_areas_new, center_indices, hull_areas[neighbor_indices])
-            hull_areas = hull_areas_new / neighbor_nums
+            hull_areas_add = np.zeros(hull_areas.shape, dtype='f8')
+            np.add.at(hull_areas_add, center_indices, hull_areas[neighbor_indices])
+            hull_areas_add /= neighbor_nums
+            hull_areas += hull_areas_add
+            hull_areas /= 2
 
     densities = 1 / hull_areas
 

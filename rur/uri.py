@@ -228,6 +228,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
     def set_cosmology(self, params=None, n=5000, snap=None):
         # calculates cosmology table with given cosmology paramters
+        # unit of conformal time (u) is in function of hubble time at z=0 and aexp
+        # unit_t = dt/du = (aexp)**2/H0
         if(params is None):
             params = self.params
 
@@ -275,7 +277,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.cell_extra, self.part_extra = custom_extra_fields(self)
 
     def set_unit(self):
-        custom_units(self)
+        set_custom_units(self)
 
     def set_box(self, center, extent, unit=None):
         """set center and extent of the current target bounding box of the simulation.
@@ -846,26 +848,40 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             icoarses.append(int(matched.group('icoarse')))
         return np.array(icoarses)
 
-    def read_sinkprop(self, path_in_repo='SINKPROPS', icoarse=None, drag_part=True, raw_data=False, return_aexp=False):
-        """Reads single sinkprop file from given coarse step number,
-        if icoarse not specified, reads the step number of current snapshot
-        if file is not found, tries to search for sinkprop file with nearest step number
-        """
+    def check_sinkprop(self, path_in_repo='SINKPROPS', icoarse=None, max_icoarse_offset=1):
         if(icoarse is None):
             icoarses = self.search_sinkprops(path_in_repo)
             icoarse = icoarses[np.argmin(np.abs((self.nstep_coarse) - icoarses))]
             if(icoarse != self.nstep_coarse):
-                warnings.warn('Targeted SINKPROP file not found with icoarse = %d\nFile with icoarse = %d is loaded instead.' % (self.nstep_coarse, icoarse))
+                if(np.abs(icoarse - self.nstep_coarse) > max_icoarse_offset):
+                    return None
+                else:
+                    warnings.warn('Targeted SINKPROP file not found with icoarse = %d\nFile with icoarse = %d is loaded instead.' % (self.nstep_coarse, icoarse))
         path = join(self.repo, path_in_repo)
         check = join(path, sinkprop_format.format(icoarse=icoarse))
         if(not exists(check)):
             raise FileNotFoundError('Sinkprop file not found: %s' % check)
-        readr.read_sinkprop(path, icoarse, drag_part, self.mode)
-        arrs = [readr.integer_table.T, readr.real_table.T]
+        return path
 
-        timer.start('Building table for %d smbhs... ' % arrs[0].shape[0], 1)
-        if(raw_data):
-            return arrs
+
+    def read_sinkprop_info(self, path_in_repo='SINKPROPS', icoarse=None, max_icoarse_offset=1):
+        info = dict()
+        path = self.check_sinkprop(path_in_repo=path_in_repo, icoarse=icoarse, max_icoarse_offset=max_icoarse_offset)
+        filename = join(path, sinkprop_format.format(icoarse=icoarse))
+        with FortranFile(filename) as file:
+            info['nsink'] = file.read_ints()
+            info['ndim'] = file.read_ints()
+            info['aexp'] = file.read_reals()
+            info['unit_l'] = file.read_reals()
+            info['unit_d'] = file.read_reals()
+            info['unit_t'] = file.read_reals()
+        return info
+
+    def read_sinkprop(self, path_in_repo='SINKPROPS', icoarse=None, drag_part=True, max_icoarse_offset=1, raw_data=False, return_aexp=False):
+        """Reads single sinkprop file from given coarse step number,
+        if icoarse not specified, reads the step number of current snapshot
+        if file is not found, tries to search for sinkprop file with nearest step number
+        """
         if(drag_part):
             dtype = sink_prop_dtype_drag
         else:
@@ -874,6 +890,19 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             dtype = sink_prop_dtype_drag_fornax
         if(self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4' or self.mode == 'nc'):
             dtype = sink_prop_dtype_drag_y2
+
+        path = self.check_sinkprop(path_in_repo=path_in_repo, icoarse=icoarse, max_icoarse_offset=max_icoarse_offset)
+        if path is None:
+            warnings.warn(
+                'Targeted SINKPROP file not found with icoarse = %d\nEmpty array will be loaded.' % (
+                    self.nstep_coarse))
+            return np.empty((0,), dtype=dtype)
+        readr.read_sinkprop(path, icoarse, drag_part, self.mode)
+        arrs = [readr.integer_table.T, readr.real_table.T]
+
+        timer.start('Building table for %d smbhs... ' % arrs[0].shape[0], 1)
+        if(raw_data):
+            return arrs
         if(arrs[0].shape[1] + arrs[1].shape[1] != len(dtype)):
             readr.close()
             raise ValueError('Number of fields mismatch\n'
@@ -1319,6 +1348,7 @@ def write_zoomparts_music(part_ini: RamsesSnapshot.Particle, cropped: RamsesSnap
 def write_parts_rockstar(part: RamsesSnapshot.Particle, snap: RamsesSnapshot, filepath: str):
     """
     writes particle data in ASCII format that can be read by Rockstar
+    Need to be updated
     """
     timer.start('Writing %d particles in %s... ' % (part.size, filepath), 1)
 
