@@ -498,7 +498,7 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
         image = dr.gauss_img(x[:, proj[0]], x[:, proj[1]], reso=shape, lims=box_proj, weights=weights, **kwargs)
         image /= px_area
     elif(method == 'kde'):
-        image = dr.kde_img(x[:, proj[0]], x[:, proj[1]], reso=shape, lims=box_proj, weights=weights, tree=True)
+        image = dr.kde_img(x[:, proj[0]], x[:, proj[1]], reso=shape, lims=box_proj, weights=weights, tree=True, **kwargs)
     elif(method == 'dtfe'):
         image = dr.dtfe_img(x[:, proj[0]], x[:, proj[1]], reso=shape, lims=box_proj, weights=weights, smooth=smooth)
     else:
@@ -515,11 +515,11 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
     return image.T
 
 
-def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=None, unit=None, method='hist', smooth=16, crho=False, angles=None, **kwargs):
+def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=None, unit=None, method='hist', smooth=16, crho=False, angles=None, kwargs_partmap={}, **kwargs):
     if(box is None and hasattr(part, 'snap')):
         box = part.snap.box
 
-    image = partmap(part, box, proj, shape, weights, unit, method, smooth=smooth, crho=crho, angles=None)
+    image = partmap(part, box, proj, shape, weights, unit, method, smooth=smooth, crho=crho, angles=angles, **kwargs_partmap)
 
     box_proj = get_box_proj(box, proj)
 

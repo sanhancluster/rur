@@ -206,7 +206,7 @@ timer = Timer(verbose=verbose_default)
 default_box = np.array([[0, 1], [0, 1], [0, 1]])
 
 # custom units used for RAMSES snapshot, conversion from code unit to conventional unit.
-def custom_units(snap):
+def set_custom_units(snap):
     params = snap.params
     l = params['unit_l']
     m = params['unit_m']

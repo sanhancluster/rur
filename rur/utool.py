@@ -310,7 +310,7 @@ def set_bins(bins, lims=None, values=None):
         bins = np.atleast_1d(bins)
         if(isinstance(bins[0], int) or isinstance(bins[0], np.int64) and np.array(lims).ndim == 2):
             binarr = []
-            bins = np.atleast_1d(bins)
+            bins = np.atleast_1d(bins) * np.array([1, 1])
             for lim, nbin in zip(lims, bins):
                 binarr.append(np.linspace(*lim, nbin+1))
             bins = binarr
@@ -1335,6 +1335,9 @@ def weighted_quantile(values, quantiles, sample_weight=None,
     else:
         weighted_quantiles /= np.sum(sample_weight)
     return np.interp(quantiles, weighted_quantiles, values)
+
+def weighted_median(values, *args, **kwargs):
+    return weighted_quantile(values, quantiles=0.5, *args, **kwargs)
 
 class Timer:
     def __init__(self, unitl='s', verbose=0):
