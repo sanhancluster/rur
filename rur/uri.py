@@ -589,21 +589,21 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                     newtypes = ["m0", "rho0", "partp"] + chem
                     if True in np.isin(newtypes, target_fields):
                         # (read & write) initial mass
-                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc'):
+                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='nh2'):
                             if('m0' in target_fields): part['m0'][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
                             else: f.read_reals(np.float64)
                             # (read & write) chemical elements
-                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='hagn'):
+                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='hagn') or (mode=='nh2'):
                             if len(chem)>0:
                                 for ichem in chem:
                                     if(ichem in target_fields): part[ichem][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
                                     else: f.read_reals(np.float64)
                         # (read & write) stellar density at formation
-                        if(mode=='y3') or (mode=='y4') or (mode=='nc'):
+                        if(mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='nh2'):
                             if('rho0' in target_fields): part['rho0'][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
                             else: f.read_reals(np.float64)
                         # (read & write) parent indices
-                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc'):
+                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='nh2'):
                             if('partp' in target_fields): part['partp'][cursor:cursor+nsize] = f.read_ints(np.int32)[mask]
                             else: f.read_ints(np.int32)
                     # Write cpu info
