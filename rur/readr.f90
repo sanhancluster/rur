@@ -26,15 +26,15 @@ module readr
 
 contains
 !#####################################################################
-    subroutine read_cell(repo, iout, cpu_list, mode, verbose)
+    subroutine read_cell(repo, iout, cpu_list, mode, grav, verbose)
 !#####################################################################
         implicit none
 
         integer :: i, j, icpu, jcpu, ilevel, idim, jdim, igrid, icell, jcell, ihvar
-        integer :: ncell_tot, ncpu, ndim, nlevelmax, nboundary, ngrid_a
+        integer :: ncell_tot, ncpu, ndim, nlevelmax, nboundary, ngrid_a, ndim1
 
-        integer :: amr_n, hydro_n, twotondim, skip_amr, skip_hydro
-        logical :: ok, is_leaf
+        integer :: amr_n, hydro_n, grav_n, twotondim, skip_amr, skip_hydro, skip_grav
+        logical :: ok, is_leaf, output_particle_density
         real, dimension(1:8, 1:3) :: oct_offset
         character(LEN=10) :: ordering
         character(len=128) :: file_path
@@ -42,6 +42,7 @@ contains
         ! temporary arrays
         integer(kind=4), dimension(:,:),   allocatable :: ngridfile
         real(kind=8),    dimension(:,:),   allocatable :: xg
+        real(kind=8),    dimension(:,:),   allocatable :: gvar
         integer(kind=4), dimension(:),     allocatable :: son
         real(kind=8),    dimension(:,:,:), allocatable :: hvar
         logical,         dimension(:,:),   allocatable :: leaf
@@ -51,9 +52,11 @@ contains
         integer, dimension(:), intent(in) :: cpu_list
         character(len=10),     intent(in) :: mode
         logical,               intent(in) :: verbose
+        logical,               intent(in) :: grav
 
         amr_n = 10
         hydro_n = 20
+        if(grav) grav_n = 30
         ! Positional offset for 3-dimensional oct-tree
         oct_offset = reshape((/&
             -0.5,  0.5, -0.5,  0.5, -0.5,  0.5, -0.5,  0.5, &
@@ -88,10 +91,19 @@ contains
         read(hydro_n)
         read(hydro_n) nhvar
         close(hydro_n)
+        if(grav) then
+            open(unit=grav_n, file=grav_filename(repo, iout, cpu_list(1), mode), status='old', form='unformatted')
+            read(grav_n)
+            read(grav_n) ndim1
+            close(grav_n)
+            output_particle_density = .false.
+            if(ndim1 == ndim+2) output_particle_density = .true.
+        endif
 
         twotondim = 2**ndim
         skip_amr = 3 * (2**ndim + ndim) + 1
         skip_hydro = nhvar * 2**ndim
+        if(grav) skip_grav = twotondim * (1 + ndim)
 
         ! Check total number of grids
         ncell_tot = 0
@@ -142,8 +154,11 @@ contains
         end do
 
         call close()
-
-        allocate(real_table(1:ndim+nhvar, 1:ncell_tot))
+        if(grav) then
+            allocate(real_table(1:ndim+nhvar+1, 1:ncell_tot))
+        else
+            allocate(real_table(1:ndim+nhvar, 1:ncell_tot))
+        endif
         allocate(integer_table(1:2, 1:ncell_tot))
 
         icell = 1
@@ -173,6 +188,12 @@ contains
             open(unit=hydro_n, file=hydro_filename(repo, iout, icpu, mode), status='old', form='unformatted')
             call skip_read(hydro_n, 6)
 
+            if(grav) then
+                ! Open grav file
+                open(unit=grav_n, file=grav_filename(repo, iout, icpu, mode), status='old', form='unformatted')
+                call skip_read(grav_n, 4)
+            endif
+
             ! Loop over levels
             do ilevel = 1, nlevelmax
                 ngrid_a = ngridfile(icpu, ilevel)
@@ -182,11 +203,13 @@ contains
                     allocate(xg(1:ngrid_a, 1:ndim))
                     allocate(hvar(1:ngrid_a, 1:twotondim, 1:nhvar))
                     allocate(leaf(1:ngrid_a, 1:twotondim))
+                    if(grav) allocate(gvar(1:ngrid_a, 1:twotondim))
                 endif
                 ! Loop over domains
                 do jcpu = 1, nboundary + ncpu
 
                     call skip_read(hydro_n, 2)
+                    if(grav) call skip_read(grav_n, 2)
 
                     ! Read AMR data
                     if(ngridfile(jcpu, ilevel) > 0) then
@@ -213,6 +236,11 @@ contains
                                 do ihvar = 1, nhvar
                                     read(hydro_n) hvar(1:ngrid_a, jdim, ihvar)
                                 end do
+                                if(grav) then
+                                    if(output_particle_density) call skip_read(grav_n, 1)
+                                    read(grav_n) gvar(1:ngrid_a, jdim)
+                                    call skip_read(grav_n, ndim)
+                                endif
                             end do
 
                             ! Merge amr & hydro data
@@ -227,6 +255,7 @@ contains
                                         do ihvar = 1, nhvar
                                             real_table(idim + ihvar-1, icell + jcell) = hvar(igrid, jdim, ihvar)
                                         end do
+                                        if(grav) real_table(idim + nhvar, icell + jcell) = gvar(igrid, jdim)
 
                                         integer_table(1, icell + jcell) = ilevel
                                         integer_table(2, icell + jcell) = icpu
@@ -239,6 +268,8 @@ contains
                         else
                             call skip_read(amr_n, skip_amr)
                             call skip_read(hydro_n, skip_hydro)
+                            if(grav) call skip_read(grav_n, skip_grav)
+                            if(grav .and. output_particle_density) call skip_read(grav_n, 1)
                         end if
                     end if
 
@@ -248,10 +279,12 @@ contains
                     deallocate(xg)
                     deallocate(hvar)
                     deallocate(leaf)
+                    if(grav) deallocate(gvar)
                 endif
             end do
             close(amr_n)
             close(hydro_n)
+            if(grav) close(grav_n)
         end do
         deallocate(ngridfile)
 
@@ -633,6 +666,21 @@ contains
             hydro_filename = TRIM(repo)//'/output_'//charind(iout)//'/hydro_'//charind(iout)//'.out'//charind(icpu)
         end if
     end function hydro_filename
+
+!#####################################################################
+    character(len=128) function grav_filename(repo, iout, icpu, mode)
+!#####################################################################
+        implicit none
+        character(len=128), intent(in)  :: repo
+        integer,            intent(in)  :: iout, icpu
+        character(len=10),  intent(in)  :: mode
+
+        if(mode == 'ng') then
+            grav_filename = TRIM(repo)//'/output_'//charind(iout)//'/grav.out'//charind(icpu)
+        else
+            grav_filename = TRIM(repo)//'/output_'//charind(iout)//'/grav_'//charind(iout)//'.out'//charind(icpu)
+        end if
+    end function grav_filename
 
 !#####################################################################
     character(len=128) function part_filename(repo, iout, icpu, mode)
