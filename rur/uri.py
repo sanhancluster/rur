@@ -496,7 +496,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
     def read_specific(self, pname:str, cpulist:Iterable, mode:str, target_fields=None):
         # 0) Mode check
         import os
-        modes = ['hagn', 'yzics', 'nh', 'fornax', 'y2', 'y3', 'y4', 'nc', 'nh2']
+        modes = ['hagn', 'yzics', 'nh', 'fornax', 'y2', 'y3', 'y4', 'nc', 'nh2', 'dm_only']
         if mode not in modes:
             raise ValueError(f"{mode} is not supported! \n(currently only {modes} are available)")
         
@@ -515,7 +515,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         # 2) Chemical elements list
         chems = {
             'hagn':['H','O','Fe', 'C', 'N', 'Mg', 'Si'], 
-            'yzics':[], 'nh':[], "fornax":[], "y2":[], 
+            'yzics':[], 'nh':[], "fornax":[], "y2":[], "dm_only":[],
             "y3":['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S'], 
             "y4":['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D'], 
             "nc":['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D'],
@@ -599,7 +599,6 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
         # 5) Read output part files
         cursor = 0
-        temp = 0
         for fname in files:
             icpu = int( fname[-5:] )
             if icpu in cpulist:
@@ -624,8 +623,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                         tag = readorskip_int(f, np.int8, 'tag', target_fields) # tag
                     else: pass                    
                     #   (read) epoch, metal
-                    epoch = f.read_reals(np.float64) # epoch
-                    metal = readorskip_real(f, np.float64, 'metal', target_fields)
+                    if nstar_tot>0:
+                        epoch = f.read_reals(np.float64) # epoch
+                        metal = readorskip_real(f, np.float64, 'metal', target_fields)
                     #############################################
                     ###     Mask stars (From `classify_part`)
                     #############################################
@@ -657,7 +657,6 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                     
                     # Write masked data only for requested columns
                     nsize = len(mask[mask])
-                    temp += nsize
                     if('x' in target_fields):part['x'][cursor:cursor+nsize] = x[mask]
                     if('y' in target_fields):part['y'][cursor:cursor+nsize] = y[mask]
                     if('z' in target_fields):part['z'][cursor:cursor+nsize] = z[mask]
@@ -674,21 +673,21 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                     newtypes = ["m0", "rho0", "partp"] + chem
                     if True in np.isin(newtypes, target_fields):
                         # (read & write) initial mass
-                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc'):
+                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='nh2'):
                             if('m0' in target_fields): part['m0'][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
                             else: f.read_reals(np.float64)
                             # (read & write) chemical elements
-                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='hagn'):
+                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='hagn') or (mode=='nh2'):
                             if len(chem)>0:
                                 for ichem in chem:
                                     if(ichem in target_fields): part[ichem][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
                                     else: f.read_reals(np.float64)
                         # (read & write) stellar density at formation
-                        if(mode=='y3') or (mode=='y4') or (mode=='nc'):
+                        if(mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='nh2'):
                             if('rho0' in target_fields): part['rho0'][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
                             else: f.read_reals(np.float64)
                         # (read & write) parent indices
-                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc'):
+                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='nh2'):
                             if('partp' in target_fields): part['partp'][cursor:cursor+nsize] = f.read_ints(np.int32)[mask]
                             else: f.read_ints(np.int32)
                     # Write cpu info
@@ -768,7 +767,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if (timer.verbose >= 1):
                 print('CPU list already satisfied.')
 
-    def read_cell(self, target_fields=None, cpulist=None):
+    def read_cell(self, target_fields=None, read_grav=False, cpulist=None):
         """Reads amr data from current box.
 
         Parameters
@@ -800,12 +799,15 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             timer.start('Reading %d AMR & hydro files (%s) in %s... ' % (cpulist.size, utool.format_bytes(filesize), self.path), 1)
 
             progress_bar = cpulist.size > progress_bar_limit and timer.verbose >= 1
-            readr.read_cell(self.snap_path, self.iout, cpulist, self.mode, progress_bar)
+            readr.read_cell(self.snap_path, self.iout, cpulist, self.mode, read_grav, progress_bar)
             self.params['nhvar'] = int(readr.nhvar)
             timer.record()
 
             formats = ['f8'] * self.params['ndim'] + ['f8'] * self.params['nhvar'] + ['i4'] * 2
             names = list(dim_keys[:self.params['ndim']]) + self.hydro_names + ['level', 'cpu']
+            if(read_grav):
+                formats.insert(-2, "f8")
+                names.insert(-2, "pot")
 
             arr = [*readr.real_table, *readr.integer_table]
 
@@ -1189,7 +1191,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.ref = np.concatenate(amr_refs)
         self.cpu = np.concatenate(amr_cpus)
 
-    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, ripses=False):
+    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False):
         if(box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -1212,7 +1214,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 domain_slicing=False
                 exact_box=False
             if(not ripses):
-                self.read_cell(target_fields=target_fields, cpulist=cpulist)
+                self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist)
             else:
                 self.read_ripses(target_fields=target_fields, cpulist=cpulist)
             if(domain_slicing):

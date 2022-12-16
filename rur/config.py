@@ -133,7 +133,7 @@ sinkprop_glob = 'sink_[0-9][0-9][0-9][0-9][0-9].dat'
 info_format = {
     'ng': 'info.txt',
 }
-info_format.update(dict.fromkeys(['nh', 'nh_dm_only', 'none', 'hagn', 'yzics', 'yzics_dm_only', 'iap', 'gem', 'fornax', 'y2', 'y3', 'y4', 'nc', 'nh2'], 'info_{snap.iout:05d}.txt'))
+info_format.update(dict.fromkeys(['nh', 'nh_dm_only', 'none', 'hagn', 'yzics', 'yzics_dm_only', 'iap', 'gem', 'fornax', 'y2', 'y3', 'y4', 'nc', 'nh2', 'dm_only'], 'info_{snap.iout:05d}.txt'))
 
 data_format = {
     'ng': '{{type}}.out{{icpu:05d}}',
@@ -141,12 +141,14 @@ data_format = {
 
 sinkprop_format = 'sink_{icoarse:05d}.dat'
 
-data_format.update(dict.fromkeys(['nh', 'nh_dm_only', 'none', 'hagn', 'yzics', 'yzics_dm_only', 'iap', 'gem', 'fornax', 'y2', 'y3', 'y4', 'nc', 'nh2'], '{{type}}_{snap.iout:05d}.out{{icpu:05d}}'))
+data_format.update(dict.fromkeys(['nh', 'nh_dm_only', 'none', 'hagn', 'yzics', 'yzics_dm_only', 'iap', 'gem', 'fornax', 'y2', 'y3', 'y4', 'nc', 'nh2', 'dm_only'], '{{type}}_{snap.iout:05d}.out{{icpu:05d}}'))
 
 default = [('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
 
 # columns for particle table, see readr.f90
 part_dtype = {
+    'dm_only': default + [('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
+
     'yzics': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
     'hagn': default + [('epoch', 'f8'), ('metal', 'f8'),('H','f8'),('O','f8'),('Fe','f8'),('C','f8'),('N','f8'),('Mg','f8'),('Si','f8'),('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
     'yzics_dm_only': default + [('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
@@ -246,6 +248,7 @@ icoarse_avail_dtype=[('icoarse', 'i4'), ('aexp', 'f8'), ('age', 'f8'), ('time', 
 
 # columns for hydro quantity table, all float64, see readr.f90
 hydro_names = {
+    'dm_only': ['rho', 'vx', 'vy', 'vz', 'P'],
     'nh': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],
     'nh_dm_only': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],
     'hagn' : ['rho', 'vx', 'vy', 'vz', 'P', 'metal','H','O','Fe', 'C', 'N', 'Mg', 'Si'],
