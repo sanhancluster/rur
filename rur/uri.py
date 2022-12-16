@@ -383,11 +383,18 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             params['ordering'] = str_regex.search(line).group('data')
             opened.readline()
             if(params['ordering'] == 'hilbert'):
-                bound_key = []
-                for icpu in np.arange(1, params['ncpu']):
-                    line = opened.readline()
-                    bound_key.append(float(domain_regex.search(line).group('ind_max')))
-                self.bound_key = np.array(bound_key)
+                # reads more precise boundary key by reading amr 1
+                amr_filename = self.get_path('amr', 1)
+                with FortranFile(amr_filename) as file:
+                    for _ in range(25):
+                        file.read_record('b')
+                    bounds = file.read_record(dtype='b')
+                if(bounds.size == 16*(params['ncpu']+1)):
+                    # quad case
+                    self.bound_key = quad_to_f16(bounds)[1:-1]
+                else:
+                    # double case
+                    self.bound_key = bounds.view('f8')[1:-1]
 
             if(exists(self.get_path('part', 1))):
                 self.params['nstar'] = self._read_nstar()
@@ -2064,3 +2071,17 @@ def fromndarrays(ndarrays, dtype):
         barr[:, col:col+bnda.shape[1]] = bnda
         col += bnda.shape[1]
     return array
+
+def quad_to_f16(by):
+    # receives byte array with format of IEEE 754 quadruple float and converts to numpy.float128 array
+    # because quadruple float is not supported in numpy
+    # source: https://stackoverflow.com/questions/52568037/reading-16-byte-fortran-floats-into-python-from-a-file
+    out = []
+    asint = []
+    for raw in np.reshape(by, (-1, 16)):
+        asint.append(int.from_bytes(raw, byteorder='little'))
+    asint = np.array(asint)
+    sign = (np.float128(-1.0)) ** np.float128(asint >> 127);
+    exponent = ((asint >> 112) & 0x7FFF) - 16383;
+    significand = np.float128((asint & ((1 << 112) - 1)) | (1 << 112))
+    return sign * significand * 2.0 ** np.float128(exponent - 112)
