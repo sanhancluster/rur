@@ -13,6 +13,7 @@ from rur.readr import readr
 from rur.io_ramses import io_ramses
 from rur.config import *
 from rur import utool
+from rur.utool import *
 import numpy as np
 import warnings
 import glob
@@ -252,9 +253,11 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
         self.part_data = None
         self.cell_data = None
+        self.sink_data = None
 
         self.part = None
         self.cell = None
+        self.sink = None
 
         self.pcmap = None
 
@@ -279,6 +282,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.region = BoxRegion(self.box)
         self.box_cell = None
         self.box_part = None
+        self.box_sink = None
 
     def get_iout_avail(self):
         output_names = glob.glob(join(self.snap_path, output_glob))
@@ -464,7 +468,6 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.part_extra = custom_extra_fields(self, 'particle')
 
         self.set_cosmology(snap=snap)
-        self.set_extra_fields()
         self.set_unit()
 
     def get_involved_cpu(self, box=None, binlvl=None, n_divide=5):
@@ -908,7 +911,23 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if(timer.verbose>=1):
                 print('CPU list already satisfied.')
 
-    def read_sink_raw(self, icpu, path_in_repo=''):
+    def read_sink(self):
+        if(self.sink_data is not None):
+            print('Sink data already loaded.')
+        # since sink files are composed of identical data, we read number 1 only.
+        filesize = 0
+        cpulist = [1]
+        for icpu in cpulist:
+            filesize += getsize(self.get_path('sink', icpu))
+        timer.start('Reading a sink file (%s) in %s... ' % (utool.format_bytes(filesize), self.path), 1)
+        readr.read_sink(self.snap_path, self.iout, cpulist, self.levelmin, self.levelmax)
+        arr = [*readr.integer_table, *readr.real_table[:19]]
+        sink = fromarrays(arr, sink_dtype)
+        self.sink_data = sink
+        timer.record()
+
+    def read_sink_raw(self, icpu, path_in_repo='snapshots'):
+        # reads sink file as raw array including sink_stat
         path = join(self.repo, path_in_repo)
         readr.read_sink(path, self.iout, icpu, self.levelmin, self.levelmax)
         arr = [readr.integer_table.T, readr.real_table.T]
@@ -941,12 +960,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         check = join(path, sinkprop_format.format(icoarse=icoarse))
         if(not exists(check)):
             raise FileNotFoundError('Sinkprop file not found: %s' % check)
-        return path
+        return path, icoarse
 
 
     def read_sinkprop_info(self, path_in_repo='SINKPROPS', icoarse=None, max_icoarse_offset=1):
         info = dict()
-        path = self.check_sinkprop(path_in_repo=path_in_repo, icoarse=icoarse, max_icoarse_offset=max_icoarse_offset)
+        path, icoarse = self.check_sinkprop(path_in_repo=path_in_repo, icoarse=icoarse, max_icoarse_offset=max_icoarse_offset)
         filename = join(path, sinkprop_format.format(icoarse=icoarse))
         with FortranFile(filename) as file:
             info['nsink'] = file.read_ints()
@@ -960,7 +979,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
     def read_sinkprop(self, path_in_repo='SINKPROPS', icoarse=None, drag_part=True, max_icoarse_offset=1, raw_data=False, return_aexp=False):
         """Reads single sinkprop file from given coarse step number,
         if icoarse not specified, reads the step number of current snapshot
-        if file is not found, tries to search for sinkprop file with nearest step number
+        if file is not found, tries to search for sinkprop file with nearest step number (up to max_icoarse_offset)
         """
         if(drag_part):
             dtype = sink_prop_dtype_drag
@@ -971,7 +990,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         if(self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4' or self.mode == 'nc'):
             dtype = sink_prop_dtype_drag_y2
 
-        path = self.check_sinkprop(path_in_repo=path_in_repo, icoarse=icoarse, max_icoarse_offset=max_icoarse_offset)
+        path, icoarse = self.check_sinkprop(path_in_repo=path_in_repo, icoarse=icoarse, max_icoarse_offset=max_icoarse_offset)
         if path is None:
             warnings.warn(
                 'Targeted SINKPROP file not found with icoarse = %d\nEmpty array will be loaded.' % (
@@ -1259,38 +1278,27 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.part = part
         return self.part
 
-    class Particle(Table):
-        def __getitem__(self, item):
-            part_extra = self.snap.part_extra
-            if isinstance(item, str):
-                if item in part_extra.keys():
-                    return part_extra[item](self)
-                elif item in part_family.keys():
-                    if self.ptype is not None:
-                        if item == self.ptype:
-                            return self
-                        else:
-                            print(f"\nYou loaded part only `{self.ptype}` but now you want `{item}`!\nIt forces to clear `{self.ptype}` data and retry get_part (so it's inefficient!)\n")
-                            self.snap.part_data = None
-                            self.snap.part = None
-                            self.snap.box_part = None
-                            cpulist = np.unique(self.snap.cpulist_part) if(self.snap.box is None or np.array_equal(self.snap.box, default_box)) else None
-                            self.snap.cpulist_part = np.array([], dtype='i4')
-                            self.snap.bound_part = np.array([0], dtype='i4')
-                            part = self.snap.get_part(box=self.snap.box, target_fields=self.table.dtype.names, domain_slicing=True, exact_box=True, cpulist=cpulist, pname=item)
-                            return part
-                    else:
-                        return RamsesSnapshot.Particle(classify_part(self.table, item, ptype=self.ptype), self.snap, ptype=item)
-                elif item == 'smbh':
-                    return RamsesSnapshot.Particle(find_smbh(self.table), self.snap, ptype='smbh')
-                else:
-                    return self.table[item]
-            elif isinstance(item, tuple):
-                letter, unit = item
-                return self.__getitem__(letter) / self.snap.unit[unit]
-            else:
-                return RamsesSnapshot.Particle(self.table[item], self.snap, ptype=self.ptype)
-
+    def get_sink(self, box=None, all=False):
+        if(all):
+            self.box_sink = default_box
+            self.read_sink()
+            self.sink = Particle(self.sink_data, self)
+            return self.sink
+        if(box is not None):
+            # if box is not specified, use self.box by default
+            self.box = box
+        if(self.box is None or not np.array_equal(self.box, self.box_sink)):
+            self.read_sink()
+            sink = self.sink_data
+            if(self.box is not None):
+                mask = box_mask(get_vector(sink), self.box)
+                timer.start('Masking sinks... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask)/mask.size), 1)
+                sink = sink[mask]
+                timer.record()
+            sink = Particle(sink, self)
+            self.box_sink = self.box
+            self.sink = sink
+        return self.sink
 
     def get_halos_cpulist(self, halos, radius=3., use_halo_radius=True, radius_name='rvir', n_divide=4):
         # returns cpulist that encloses given list of halos

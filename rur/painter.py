@@ -845,22 +845,50 @@ def draw_mergertree_space(tree, box=None, proj=[0, 1], mass_range=None, alpha=0.
     plt.xlim(box[proj[0]])
     plt.ylim(box[proj[1]])
 
+def blend(image1, image2, mode='average'):
+    # based on https://en.wikipedia.org/wiki/Blend_modes
+    if mode == 'average':
+        return (image1 + image2) / 2
+    if mode == 'multiply':
+        return image1 * image2
+    elif mode == 'overlay':
+        return np.select([image1 < 0.5, True], [2*image1*image2, 1-2*(1-image1)*(1-image2)])
+    elif mode == 'hard light':
+        return blend(image2, image1, 'overlay')
+    elif mode == 'soft light':
+        return np.select([image2 < 0.5, True],
+                         [2 * image1 * image2 + image1**2 * (1 - 2 * image2),
+                          2 * image1 * (1 - image2) + np.sqrt(image1) * (2 * image2 - 1)])
+    else:
+        raise ValueError("Unknown blend mode: %s" % mode)
 
-def combine_image(rgbs, mode='screen', weights=None):
-    rgbs = np.array(rgbs)
-    if(mode == 'average'):
-        image = np.average(rgbs, axis=0, weights=weights)
-    elif(mode == 'multiply'):
-        image = np.product(rgbs, axis=0)
-    elif(mode == 'max'):
-        image = np.max(rgbs, axis=0)
-    elif(mode == 'screen'):
-        image = 1.-np.prod(1.-rgbs, axis=0)
+def combine_image(images_to_combine, mode='screen', weights=None):
+    images_to_combine = np.array(images_to_combine)
+    if mode == 'average':
+        image = np.average(images_to_combine, axis=0, weights=weights)
+    elif mode == 'sum':
+            image = np.sum(images_to_combine, axis=0)
+    elif mode == 'multiply':
+        image = np.product(images_to_combine, axis=0)
+    elif mode == 'max':
+        image = np.max(images_to_combine, axis=0)
+    elif mode == 'screen':
+        image = 1.-np.prod(1.-images_to_combine, axis=0)
+    elif mode == 'overlay':
+        image1 = images_to_combine[0]
+        image = np.select([image1 < 0.5, True], [2 * np.prod(images_to_combine), 1 - 2 * np.prod(1 - images_to_combine)])
+    elif mode in ('soft light', 'hard light'):
+        image = images_to_combine[0]
+        for image2 in images_to_combine[1:]:
+            image = blend(image, image2, 'overlay')
+    else:
+        raise ValueError("Unknown blend mode: %s" % mode)
+
     return image
 
 
 def composite_image(images, cmaps, weights=None, vmins=None, vmaxs=None, qscales=3., mode='average', normmodes=None):
-    rgbs = []
+    images_to_combine = []
 
     nimg = len(images)
 
@@ -878,10 +906,10 @@ def composite_image(images, cmaps, weights=None, vmins=None, vmaxs=None, qscales
         print('vmaxs:', vmaxs)
 
     for image, cmap, vmin, vmax, qscale, normmode in zip(images, cmaps, vmins, vmaxs, qscales, normmodes):
-        rgbs.append(cmap(norm(image, vmin, vmax, qscale=qscale, mode=normmode)))
-    rgbs = np.array(rgbs)
+        images_to_combine.append(cmap(norm(image, vmin, vmax, qscale=qscale, mode=normmode)))
+    images_to_combine = np.array(images_to_combine)
 
-    image = combine_image(rgbs, mode, weights)
+    image = combine_image(images_to_combine, mode, weights)
     return image
 
 
@@ -1103,7 +1131,8 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
             part = snap.part
         if(True in show_smbh):
             smbh = part['smbh']
-            smbh = smbh[smbh['m', 'Msol']>=smbh_minmass]
+            if(smbh is not None):
+                smbh = smbh[smbh['m', 'Msol']>=smbh_minmass]
     if ('gas' in mode or 'dust' in mode or 'metal' in mode or 'temp' in mode):
         snap.get_cell()
         if (target is not None and align):
