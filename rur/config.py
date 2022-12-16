@@ -293,6 +293,9 @@ Myr = 3.154E13
 yr = 3.154E7
 
 # some constants in cgs
+G_const = 6.673E-8 # Gravitational constant in
+c_const = 2.99792458E10 # Speed of light
+sigma_T = 6.6524E-25 # Thomson cross section
 k_B = 1.38064852E-16 # Boltzmann constant
 m_H = 1.6737236E-24 # hydrogen atomic mass
 
