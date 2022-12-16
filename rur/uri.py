@@ -26,7 +26,8 @@ class TimeSeries(object):
         self.snaps = {}
         self.basesnap = snap
         self.snaps[snap.iout] = snap
-        self.icoarse_table = None
+        self.iout_avail = None
+        self.icoarse_avail = None
 
     def get_snap(self, iout):
         if(iout in self.snaps):
@@ -46,22 +47,51 @@ class TimeSeries(object):
         snap.set_box_halo(halo, radius=radius, use_halo_radius=use_halo_radius, radius_name=radius_name)
         return snap
 
-    def icoarse_to_aexp(self, icoarse):
-        if(self.icoarse_table is None):
-            output_names = glob.glob(join(self.basesnap.snap_path, output_glob))
-            iouts = [int(arr[-5:]) for arr in output_names]
-            iouts.sort()
-            self.iout_table = iouts
-            icoarses = []
-            aexps = []
-            for iout in iouts:
-                snap = self[iout]
-                icoarses.append(snap.nstep_coarse)
-                aexps.append(snap.aexp)
-            self.icoarse_table = np.array(icoarses)
-            self.aexp_table = np.array(aexps)
+    def interpolate_icoarse_table(self, value, name1, name2):
+        if self.icoarse_avail is None:
+            self.read_icoarse_avail()
+        return np.interp(value, self.icoarse_avail[name1], self.icoarse_avail[name2])
 
-        return np.interp(icoarse, self.icoarse_table, self.aexp_table)
+    def interpolate_iout_table(self, value, name1, name2):
+        if self.iout_avail is None:
+            self.read_iout_avail()
+        return np.interp(value, self.iout_avail[name1], self.iout_avail[name2])
+
+    def icoarse_to_aexp(self, icoarse):
+        return self.interpolate_icoarse_table(icoarse, 'icoarse', 'aexp')
+
+    def write_icoarse_avail(self, use_cache=True):
+        path = join(self.repo, 'list_icoarse_avail.txt')
+        self.write_iout_avail(use_cache=use_cache)
+        #if(use_cache and exists(path)):
+        #    self.read_icoarse_avail()
+        timer.start("Writing available icoarses in %s..." % path, 1)
+        icoarses = self.basesnap.search_sinkprops(path_in_repo='SINKPROPS')
+        icoarse_table = np.zeros(icoarses.size, dtype=icoarse_avail_dtype)
+        icoarse_table['icoarse'] = icoarses
+        for i, icoarse in enumerate(icoarses):
+            info = self.basesnap.read_sinkprop_info(path_in_repo='SINKPROPS', icoarse=icoarse, max_icoarse_offset=0)
+            icoarse_table['aexp'][i] = info['aexp']
+        names = icoarse_table.dtype.names
+        to_add = self.iout_avail[~np.isin(self.iout_avail['icoarse'], icoarse_table['icoarse'])]
+        icoarse_table_add = np.zeros(to_add.size, dtype=icoarse_avail_dtype)
+        for name in icoarse_table_add.dtype.names:
+            icoarse_table_add[name] = to_add[name]
+        icoarse_table = np.concatenate([icoarse_table, icoarse_table_add])
+        icoarse_table.sort(order='icoarse')
+        icoarse_table['age'] = self.basesnap.aexp_to_age(icoarse_table['aexp'])
+        icoarse_table['time'] = self.basesnap.interpolate_cosmo_table(icoarse_table['aexp'], 'aexp', 'u')
+        self.icoarse_avail = icoarse_table
+        np.savetxt(path, icoarse_table,
+                   fmt='%18d %18.9e %18.9e %18.9e', header=('%16s'+' %18s'*(len(names)-1)) % names)
+        timer.record()
+
+    def read_icoarse_avail(self):
+        path = join(self.repo, 'list_icoarse_avail.txt')
+        if exists(path):
+            self.icoarse_avail = np.loadtxt(path, dtype=icoarse_avail_dtype)
+        else:
+            return np.empty((0,), dtype=icoarse_avail_dtype)
 
     def write_iout_avail(self, use_cache=False):
         path = join(self.repo, 'list_iout_avail.txt')
@@ -93,7 +123,11 @@ class TimeSeries(object):
         timer.record()
 
     def read_iout_avail(self):
-        self.iout_avail = np.loadtxt(join(self.repo, 'list_iout_avail.txt'), dtype=iout_avail_dtype)
+        path = join(self.repo, 'list_iout_avail.txt')
+        if exists(path):
+            self.iout_avail = np.loadtxt(path, dtype=iout_avail_dtype)
+        else:
+            return np.empty((0,), dtype=iout_avail_dtype)
 
     def clear(self):
         self.snaps = None
@@ -253,21 +287,20 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         if(timer.verbose>=1):
             print('Age of the universe (now/z=0): %.3f / %.3f Gyr, z = %.5f (a = %.4f)' % (self.params['age'], self.cosmo_table['t'][-1], params['z'], params['aexp']))
 
+    def interpolate_cosmo_table(self, value, name1, name2):
+        return np.interp(value, self.cosmo_table[name1], self.cosmo_table[name2])
+
     def aexp_to_age(self, aexp):
-        return np.interp(aexp, self.cosmo_table['aexp'], self.cosmo_table['t'])
+        return self.interpolate_cosmo_table(aexp, 'aexp', 't')
 
     def age_to_aexp(self, age):
-        return np.interp(age, self.cosmo_table['t'], self.cosmo_table['aexp'])
+        return self.interpolate_cosmo_table(age, 't', 'aexp')
 
     def epoch_to_age(self, epoch):
-        table = self.cosmo_table
-        ages = np.interp(epoch, table['u'], table['t'])
-        return ages
+        return self.interpolate_cosmo_table(epoch, 'u', 't')
 
     def epoch_to_aexp(self, epoch):
-        table = self.cosmo_table
-        aexp = np.interp(epoch, table['u'], table['aexp'])
-        return aexp
+        return self.interpolate_cosmo_table(epoch, 'u', 'aexp')
 
     def aexp_to_dtdu(self, aexp):
         # returns dt over du (derivative of proper time t in function of ramses time unit u)
