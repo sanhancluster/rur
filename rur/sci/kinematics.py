@@ -8,7 +8,7 @@ from rur.vr.fortran.js_getpt_ft import js_getpt
 
 # This module contains useful functions related to galaxy kinematics.
 
-def sig_rad(part: RamsesSnapshot.Particle, gal):
+def sig_rad(part: Particle, gal):
     # measure radial velocity dispersion
     vcen = get_vector(gal, 'v')
     rcen = get_vector(gal)
@@ -18,7 +18,7 @@ def sig_rad(part: RamsesSnapshot.Particle, gal):
     vrad = np.sum(vrel * rrel, axis=-1) / utool.rss(rrel)
     return np.std(vrad)
 
-def measure_amon(part: RamsesSnapshot.Particle, gal):
+def measure_amon(part: Particle, gal):
     vcen = get_vector(gal, 'v')
     rcen = get_vector(gal)
 
@@ -27,7 +27,7 @@ def measure_amon(part: RamsesSnapshot.Particle, gal):
 
     return np.cross(rrel, vrel) * utool.expand_shape(part['m', 'Msol'], [0], 2)
 
-def align_axis(part: RamsesSnapshot.Particle, gal: np.recarray, center_vel=False):
+def align_axis(part: Particle, gal: np.recarray, center_vel=False):
     coo = get_vector(part)
     vel = get_vector(part, prefix='v')
     j = get_vector(gal, prefix='L')
@@ -40,10 +40,10 @@ def align_axis(part: RamsesSnapshot.Particle, gal: np.recarray, center_vel=False
 
     table = utool.set_vector(part.table, coo + coo_gal, copy=True)
     utool.set_vector(table, vel, prefix='v', copy=False)
-    part = RamsesSnapshot.Particle(table, part.snap)
+    part = Particle(table, part.snap)
     return part
 
-def align_axis_cell(cell: RamsesSnapshot.Cell, gal: np.recarray, center_vel=False):
+def align_axis_cell(cell: Cell, gal: np.recarray, center_vel=False):
     # Experimental
     coo = get_vector(cell)
     vel = get_vector(cell, prefix='v')
@@ -57,10 +57,10 @@ def align_axis_cell(cell: RamsesSnapshot.Cell, gal: np.recarray, center_vel=Fals
 
     table = utool.set_vector(cell.table, coo + coo_gal, copy=True)
     utool.set_vector(table, vel, prefix='v', copy=False)
-    cell = RamsesSnapshot.Cell(table, cell.snap)
+    cell = Cell(table, cell.snap)
     return cell
 
-def vel_spherical(part: RamsesSnapshot.Particle, gal, pole):
+def vel_spherical(part: Particle, gal, pole):
     # measure radial velocity dispersion
     vcen = get_vector(gal, 'v')
     rcen = get_vector(gal)

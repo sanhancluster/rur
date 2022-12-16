@@ -6,7 +6,7 @@ from numpy.lib.recfunctions import append_fields
 # This module contains useful functions related to galaxy analysis.
 # The contents of this module have been moved to sci/* and no longer updated.
 
-def align_axis(part: RamsesSnapshot.Particle, gal: np.recarray, center_vel=False):
+def align_axis(part: Particle, gal: np.recarray, center_vel=False):
     coo = get_vector(part)
     vel = get_vector(part, prefix='v')
     j = get_vector(gal, prefix='L')
@@ -19,10 +19,10 @@ def align_axis(part: RamsesSnapshot.Particle, gal: np.recarray, center_vel=False
 
     table = utool.set_vector(part.table, coo + coo_gal, copy=True)
     utool.set_vector(table, vel, prefix='v', copy=False)
-    part = RamsesSnapshot.Particle(table, part.snap)
+    part = Particle(table, part.snap)
     return part
 
-def align_axis_cell(cell: RamsesSnapshot.Cell, gal: np.recarray, center_vel=False):
+def align_axis_cell(cell: Cell, gal: np.recarray, center_vel=False):
     # Experimental
     coo = get_vector(cell)
     vel = get_vector(cell, prefix='v')
@@ -36,7 +36,7 @@ def align_axis_cell(cell: RamsesSnapshot.Cell, gal: np.recarray, center_vel=Fals
 
     table = utool.set_vector(cell.table, coo + coo_gal, copy=True)
     utool.set_vector(table, vel, prefix='v', copy=False)
-    cell = RamsesSnapshot.Cell(table, cell.snap)
+    cell = Cell(table, cell.snap)
     return cell
 
 #def circularity(part, radius_kpc=None):

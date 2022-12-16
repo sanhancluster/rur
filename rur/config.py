@@ -1,5 +1,7 @@
-from rur.utool import get_vector, rotate_vector, rss, ss, Timer, get_box, expand_shape, Table
+from rur.sci.geometry import rss, ss
 import numpy as np
+from collections import defaultdict
+import time
 
 def type_of_script():
     """
@@ -24,6 +26,92 @@ if(type_of_script() == 'jupyter'):
     from tqdm.notebook import tqdm
 else:
     from tqdm import tqdm
+
+class Table:
+    """
+    Table class to store RAMSES particle/AMR data.
+    Basically acts as numpy.recarray, but some functions do not work.
+    """
+    def __init__(self, table, snap, units=None):
+        self.table = table
+        self.snap = snap
+        self.extra_fields = custom_extra_fields(snap, 'common')
+        if units is None:
+            units = {}
+        # unit of table data in dict form, returns 'None' by default, which indicates code unit
+        self.units = defaultdict(lambda: None)
+        self.units.update(units)
+
+    def __getitem__(self, item, return_code_unit=False):
+        if isinstance(item, str):
+            if item in self.extra_fields.keys():
+                return self.extra_fields[item](self)
+            else:
+                if return_code_unit:
+                    return self.table[item] * self.snap.unit[self.units[item]]
+                else:
+                    return self.table[item]
+        elif isinstance(item, tuple): # if unit is given
+            letter, unit = item
+            return self.__getitem__(letter, return_code_unit=True) / self.snap.unit[unit]
+        else:
+            return self.__class__(self.table[item], self.snap)
+
+    def __len__(self):
+        return len(self.table)
+
+    def __str__(self):
+        return self.table.__str__()
+
+    def __repr__(self):
+        return "%s(%r)" % (self.__class__.__name__, self.__dict__)
+
+    def __getattr__(self, item):
+        return self.table.__getattribute__(item)
+
+    def __setitem__(self, key, value):
+        return self.table.__setitem__(key, value)
+
+class Timer:
+    def __init__(self, unitl='s', verbose=0):
+        self.t = time.time()
+        self.unitl = unitl
+        if(unitl == 'h'):
+            self.unit = 3600
+        elif (unitl == 'm'):
+            self.unit = 60
+        else:
+            self.unit = 1
+        self.verbose = verbose
+        self.verbose_lim = 1
+
+    def start(self, message=None, verbose_lim=None):
+        if(verbose_lim is not None):
+            self.verbose_lim = verbose_lim
+
+        if(self.verbose >= self.verbose_lim and message is not None):
+            print(message)
+        self.t = time.time()
+
+
+    def time(self):
+        return (time.time()-self.t) / self.unit
+
+    def record(self, verbose_lim=None):
+        if(verbose_lim is not None):
+            self.verbose_lim = verbose_lim
+
+        if (self.verbose >= self.verbose_lim):
+            print('Done (%.3f%s).' % (self.time(), self.unitl))
+
+    def measure(self, func, message=None, **kwargs):
+        self.start(message)
+        result = func(**kwargs)
+        self.record()
+        return result
+
+def get_vector(table, prefix='', ndim=3):
+    return np.stack([table[prefix + key] for key in dim_keys[:ndim]], axis=-1)
 
 class alias_dict(dict):
     def __missing__(self, key):
@@ -142,6 +230,10 @@ sink_prop_dtype = [
 
 sink_table_dtype = [('id', 'i8'), ('m', 'f8'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8')]
 
+sink_dtype = [('id', 'i4'), ('m', 'f8'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'),
+              ('tform', 'f8'), ('dM', 'f8'), ('dMBH', 'f8'), ('dMEd', 'f8'), ('Esave', 'f8'),
+              ('jx', 'f8'), ('jy', 'f8'), ('jz', 'f8'), ('sx', 'f8'), ('sy', 'f8'), ('sz', 'f8'), ('spinmag', 'f8')]
+
 grafic_header_dtype = [('nx', 'i4'), ('ny', 'i4'), ('nz', 'i4'),
              ('dx', 'f4'),
              ('xoff', 'f4'), ('yoff', 'f4'), ('zoff', 'f4'),
@@ -149,6 +241,8 @@ grafic_header_dtype = [('nx', 'i4'), ('ny', 'i4'), ('nz', 'i4'),
              ('Om', 'f4'), ('Ol', 'f4'), ('H0', 'f4')]
 
 iout_avail_dtype=[('iout', 'i4'), ('aexp', 'f8'), ('age', 'f8'), ('icoarse', 'i4'), ('time', 'f8')]
+
+icoarse_avail_dtype=[('icoarse', 'i4'), ('aexp', 'f8'), ('age', 'f8'), ('time', 'f8')]
 
 # columns for hydro quantity table, all float64, see readr.f90
 hydro_names = {
@@ -283,37 +377,44 @@ def set_custom_units(snap):
     }
 
 # some extra quantities that can be used as key of particle / cell data
-def custom_extra_fields(snap):
-    common_extra = {
+def custom_extra_fields(snap, type='common'):
+    extra_fields = {
         'pos': lambda table: get_vector(table),  # position vector
         'vel': lambda table: get_vector(table, 'v'),  # velocity vector
-        'dx': lambda table: 0.5 ** table['level'], # spatial resolution
-        'FeH': lambda table: 1.024*np.log10(table['metal']) + 1.739
+#        'FeH': lambda table: 1.024*np.log10(table['metal']) + 1.739
     }
+    if type == 'common':
+        return extra_fields
 
-    # cell extra keys
-    cell_extra = {
-        'T': lambda table: table['P'] / table['rho'], # temperature
-        'vol': lambda table: table['dx'] ** 3, # cell volume
-        'm': lambda table: table['vol'] * table['rho'], # cell mass
-        'cs' : lambda table: np.sqrt(gamma * table['P'] / table['rho']), # sound speed
-        'mach': lambda table: rss(table['vel']) / np.sqrt(gamma * table['P'] / table['rho']), # mach number
-        'e': lambda table: table['P'] / (gamma - 1) + 0.5 * table['rho'] * ss(table['vel']), # total energy density
-    }
+    elif type == 'cell':
+        # cell extra keys
+        extra_fields.update({
+            'T': lambda table: table['P'] / table['rho'], # temperature
+            'vol': lambda table: table['dx'] ** 3, # cell volume
+            'm': lambda table: table['vol'] * table['rho'], # cell mass
+            'cs' : lambda table: np.sqrt(gamma * table['P'] / table['rho']), # sound speed
+            'mach': lambda table: rss(table['vel']) / np.sqrt(gamma * table['P'] / table['rho']), # mach number
+            'e': lambda table: table['P'] / (gamma - 1) + 0.5 * table['rho'] * ss(table['vel']), # total energy density
+            'dx': lambda table: 0.5 ** table['level'],  # spatial resolution
+        })
 
-    # particle extra keys
-    part_extra = {
-        'age': lambda table: (snap.age - snap.epoch_to_age(table['epoch'])) * snap.unit['Gyr'], # stellar age
-        'aform': lambda table: snap.epoch_to_aexp(table['epoch']),  # formation epoch
-        'zform': lambda table: 1./table['aform']-1,  # formation epoch
-    }
+    elif type == 'particle':
+        # particle extra keys
+        extra_fields.update({
+            'age': lambda table: (snap.age - snap.epoch_to_age(table['epoch'])) * snap.unit['Gyr'], # stellar age
+            'aform': lambda table: snap.epoch_to_aexp(table['epoch']),  # formation epoch
+            'zform': lambda table: 1./table['aform']-1,  # formation epoch
+            'dx': lambda table: 0.5 ** table['level'],  # spatial resolution
+        })
 
-    cell_extra.update(common_extra)
-    part_extra.update(common_extra)
-    return cell_extra, part_extra
+    elif type == 'halo':
+        # halo extra keys
+        extra_fields.update({
+        })
 
-grafic_header_dtype = np.dtype([('nx', 'i4'), ('ny', 'i4'), ('nz', 'i4'),
-                                ('dx', 'f4'),
-                                ('xoff', 'f4'), ('yoff', 'f4'), ('zoff', 'f4'),
-                                ('aexp_start', 'f4'),
-                                ('Om', 'f4'), ('Ol', 'f4'), ('H0', 'f4')])
+    elif type == 'smbh':
+        # halo extra keys
+        extra_fields.update({
+        })
+
+    return extra_fields

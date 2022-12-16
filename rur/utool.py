@@ -9,13 +9,13 @@ from scipy.interpolate import LinearNDInterpolator
 from numpy.linalg import det
 import h5py
 from rur.sci.geometry import rss, ss, rms
+from rur.config import Table, get_vector, Timer
 from collections.abc import Iterable
 from collections import defaultdict
 import warnings
 
 import pickle as pkl
 import os
-import time
 from numpy.linalg import inv
 
 from multiprocessing import Process, cpu_count, Manager
@@ -39,29 +39,6 @@ if(type_of_script() == 'jupyter'):
     from tqdm.notebook import tqdm
 else:
     from tqdm import tqdm
-
-class Table:
-    """
-    Table class to store RAMSES particle/AMR data.
-    Basically acts as numpy.recarray, but some functions do not work.
-    """
-    def __init__(self, table, snap, ptype=None):
-        self.table = table
-        self.snap = snap
-        self.ptype = ptype
-
-    def __getitem__(self, item):
-        pass
-    def __len__(self):
-        return len(self.table)
-    def __str__(self):
-        return self.table.__str__()
-    def __repr__(self):
-        return "%s(%r)" % (self.__class__.__name__, self.__dict__)
-    def __getattr__(self, item):
-        return self.table.__getattribute__(item)
-    def __setitem__(self, key, value):
-        return self.table.__setitem__(key, value)
 
 # pickle load/save
 def uopen(path, mode):
@@ -117,9 +94,6 @@ def los(proj, ndim=3):
         raise ValueError('Invalid projection')
     dims = np.arange(ndim)
     return dims[np.isin(dims, proj, invert=True)][0]
-
-def get_vector(table, prefix='', ndim=3):
-    return np.stack([table[prefix + key] for key in dim_keys[:ndim]], axis=-1)
 
 def set_vector(table, vector, prefix='', ndim=3, where=None, copy=False):
     if(isinstance(table, Table)):
@@ -1340,44 +1314,6 @@ def weighted_quantile(values, quantiles, sample_weight=None,
 
 def weighted_median(values, *args, **kwargs):
     return weighted_quantile(values, quantiles=0.5, *args, **kwargs)
-
-class Timer:
-    def __init__(self, unitl='s', verbose=0):
-        self.t = time.time()
-        self.unitl = unitl
-        if(unitl == 'h'):
-            self.unit = 3600
-        elif (unitl == 'm'):
-            self.unit = 60
-        else:
-            self.unit = 1
-        self.verbose = verbose
-        self.verbose_lim = 1
-
-    def start(self, message=None, verbose_lim=None):
-        if(verbose_lim is not None):
-            self.verbose_lim = verbose_lim
-
-        if(self.verbose >= self.verbose_lim and message is not None):
-            print(message)
-        self.t = time.time()
-
-
-    def time(self):
-        return (time.time()-self.t) / self.unit
-
-    def record(self, verbose_lim=None):
-        if(verbose_lim is not None):
-            self.verbose_lim = verbose_lim
-
-        if (self.verbose >= self.verbose_lim):
-            print('Done (%.3f%s).' % (self.time(), self.unitl))
-
-    def measure(self, func, message=None, **kwargs):
-        self.start(message)
-        result = func(**kwargs)
-        self.record()
-        return result
 
 def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, ncols_tqdm=None,
               direct_input=True, priorities=None, kwargs_dict=None):

@@ -91,7 +91,7 @@ def set_bins(known_lvls, minlvl, maxlvl, box_proj, shape):
 
 
 def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, subpx_crop=True):
-    if(box is None and isinstance(cell, uri.RamsesSnapshot.Cell)):
+    if(box is None and isinstance(cell, uri.Cell)):
         box = cell.snap.box
 
     lvl = cell['level']
@@ -281,7 +281,7 @@ def velmap(data, box=None, proj=[0, 1], shape=500, unit=None, minlvl=None, maxlv
     if(box is None):
         box = data.snap.box
 
-    if(isinstance(data, uri.RamsesSnapshot.Cell)):
+    if(isinstance(data, uri.Cell)):
         cell = data
 
         lvl = cell['level']
@@ -462,7 +462,7 @@ def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, m
     return draw_image(image, extent=extent, **kwargs)
 
 def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, method='hist', x=None, smooth=16, crho=False, angles=None, **kwargs):
-    if(box is None and isinstance(part, uri.RamsesSnapshot.Particle)):
+    if(box is None and isinstance(part, uri.Particle)):
         box = part.snap.box
 
     # Compute the column density map along the LOS
@@ -621,7 +621,7 @@ def draw_points(points, box=None, proj=[0, 1], color=None, label=None, fontsize=
 
 def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_range=None, zorder=100,
                labels=None, fontsize=10, fontcolor='lightyellow', **kwargs):
-    if(box is None and isinstance(smbh, uri.RamsesSnapshot.Particle)):
+    if(box is None and isinstance(smbh, uri.Particle)):
         box = smbh.snap.box
         mass = smbh['m', 'Msol']
         if(mass_range is None):
@@ -715,7 +715,7 @@ def draw_halos(halos, box=None, ax=None, proj=[0, 1], mass_range=None, cmap=plt.
 def draw_grid(cell, box=None, ax=None, proj=[0, 1], minlvl=None, maxlvl=None, color='white', cmap=None, linewidth=0.5, draw_threshold=0, **kwargs):
     if ax is None:
         ax = plt.gca()
-    if(box is None and isinstance(cell, uri.RamsesSnapshot.Cell)):
+    if(box is None and isinstance(cell, uri.Cell)):
         box = cell.snap.box
 
     lvl = cell['level']

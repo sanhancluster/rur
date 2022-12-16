@@ -133,6 +133,46 @@ class TimeSeries(object):
         self.snaps = None
         self.basesnap = None
 
+class Particle(Table):
+    def __init__(self, table, snap, units=None, ptype=None):
+        super().__init__(table, snap, units=units)
+        self.ptype = ptype
+        self.extra_fields = custom_extra_fields(snap, 'particle')
+
+    def __getitem__(self, item, return_code_unit=False):
+        if isinstance(item, str) and item in part_family.keys(): # if an item exists among known particle family names
+            if self.ptype is not None:
+                if item == self.ptype:
+                    return self
+                else:
+                    print(
+                        f"\nYou loaded part only `{self.ptype}` but now you want `{item}`!\nIt forces to clear `{self.ptype}` data and retry get_part (so it's inefficient!)\n")
+                    self.snap.part_data = None
+                    self.snap.part = None
+                    self.snap.box_part = None
+                    cpulist = np.unique(self.snap.cpulist_part) if (
+                                self.snap.box is None or np.array_equal(self.snap.box, default_box)) else None
+                    self.snap.cpulist_part = np.array([], dtype='i4')
+                    self.snap.bound_part = np.array([0], dtype='i4')
+                    part = self.snap.get_part(box=self.snap.box, target_fields=self.table.dtype.names,
+                                              domain_slicing=True, exact_box=True, cpulist=cpulist, pname=item)
+                    return part
+            else:
+                return self.__class__(classify_part(self.table, item, ptype=self.ptype), self.snap, ptype=item)
+
+        elif item == 'smbh': # returns smbh position by summing up cloud particle positions
+            return self.__class__(find_smbh(self.table), self.snap, ptype='smbh')
+        else: # none of the above, return to default
+            return super().__getitem__(item, return_code_unit)
+
+class Cell(Table):
+    def __init__(self, table, snap, units=None):
+        super().__init__(table, snap, units=units)
+        self.extra_fields = custom_extra_fields(snap, 'cell')
+
+    def __getitem__(self, item, return_code_unit=False):
+        return super().__getitem__(item, return_code_unit)
+
 class RamsesSnapshot(object):
     """A handy object to store RAMSES AMR/Particle snapshot data.
 
@@ -159,9 +199,9 @@ class RamsesSnapshot(object):
 
     Attributes
     ----------
-    part : RamsesSnapshot.Particle object
+    part : Particle object
         Loaded particle table in the box
-    cell : RamsesSnapshot.Cell object
+    cell : Cell object
         Loaded particle table in the box
     box : numpy.array with shape (3, 2)
         Current bounding box. Change this value if bounding box need to be changed.
@@ -306,9 +346,6 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         # returns dt over du (derivative of proper time t in function of ramses time unit u)
         return aexp**2 / (self['H0'] * km * Gyr / Mpc)
 
-    def set_extra_fields(self):
-        self.cell_extra, self.part_extra = custom_extra_fields(self)
-
     def set_unit(self):
         set_custom_units(self)
 
@@ -422,6 +459,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.bound_cell = np.array([0], dtype='i4')
         self.bound_part = np.array([0], dtype='i4')
         self.params.update(params)
+
+        self.cell_extra = custom_extra_fields(self, 'cell')
+        self.part_extra = custom_extra_fields(self, 'particle')
 
         self.set_cosmology(snap=snap)
         self.set_extra_fields()
@@ -665,7 +705,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             target list of cpus, if specified, read selected cpus regardless of current box.
         Returns
         -------
-        part : RamsesSnapshot.Particle object
+        part : Particle object
             particle data, can be accessed as attribute also.
 
         """
@@ -736,7 +776,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             target list of cpus, if specified, read selected cpus regardless of current box.
         Returns
         -------
-        cell : RamsesSnapshot.Cell object
+        cell : Cell object
             amr data, can be accessed as attribute also.
 
         """
@@ -811,7 +851,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             target list of cpus, if specified, read selected cpus regardless of current box.
         Returns
         -------
-        cell : RamsesSnapshot.Cell object
+        cell : Cell object
             amr data, can be accessed as attributes also.
 
         """
@@ -1167,25 +1207,10 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 cell = cell[mask]
                 timer.record()
 
-            cell = self.Cell(cell, self)
+            cell = Cell(cell, self)
             self.box_cell = self.box
             self.cell = cell
         return self.cell
-
-    class Cell(Table):
-        def __getitem__(self, item):
-            cell_extra = self.snap.cell_extra
-            if isinstance(item, str):
-                if item in cell_extra.keys():
-                    return cell_extra[item](self)
-                else:
-                    return self.table[item]
-            elif isinstance(item, tuple):
-                letter, unit = item
-                return self.__getitem__(letter) / self.snap.unit[unit]
-            else:
-                return RamsesSnapshot.Cell(self.table[item], self.snap)
-
 
     def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None):
         if(box is not None):
@@ -1229,7 +1254,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                     timer.start('Masking particles... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask)/mask.size), 1)
                     part = part[mask]
                     timer.record()
-            part = self.Particle(part, self, ptype=pname)
+            part = Particle(part, self, ptype=pname)
             self.box_part = self.box
             self.part = part
         return self.part
@@ -1374,7 +1399,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 def trace_parts(part_ini, cropped):
     return part_ini[np.isin(part_ini['id'], cropped['id'], True)]
 
-def write_zoomparts_music(part_ini: RamsesSnapshot.Particle, cropped: RamsesSnapshot.Particle,
+def write_zoomparts_music(part_ini: Particle, cropped: Particle,
                           filepath: str, reduce: int=None):
     """
     writes position table of particles in MUSIC format.
@@ -1385,7 +1410,7 @@ def write_zoomparts_music(part_ini: RamsesSnapshot.Particle, cropped: RamsesSnap
     np.savetxt(filepath, get_vector(cropped_ini))
     return cropped_ini
 
-def write_parts_rockstar(part: RamsesSnapshot.Particle, snap: RamsesSnapshot, filepath: str):
+def write_parts_rockstar(part: Particle, snap: RamsesSnapshot, filepath: str):
     """
     writes particle data in ASCII format that can be read by Rockstar
     Need to be updated
