@@ -4,6 +4,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter1d
 from rur.config import m_H, c_const, G_const, sigma_T
 
+
 def set_unit(aexps, snap):
     aexp_scale = snap.aexp / aexps
     unit = {}
@@ -31,7 +32,8 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
         plt.plot(x, y, **kwargs)
 
     if modes is None:
-        modes = ['mass', 'velocity', 'density', 'accretion_rate', 'eddington_rate', 'spin', 'epsilon', 'energy', 'tot_energy']
+        modes = ['mass', 'velocity', 'density', 'accretion_rate', 'eddington_rate', 'spin', 'epsilon', 'energy',
+                 'tot_energy']
     nrows = len(modes)
     fig, axes = plt.subplots(ncols=1, nrows=nrows, figsize=(8, nrows * 2), dpi=150, sharex=True)
     plt.subplots_adjust(hspace=0.1)
@@ -57,7 +59,7 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
             yarr = np.log10(tl['m'] * unit_to_Msol)
             draw(xarr, yarr, **plot_params)
             plt.ylabel('log M$_{BH}$\n(M$_\odot$)')
-            #plt.ylim(5, 9)
+            # plt.ylim(5, 9)
         elif (mode == 'velocity'):
             draw(xarr, np.log10(tl['v_avgptr'] * unit_to_kms), lw=0.5, label='v$_{gas}$')
             draw(xarr, np.log10(tl['c_avgptr'] * unit_to_kms), lw=0.5, label='c$_{gas}$', color='r')
@@ -101,28 +103,26 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
 
         elif (mode == 'spin'):
             plt.plot(xarr, tl['spinmag'], label='Mdot')
-            #plt.plot(xarr, np.log10(np.minimum(tl['Mdot'] / tl['Medd'], 1)), color='k', alpha=0.3, lw=0.5, zorder=-1)
-            #plt.axhline(-2, color='gray', lw=0.5)
+            # plt.plot(xarr, np.log10(np.minimum(tl['Mdot'] / tl['Medd'], 1)), color='k', alpha=0.3, lw=0.5, zorder=-1)
+            # plt.axhline(-2, color='gray', lw=0.5)
             plt.ylabel('Spin magnitude')
             plt.ylim(-1, 1)
 
         elif (mode == 'epsilon'):
             # draw(xarr, np.log10(np.minimum(tl['Mdot']/tl['Medd'], 1)), label='Mdot')
-            eff_mad = (4.10507 + 0.328712 * tl['spinmag'] + 76.0849 * tl['spinmag'] ** 2 + 47.9235 * tl[
-                'spinmag'] ** 3 + 3.86634 * tl['spinmag'] ** 4) / 100
+            eff = eff_mad(tl['spinmag'])
             plt.ylabel('$\eta_{AGN}$')
 
             draw(xarr, tl['eps_sink'] * eagn_T, lw=0.7, label='Thermal')
-            draw(xarr, eff_mad, lw=0.7, label='Kinetic')
+            draw(xarr, eff, lw=0.7, label='Kinetic')
             # plt.axhline(-2, color='gray', lw=0.5)
             # plt.ylim(-4, 0.05)
             plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
 
         elif (mode == 'energy'):
             # draw(xarr, np.log10(np.minimum(tl['Mdot']/tl['Medd'], 1)), label='Mdot')
-            eff_mad = (4.10507 + 0.328712 * tl['spinmag'] + 76.0849 * tl['spinmag'] ** 2 + 47.9235 * tl[
-                'spinmag'] ** 3 + 3.86634 * tl['spinmag'] ** 4) / 100
-            ek = (np.minimum(tl['Mdot'], tl['Medd']) * eff_mad) * (tl['Mdot'] / tl['Medd'] < 0.01)
+            eff = eff_mad(tl['spinmag'])
+            ek = (np.minimum(tl['Mdot'], tl['Medd']) * eff) * (tl['Mdot'] / tl['Medd'] < 0.01)
             et = (np.minimum(tl['Mdot'], tl['Medd']) * tl['eps_sink']) * (tl['Mdot'] / tl['Medd'] > 0.01) * eagn_T
             # stat = utool.binned_stat(ages_sink, np.stack([et, ek], axis=-1) * (unit_m / unit_t * 29979245800**2), bins=age_bin)
             ek *= (unit_m / unit_t * c_const ** 2)
@@ -137,9 +137,8 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
 
         elif (mode == 'tot_energy'):
             # draw(xarr, np.log10(np.minimum(tl['Mdot']/tl['Medd'], 1)), label='Mdot')
-            eff_mad = (4.10507 + 0.328712 * tl['spinmag'] + 76.0849 * tl['spinmag'] ** 2 + 47.9235 * tl[
-                'spinmag'] ** 3 + 3.86634 * tl['spinmag'] ** 4) / 100
-            ek = (np.minimum(tl['Mdot'], tl['Medd']) * eff_mad) * (tl['Mdot'] / tl['Medd'] < 0.01)
+            eff = eff_mad(tl['spinmag'])
+            ek = (np.minimum(tl['Mdot'], tl['Medd']) * eff) * (tl['Mdot'] / tl['Medd'] < 0.01)
             et = (np.minimum(tl['Mdot'], tl['Medd']) * tl['eps_sink']) * (tl['Mdot'] / tl['Medd'] > 0.01) * eagn_T
             # stat = utool.binned_stat(ages_sink, np.stack([et, ek], axis=-1) * (unit_m / unit_t * 29979245800**2), bins=age_bin)
             ek *= (unit_m / unit_t * 29979245800. ** 2)
@@ -161,5 +160,22 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
         plt.xlim(xlim)
 
 
-def eddington_accretion_rate(mbh, epsilon):
-    return 4*np.pi*G_const*mbh*m_H/(epsilon * c_const * sigma_T)
+def edd_acc_rate(mbh, epsilon):
+    # eddington accretion rate
+    return 4 * np.pi * G_const * mbh * m_H / (epsilon * c_const * sigma_T)
+
+
+def eps_spin(spinmag):
+    # epsilon from spin magnitude (implementation on RAMSES)
+    ZZ1 = 1. + (1. - spinmag ** 2) ** (1. / 3.) * ((1. + spinmag)) ** (1. / 3.) + (1. - spinmag ** (1. / 3.))
+    ZZ2 = np.sqrt(3. * spinmag ** 2. + ZZ1 ** 2.)
+    r_lso = np.select([spinmag > 0., True], [3. + ZZ2 - np.sqrt((3. - ZZ1) * (3. + ZZ1 + 2. * ZZ2)),
+                                             3. + ZZ2 + np.sqrt((3. - ZZ1) * (3. + ZZ1 + 2. * ZZ2))])
+    return 1. - np.sqrt(1. - 2. / (3. * r_lso))
+
+
+def eff_mad(spinmag):
+    # energy efficiency in MAD model
+    eff_mad = (4.10507 + 0.328712 * spinmag + 76.0849 * spinmag ** 2
+               + 47.9235 * spinmag ** 3 + 3.86634 * spinmag ** 4) / 100.
+    return eff_mad
