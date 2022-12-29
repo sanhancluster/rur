@@ -141,30 +141,43 @@ class Particle(Table):
         self.extra_fields = custom_extra_fields(snap, 'particle')
 
     def __getitem__(self, item, return_code_unit=False):
-        if isinstance(item, str) and item in part_family.keys(): # if an item exists among known particle family names
-            if self.ptype is not None:
-                if item == self.ptype:
-                    return self
+        if isinstance(item, str):
+            if item in part_family.keys(): # if an item exists among known particle family names
+                if self.ptype is not None:
+                    if item == self.ptype:
+                        return self
+                    else:
+                        print(
+                            f"\nYou loaded part only `{self.ptype}` but now you want `{item}`!\nIt forces to clear `{self.ptype}` data and retry get_part (so it's inefficient!)\n")
+                        self.snap.part_data = None
+                        self.snap.part = None
+                        self.snap.box_part = None
+                        cpulist = np.unique(self.snap.cpulist_part) if (
+                                    self.snap.box is None or np.array_equal(self.snap.box, default_box)) else None
+                        self.snap.cpulist_part = np.array([], dtype='i4')
+                        self.snap.bound_part = np.array([0], dtype='i4')
+                        part = self.snap.get_part(box=self.snap.box, target_fields=self.table.dtype.names,
+                                                  domain_slicing=True, exact_box=True, cpulist=cpulist, pname=item)
+                        return part
                 else:
-                    print(
-                        f"\nYou loaded part only `{self.ptype}` but now you want `{item}`!\nIt forces to clear `{self.ptype}` data and retry get_part (so it's inefficient!)\n")
-                    self.snap.part_data = None
-                    self.snap.part = None
-                    self.snap.box_part = None
-                    cpulist = np.unique(self.snap.cpulist_part) if (
-                                self.snap.box is None or np.array_equal(self.snap.box, default_box)) else None
-                    self.snap.cpulist_part = np.array([], dtype='i4')
-                    self.snap.bound_part = np.array([0], dtype='i4')
-                    part = self.snap.get_part(box=self.snap.box, target_fields=self.table.dtype.names,
-                                              domain_slicing=True, exact_box=True, cpulist=cpulist, pname=item)
-                    return part
-            else:
-                return self.__class__(classify_part(self.table, item, ptype=self.ptype), self.snap, ptype=item)
+                    return self.__copy__(classify_part(self.table, item, ptype=self.ptype), self.snap, ptype=item)
 
-        elif item == 'smbh': # returns smbh position by summing up cloud particle positions
-            return self.__class__(find_smbh(self.table), self.snap, ptype='smbh')
-        else: # none of the above, return to default
-            return super().__getitem__(item, return_code_unit)
+            elif item == 'smbh':
+                # returns smbh position by summing up cloud particle positions
+                return self.__copy__(find_smbh(self.table), self.snap, ptype='smbh')
+        # none of the above, return to default
+        return super().__getitem__(item, return_code_unit)
+
+    def __copy__(self, table=None, snap=None, units=None, ptype=None):
+        if table is None:
+            table = self.table
+        if snap is None:
+            snap = self.snap
+        if units is None:
+            units = self.units
+        if ptype is None:
+            units = self.units
+        return self.__class__(table, snap, units, ptype)
 
 class Cell(Table):
     def __init__(self, table, snap, units=None):
