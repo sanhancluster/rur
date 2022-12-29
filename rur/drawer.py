@@ -311,6 +311,47 @@ def kde_img(x, y, lims, reso=100, weights=None, tree=True, bw_method='siverman',
         kde = gaussian_kde(np.stack([x, y], axis=0), weights=weights, bw_method=bw_method)
         return fun_img(kde, lims, reso, axis=0)
 
+def cic_img(x, y, lims, reso=100, weights=None):
+    # apply cloud-in-cell particle mesh algorithm
+    if (np.isscalar(reso)):
+        reso = np.repeat(reso, 2)
+    mask = np.isfinite(x) & np.isfinite(y)
+    points = np.stack([x, y], axis=-1)[mask]
+    if weights is None:
+        weights = 1.
+    elif isinstance(weights, Iterable):
+        weights = np.array(weights)[mask]
+
+    range = lims
+    shape = reso
+    indices_float = (points - np.array(range)[:, 0]) / (np.array(range)[:, 1] - np.array(range)[:, 0]) * np.array(shape) + 0.5
+
+    dxs = np.concatenate(np.stack(np.mgrid[0:2, 0:2], axis=-1))[:, np.newaxis, :]
+    indices_int = np.floor(indices_float - dxs)
+
+    offsets = indices_float - indices_int
+    areas = np.product(1-np.abs(offsets - 1), axis=-1)
+
+    pool = np.zeros(shape, dtype='f8')
+    coords = np.concatenate(indices_int).astype(int)
+    mask = np.all((coords >= 0) & (coords < shape), axis=-1)
+    np.add.at(pool, (coords[mask, 0], coords[mask, 1]), (np.concatenate(areas * weights))[mask])
+    return pool
+
+def coo_img(lims, reso=100, axis=-1, ravel=False):
+    if (np.isscalar(reso)):
+        reso = np.repeat(reso, 2)
+
+    xarr = bin_centers(lims[0][0], lims[0][1], reso[0])
+    yarr = bin_centers(lims[1][0], lims[1][1], reso[1])
+
+    xm, ym = np.meshgrid(xarr, yarr)
+    if(ravel):
+        xm, ym = xm.ravel(), ym.ravel()
+
+    mesh = np.stack([xm, ym], axis=axis)
+    return mesh
+
 def fun_img(f, lims, reso=100, axis=-1):
     # returns 2d numpy array image with function
     # axis: the axis that function accepts to separate each dimensions.

@@ -196,7 +196,7 @@ def set_weights(mode, cell, unit, depth, weights=None, quantity=None):
     return quantity, weights
 
 def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True,
-           interp_order=0, weights=None, quantity=None):
+           interp_order=0, weights=None, quantity=None, method='hist'):
     if(box is None and hasattr(cell, 'snap')):
         box = cell.snap.box
 
@@ -240,9 +240,16 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
         binsize = basebin * 2**(binlvl-minlvl)
 
         # convert coordinates to map
-        hist_weight = np.histogram2d(xm[:, proj[0]], xm[:, proj[1]], bins=binsize, range=edge, weights=wm)[0]
-        hist_map = np.histogram2d(xm[:, proj[0]], xm[:, proj[1]],
-                                  bins=binsize, range=edge, weights=qm*wm)[0]
+        if(method == 'hist'):
+            hist_weight = np.histogram2d(xm[:, proj[0]], xm[:, proj[1]], bins=binsize, range=edge, weights=wm)[0]
+            hist_map = np.histogram2d(xm[:, proj[0]], xm[:, proj[1]],
+                                      bins=binsize, range=edge, weights=qm*wm)[0]
+        elif(method == 'cic'):
+            # apply cic when measuring density map, only useful when the line of view is not aligned to x, y, z axis.
+            hist_weight = dr.cic_img(xm[:, proj[0]], xm[:, proj[1]], reso=binsize, lims=edge, weights=wm)
+            hist_map = dr.cic_img(xm[:, proj[0]], xm[:, proj[1]],
+                                      reso=binsize, lims=edge, weights=qm*wm)
+
         # weighted average map of quantities
         hist_map = np.divide(hist_map, hist_weight, where=hist_weight!=0)
 
@@ -374,12 +381,12 @@ def velmap(data, box=None, proj=[0, 1], shape=500, unit=None, minlvl=None, maxlv
     return image_out
 
 def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho', unit=None, minlvl=None, maxlvl=None,
-                subpx_crop=True, interp_order=0, weights=None, quantity=None, **kwargs):
+                subpx_crop=True, interp_order=0, weights=None, quantity=None, method='hist', **kwargs):
     if(box is None and hasattr(cell, 'snap')):
         box = cell.snap.box
 
     image = gasmap(cell, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl,
-                   subpx_crop=subpx_crop, interp_order=interp_order, weights=weights, quantity=quantity)
+                   subpx_crop=subpx_crop, interp_order=interp_order, weights=weights, quantity=quantity, method=method)
 
     box_proj = get_box_proj(box, proj)
     if extent is None:
@@ -461,7 +468,8 @@ def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, m
 
     return draw_image(image, extent=extent, **kwargs)
 
-def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, method='hist', x=None, smooth=16, crho=False, angles=None, **kwargs):
+def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, method='hist', x=None, smooth=16,
+            crho=False, angles=None, **kwargs):
     if(box is None and isinstance(part, uri.Particle)):
         box = part.snap.box
 
@@ -501,6 +509,9 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
         image = dr.kde_img(x[:, proj[0]], x[:, proj[1]], reso=shape, lims=box_proj, weights=weights, tree=True, **kwargs)
     elif(method == 'dtfe'):
         image = dr.dtfe_img(x[:, proj[0]], x[:, proj[1]], reso=shape, lims=box_proj, weights=weights, smooth=smooth)
+    elif (method == 'cic'):
+        image = dr.cic_img(x[:, proj[0]], x[:, proj[1]], reso=shape, lims=box_proj, weights=weights)
+        image /= px_area
     else:
         raise ValueError('Unknown estimator.')
 
@@ -515,7 +526,8 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
     return image.T
 
 
-def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=None, unit=None, method='hist', smooth=16, crho=False, angles=None, kwargs_partmap={}, **kwargs):
+def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=None, unit=None, method='hist',
+                 smooth=16, crho=False, angles=None, kwargs_partmap={}, **kwargs):
     if(box is None and hasattr(part, 'snap')):
         box = part.snap.box
 
@@ -1021,7 +1033,7 @@ def get_tickvalues(range, nticks=4):
 
 def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=None, source='GalaxyMaker', rank=None, rank_order='m',
            id=None, id_name='id', radius=10, radius_unit='kpc', mode=['star', 'gas'], show_smbh=True,
-           savefile=None, part_method='hist', align=False, age_cut=None, proj=[0, 1], smbh_minmass=1E4, interp_order=1,
+           savefile=None, part_method='hist', cell_method='hist', align=False, age_cut=None, proj=[0, 1], smbh_minmass=1E4, interp_order=1,
            smbh_labels=True, figsize=None, dpi=150, vmaxs=None, qscales=None, phot_filter='SDSS_u', shape=1000, drag_part=True):
     """Simple galaxy viewer integrated with GalaxyMaker data.
     parameters are used in following priorities, inputs with lower priorities are ignored
@@ -1196,18 +1208,19 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
             mode_label = 'DM'
         elif (mode_now == 'gas' or mode_now == 'rho'):
             draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='crho', cmap=ccm.hesperia,
-                                interp_order=interp_order, unit='Msol/pc2')
+                                interp_order=interp_order, unit='Msol/pc2', method=cell_method)
             mode_label = 'Gas - Density'
         elif (mode_now == 'temp' or mode_now == 'T'):
-            draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='T', cmap=ccm.hesperia, unit='K')
+            draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='T', cmap=ccm.hesperia,
+                        unit='K', method=cell_method)
             mode_label = 'Gas - Temperature'
         elif (mode_now == 'dust'):
             draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='dust', cmap=ccm.lacerta,
-                                interp_order=interp_order)
+                                interp_order=interp_order, method=cell_method)
             mode_label = 'Gas - Dust'
         elif (mode_now == 'metal'):
             draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='metal', cmap=ccm.lacerta,
-                                interp_order=interp_order)
+                                interp_order=interp_order, method=cell_method)
             mode_label = 'Gas - Metallicity'
         else:
             raise ValueError('Unknown mode: ', mode_now)
