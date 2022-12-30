@@ -2,13 +2,12 @@ from scipy.spatial import cKDTree as Tree
 
 from scipy.spatial.distance import cdist
 import numpy as np
-from scipy.linalg import expm
 from scipy.stats import norm
 from scipy.spatial import Delaunay, cKDTree as KDTree
 from scipy.interpolate import LinearNDInterpolator
 from numpy.linalg import det
 import h5py
-from rur.sci.geometry import rss, ss, rms
+from rur.sci.geometry import rss, ss, rms, align_to_vector, euler_angle
 from rur.config import Table, get_vector, Timer
 from collections.abc import Iterable
 from collections import defaultdict
@@ -17,7 +16,6 @@ from numpy.lib.recfunctions import merge_arrays, drop_fields
 
 import pickle as pkl
 import os
-from numpy.linalg import inv
 
 from multiprocessing import Process, cpu_count, Manager
 from time import sleep
@@ -789,66 +787,23 @@ def in_hull(p, hull):
 
     return hull.find_simplex(p)>=0
 
-def rot_euler(v, xyz):
-    ''' Rotate vector v (or array of vectors) by the euler angles xyz '''
-    # https://stackoverflow.com/questions/6802577/python-rotation-of-3d-vector
-    for theta, axis in zip(xyz, np.eye(3)):
-        v = np.dot(np.array(v), expm(np.cross(np.eye(3), axis*-theta)))
-    return v
-
-def projection(data, normal, origin=np.array([0., 0., 0.]), prefix=''):
+def project_data(data, normal, origin=np.array([0., 0., 0.]), prefix='', copy=False):
     """
     :param pos: coordinates of original points
     :param normal: normal vector
     :return: rotated coordinate
     """
-    nx, ny, nz = tuple(normal)
-    alpha = np.arccos(-ny/np.sqrt(1.-nz**2))
-    beta = np.arccos(nz)
-    gamma = 0.
     pos = get_vector(data, prefix) - origin
-    pos_r = rotate_vector(pos, normal) + origin
-    #pos_r = np.dot(rotation_matrix([alpha, beta, gamma]), pos) + origin
-    data.table['x'] = pos_r[:, 0]
-    data.table['y'] = pos_r[:, 1]
-    data.table['z'] = pos_r[:, 2]
-
+    pos_r = align_to_vector(pos, normal) + origin
+    set_vector(data, pos_r, prefix=prefix, copy=copy)
     return data
 
-def rotation_matrix(angles):
-    R_zz = np.array([[np.cos(angles[0]), np.sin(angles[0]), 0],
-                    [-np.sin(angles[0]), np.cos(angles[0]), 0],
-                    [0, 0, 1]
-                    ])
-
-    R_y = np.array([[np.cos(angles[1]), 0, -np.sin(angles[1])],
-                    [0, 1, 0],
-                    [np.sin(angles[1]), 0, np.cos(angles[1])]
-                    ])
-
-    R_z = np.array([[np.cos(angles[2]), np.sin(angles[2]), 0],
-                    [-np.sin(angles[2]), np.cos(angles[2]), 0],
-                    [0, 0, 1]
-                    ])
-
-    R = np.dot(R_zz, np.dot(R_y, R_z))
-
-    return R
-
-def rotate_vector(r, J):
-    # Thank to MJ
-    r = np.array(r)
-    z = J/np.sqrt(np.sum(J*J))
-    x = np.cross(np.array([0,0,1]),z)
-    x = x/np.sqrt(np.sum(x*x))
-    y = np.cross(z,x)
-    y = y/np.sqrt(np.sum(y*y))
-    rotate = np.vstack((x,y,z)).T
-    rotate = np.matrix(rotate)
-    rotate = inv(rotate)
-    R = (rotate*r.T).T
-
-    return np.array(R)
+def rotate_data(data, angles, origin, prefix='', order='ZXZ', copy=False):
+    # applies euler rotation for data
+    pos = get_vector(data, prefix) - origin
+    pos_r = euler_angle(pos, angles, order) + origin
+    set_vector(data, pos_r, prefix=prefix, copy=copy)
+    return data
 
 def weighted_std(values, weights, axis=0):
     """

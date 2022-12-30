@@ -1,9 +1,9 @@
 from rur.uri import *
+from rur.sci import geometry as geo
 from scipy.interpolate import LinearNDInterpolator, CloughTocher2DInterpolator, NearestNDInterpolator
 from scipy.fft import rfft
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
-
 from rur.vr.fortran.js_getpt_ft import js_getpt
 
 # This module contains useful functions related to galaxy kinematics.
@@ -33,10 +33,10 @@ def align_axis(part: Particle, gal: np.recarray, center_vel=False):
     j = get_vector(gal, prefix='L')
     coo_gal =  get_vector(gal)
     vel_gal =  get_vector(gal, prefix='v')
-    coo = utool.rotate_vector(coo - coo_gal, j)
+    coo = geo.align_to_vector(coo - coo_gal, j)
     if(center_vel):
         vel = vel - vel_gal * part.snap.unit['km/s']
-    vel = utool.rotate_vector(vel, j)
+    vel = geo.align_to_vector(vel, j)
 
     table = utool.set_vector(part.table, coo + coo_gal, copy=True)
     utool.set_vector(table, vel, prefix='v', copy=False)
@@ -50,10 +50,10 @@ def align_axis_cell(cell: Cell, gal: np.recarray, center_vel=False):
     j = get_vector(gal, prefix='L')
     coo_gal =  get_vector(gal)
     vel_gal =  get_vector(gal, prefix='v')
-    coo = utool.rotate_vector(coo - coo_gal, j)
+    coo = geo.align_to_vector(coo - coo_gal, j)
     if(center_vel):
         vel = vel - vel_gal * cell.snap.unit['km/s']
-    vel = utool.rotate_vector(vel, j)
+    vel = geo.align_to_vector(vel, j)
 
     table = utool.set_vector(cell.table, coo + coo_gal, copy=True)
     utool.set_vector(table, vel, prefix='v', copy=False)
@@ -237,6 +237,7 @@ class kinemetry:
             return pars, diff, chisq
         else:
             return pars
+
 
     @staticmethod
     def do_kinemetry(a_arr, points, values, weights, widths=None, n_sample=100, interpolate='linear', moment='odd'):

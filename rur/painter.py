@@ -3,8 +3,9 @@ from matplotlib import pyplot as plt
 from skimage.transform import rescale, resize, warp, EuclideanTransform, AffineTransform
 from rur import drawer as dr, utool
 from rur.drawer import ccm
-from rur import uri, uhmi, measure
+from rur import uri, uhmi
 from rur.sci import photometry as phot
+from rur.sci.kinematics import align_axis, align_axis_cell
 from rur.utool import Timer, get_vector, bin_centers, rss, los
 from matplotlib.patches import RegularPolygon, Rectangle
 from scipy.ndimage.filters import gaussian_filter1d
@@ -1138,7 +1139,7 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
     if ('star' in mode or 'dm' or 'sdss' or 'phot' in mode or True in show_smbh):
         snap.get_part()
         if (target is not None and align):
-            part = measure.align_axis(snap.part, target)
+            part = align_axis(snap.part, target)
         else:
             part = snap.part
         if(True in show_smbh):
@@ -1148,7 +1149,7 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
     if ('gas' in mode or 'dust' in mode or 'metal' in mode or 'temp' in mode):
         snap.get_cell()
         if (target is not None and align):
-            cell = measure.align_axis_cell(snap.cell, target)
+            cell = align_axis_cell(snap.cell, target)
         else:
             cell = snap.cell
 
