@@ -488,6 +488,13 @@ def mosaic_stat(x, y, v, weights=None, bins=10, lims=None, minnum=0, statmode=No
     return ims
 
 
+def draw_function(fun, xlim, invert=False, **kwargs):
+    xarr = np.linspace(*xlim, num=1000)
+    if(not invert):
+        plt.plot(xarr, fun(xarr), **kwargs)
+    else:
+        plt.plot(fun(xarr), xarr, **kwargs)
+
 def linear_regression(x, y, err=None, xarr=[-1000, 1000], invert=False, **kwargs):
     def chisq(y, a, b):
         return a * y + b
