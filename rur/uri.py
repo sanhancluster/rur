@@ -30,8 +30,18 @@ class TimeSeries(object):
         self.iout_avail = None
         self.icoarse_avail = None
 
-    def get_snap(self, iout):
-        if(iout in self.snaps):
+    def get_snap(self, iout=None, aexp=None, age=None):
+        if(iout is None):
+            if aexp is not None:
+                self.read_iout_avail()
+                iout = self.iout_avail[np.argmin(np.abs(self.iout_avail['aexp'] - aexp))]['iout']
+            elif age is not None:
+                self.read_iout_avail()
+                iout = self.iout_avail[np.argmin(np.abs(self.iout_avail['age'] - age))]['iout']
+            else:
+                raise ValueError("One of the followings has to be specified: iout, aexp, age")
+
+        if iout in self.snaps:
             return self.snaps[iout]
         else:
             self.snaps[iout] = self.basesnap.switch_iout(iout)
