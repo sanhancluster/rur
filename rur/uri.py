@@ -1419,6 +1419,15 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         if(self.cell is not None and self.part is not None):
             print('Baryonic fraction: %.3f' % ((gas_tot+star_tot+smbh_tot) / (dm_tot+gas_tot+star_tot+smbh_tot)))
 
+    def write_contam_part(self, mdm_cut):
+        self.clear()
+        self.get_part(box=default_box, pname='dm', target_fields=['x', 'y', 'z', 'm', 'cpu'])
+        part = self.part
+        contam_part = part[part['m'] > mdm_cut]
+        dirpath = os.path.join(self.repo, 'contam')
+        os.makedirs(dirpath, exist_ok=True)
+        utool.dump(contam_part.table, os.path.join(dirpath, 'contam_part_%05d.pkl' % nc.iout))
+
 def trace_parts(part_ini, cropped):
     return part_ini[np.isin(part_ini['id'], cropped['id'], True)]
 
