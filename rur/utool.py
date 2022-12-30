@@ -13,6 +13,7 @@ from rur.config import Table, get_vector, Timer
 from collections.abc import Iterable
 from collections import defaultdict
 import warnings
+from numpy.lib.recfunctions import merge_arrays, drop_fields
 
 import pickle as pkl
 import os
@@ -1399,5 +1400,21 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
         iterator.close()
         return [output_arr[key] for key in keys_inv]
 
+def add_fields(table, dtype, fill_value=0, overwrite=True):
+    # add field to an np.recarray / structured array or Table (and inherited classes, e.g. Cell, Particle, ...)
+    if isinstance(table, Table):
+        data = table.table
+    else:
+        data = table
+    dtype = np.dtype(dtype)
+    if(overwrite):
+        names_to_drop = np.array(dtype.names)[np.isin(dtype.names, data.dtype.names)]
+        data = drop_fields(data, names_to_drop)
 
+    to_add = np.full(shape=data.shape, fill_value=fill_value, dtype=dtype)
+    data = merge_arrays([data, to_add], flatten=True, usemask=False)
 
+    if isinstance(table, Table):
+        return table.__copy__(data)
+    else:
+        return data
