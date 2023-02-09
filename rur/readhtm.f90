@@ -97,7 +97,11 @@ contains
       if(galaxy) then
          call skip_read(unitfile, 6)
       else
-         call skip_read(unitfile, 2)
+         if(dp) then
+            call skip_read(unitfile, 3)
+         else
+            call skip_read(unitfile, 2)
+         end if
       end if
 
       return
