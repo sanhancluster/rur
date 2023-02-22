@@ -27,10 +27,20 @@ def measure_amon(part: Particle, gal):
 
     return np.cross(rrel, vrel) * utool.expand_shape(part['m', 'Msol'], [0], 2)
 
-def align_axis(part: Particle, gal: np.recarray, center_vel=False):
+def align_axis(part: Particle, gal: np.recarray, center_vel=False, prefix=None):
     coo = get_vector(part)
     vel = get_vector(part, prefix='v')
-    j = get_vector(gal, prefix='L')
+
+    if prefix is None:
+        prefix_candidates = ['L', 'j']
+        # if prefix is not defined, search over candidates in dtype.names
+        for pf in prefix_candidates:
+            if np.all(np.isin([pf+'x', pf+'y', pf+'z'], gal.dtype.names)):
+                prefix = pf
+                break
+        if prefix is None:
+            raise ValueError("axis not available for the target array.")
+    j = get_vector(gal, prefix=prefix)
     coo_gal =  get_vector(gal)
     vel_gal =  get_vector(gal, prefix='v')
     coo = geo.align_to_vector(coo - coo_gal, j)
@@ -43,11 +53,21 @@ def align_axis(part: Particle, gal: np.recarray, center_vel=False):
     part = Particle(table, part.snap)
     return part
 
-def align_axis_cell(cell: Cell, gal: np.recarray, center_vel=False):
+def align_axis_cell(cell: Cell, gal: np.recarray, center_vel=False, prefix=None):
     # Experimental
     coo = get_vector(cell)
     vel = get_vector(cell, prefix='v')
-    j = get_vector(gal, prefix='L')
+
+    if prefix is None:
+        prefix_candidates = ['L', 'j']
+        # if prefix is not defined, search over candidates in dtype.names
+        for pf in prefix_candidates:
+            if np.all(np.isin([pf+'x', pf+'y', pf+'z'], gal.dtype.names)):
+                prefix = pf
+                break
+        if prefix is None:
+            raise ValueError("axis not available for the target array.")
+    j = get_vector(gal, prefix=prefix)
     coo_gal =  get_vector(gal)
     vel_gal =  get_vector(gal, prefix='v')
     coo = geo.align_to_vector(coo - coo_gal, j)
