@@ -23,6 +23,10 @@ def set_unit(aexps, snap):
 
 
 def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_params=dict(), smooth=1, eagn_T=0.05):
+    """
+    Available modes = ['mass', 'velocity', 'density', 'accretion_rate', 'eddington_rate', 'spin', 'epsilon', 'energy',
+                 'tot_energy']
+    """
     def draw(x, y, lsmooth=False, **kwargs):
         if (smooth > 0):
             if (lsmooth):
