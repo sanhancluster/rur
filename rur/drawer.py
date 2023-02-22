@@ -586,7 +586,14 @@ def medplot(x, y, binarr, minnum=1, xyinv=False, line='med', face='qua', errbar=
 
     return xc, c
 
-def binned_plot(x, y, weights=None, errors=None, bins=10, weighted_binning=False, mode=['median', 'line'], xmode='mean', errmode=['quatile', 'face'], xerrmode=None, error_dict={}, min_stat=1, **kwargs):
+def binned_plot(x, y, weights=None, errors=None, bins=10, weighted_binning=False, mode=None, xmode='mean',
+                errmode=None, xerrmode=None, error_dict=None, min_stat=1, **kwargs):
+    if error_dict is None:
+        error_dict = {}
+    if errmode is None:
+        errmode = ['quatile', 'face']
+    if mode is None:
+        mode = ['median', 'line']
     if(weights is None):
         weights = np.full_like(y, 1.)
     key = np.argsort(x)
@@ -640,7 +647,7 @@ def binned_plot(x, y, weights=None, errors=None, bins=10, weighted_binning=False
         if(xerrmode == 'quatile'):
             xqua = weighted_quantile(x_slice, [0.25, 0.75], sample_weight=w_slice)
             xe = np.abs(xqua - xbin)
-        elif(xerrmode == 'sigma'):
+        elif(xerrmode in ['sigma', '1sigma']):
             sig = 0.68269
             xqua = weighted_quantile(x_slice, [0.5-sig/2, 0.5+sig/2], sample_weight=w_slice)
             xe = np.abs(xqua - xbin)
@@ -657,7 +664,7 @@ def binned_plot(x, y, weights=None, errors=None, bins=10, weighted_binning=False
         if(errmode[0] == 'quatile'):
             yqua = weighted_quantile(y_slice, [0.25, 0.75], sample_weight=w_slice)
             ye = np.abs(yqua - ybin)
-        elif(errmode[0] == '1sigma'):
+        elif(errmode[0] in ['sigma', '1sigma']):
             sig = 0.68269
             yqua = weighted_quantile(y_slice, [0.5-sig/2, 0.5+sig/2], sample_weight=w_slice)
             ye = np.abs(yqua - ybin)
@@ -665,7 +672,13 @@ def binned_plot(x, y, weights=None, errors=None, bins=10, weighted_binning=False
             ystd = weighted_std(y_slice, weights=w_slice)
             ye = [ystd, ystd]
         elif(errmode[0] == 'std_mean'):
+            # standard deviation of mean
             ystd = weighted_std(y_slice, weights=w_slice)/np.sqrt(y_slice.size)
+            ye = [ystd, ystd]
+        elif (errmode[0] == 'std_binomial'):
+            # standard deviation of binomial function.
+            # y must be a value between 0 and 1, we assume mean(y) as p, ignores weights.
+            ystd = np.sqrt(np.average(y_slice) * (1-np.average(y_slice)) / (itop - ibot))
             ye = [ystd, ystd]
         else:
             ye = None
@@ -684,7 +697,7 @@ def binned_plot(x, y, weights=None, errors=None, bins=10, weighted_binning=False
 
     if(mode[1] == 'line'):
         p0 = plt.plot(xarr, yarr, **kwargs)
-    elif(mode[1] == 'marker'):
+    elif(mode[1] in ['marker', 'scatter', 'point']):
         p0 = plt.scatter(xarr, yarr, **kwargs)
     else:
         p0 = None
@@ -692,14 +705,14 @@ def binned_plot(x, y, weights=None, errors=None, bins=10, weighted_binning=False
     if(p0 is not None):
         if(mode[1] == 'line'):
             color = p0[0].get_color()
-        elif(mode[1] == 'marker'):
+        elif(mode[1] in ['marker', 'scatter', 'point']):
             color = p0.get_edgecolor()[0]
     else:
         color = None
 
-    if(errmode[1] == 'face'):
+    if(errmode[1] in ['face', 'filled']):
         plt.fill_between(xarr, yarr-yerr[0], yarr+yerr[1], color=color, alpha=0.25, linewidth=0, **error_dict)
-    elif(errmode[1] == 'bar'):
+    elif(errmode[1] in ['bar', 'errorbar', 'errbar']):
         plt.errorbar(xarr, yarr, yerr=yerr, xerr=xerr, color=color, linewidth=0., **error_dict)
     elif(errmode[1] == 'line'):
         plt.plot(xarr, yarr-yerr[0], color=color, linewidth=0.5, **error_dict)
@@ -833,7 +846,6 @@ def gridplot(nrows, ncols, xlims=None, ylims=None, xshow=[], yshow=[], log=None,
             base.set_ylabel(ylabel)
 
     return grid
-
 
 def make_cmap(colors, position=None, bit=False):
     '''
