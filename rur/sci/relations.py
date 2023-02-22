@@ -1,25 +1,47 @@
 import numpy as np
 from scipy.interpolate import interp2d
+from scipy.interpolate import interp1d
 
-@staticmethod
-class mgal_mbh:
-    # galaxy-BH mass relation
+# galaxy-BH mass relation
+def mgal_mbh(self, tag, logscale=False):
+    try:
+        params_dict = {
+            'RV15a': [1.05, 1E11, 7.45],  # Reines & Volonteri 2015 (AGNs)
+            'RV15b': [1.40, 1E11, 8.95],  # Reines & Volonteri 2015 (E/CBs)
+            'BM19': [1.64, 1E11, 7.88],  # Baron & Ménard 2019 (All?)
+            'S20a': [1.64, 1, -10.29],  # Suh 2020 (All)
+            'S20b': [0.78, 1, -0.33],  # Suh 2020 (High-z AGNs)
+        }
+    except KeyError:
+        raise ValueError("Available tags: RV15a, RV15b, BM19, S20a, S20b")
+    params = params_dict[tag]
+    if not logscale:
+        return lambda mgal: 10**(params[0]*np.log10(params[1])+params[2])
+    else:
+        return lambda mgal: (params[0]*np.log10(params[1])+params[2])
+
+# sigma*-BH mass relation
+def sigma_mbh(tag, z=0):
     params_dict = {
-        'RV15a': [1.05, 1E11, 7.45], # Reines & Volonteri 2015 (AGNs)
-        'RV15b': [1.40, 1E11, 8.95], # Reines & Volonteri 2015 (E/CBs)
-        'BM19':  [1.64, 1E11, 7.88], # Baron & Ménard 2019 (All?)
+        'G09': [8.12, 4.24],  # Gultekin 09,
+        'K13': [8.49, 4.377],  # Kormendy 13
+        'M13': [8.32, 5.64],  # McConnel+ 13
     }
-    def evaluate(self, tag, logscale=False):
-        params = self.params_dict[tag]
-        if(not logscale):
-            return lambda mgal: 10**(params[0]*np.log10(params[1])+params[2])
-        else:
-            return lambda mgal: (params[0]*np.log10(params[1])+params[2])
 
-    __call__ = evaluate
+    def robertson(z):
+        # Robertson et al. 2006
+        zarr = [0, 2, 3, 6]
+        params = [[8.01, 7.83, 7.72, 7.44], [3.87, 4.10, 4.02, 3.62]]
+        interp = interp1d(zarr, np.array(params))
+        return interp(z)
 
+    if(tag == 'R06'):
+        params = robertson(z)
+    else:
+        params = params_dict[tag]
+    return lambda sig: 10 ** (params[0] + params[1] * np.log10(sig / 200))
 
-class mgal_mdmh:
+def mgal_mdmh(tag):
     # stellar to halo mass ratio
     def guo(m, c=0.129, m_0=10 ** 11.4, alpha=0.926, beta=0.261, gamma=2.440):
         # from Guo et al. (2010)
@@ -68,6 +90,16 @@ class mgal_mdmh:
         logmg = logeps + logm1 + f(logmh - logm1) - f(0)
 
         return 10. ** (logmg - logmh)
+
+    if tag == 'B13':
+        return behroozi
+    elif tag == 'M10':
+        return moster
+    elif tag == 'G10':
+        return guo
+    else:
+        raise ValueError("Available tags: B13 (Behroozi+ 13), M10 (Moster+ 10), G10 (Guo+ 10)")
+
 
 class mgal_size:
     # mass-size relation
@@ -128,3 +160,9 @@ class mgal_sfr:
         beta = 0.38 + 1.14 * z - 0.19 * z**2
         log_sfr = alpha * (logm - 10.5) + beta
         return log_sfr
+
+class gmf:
+    # galaxy mass function
+    @staticmethod
+    def schechter(m, ms, phi, alpha):
+        return np.log(10) * phi * 10**((m-ms) * (1+alpha)) * np.exp(-10**(m - ms))
