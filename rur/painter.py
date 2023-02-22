@@ -17,6 +17,7 @@ from rur.sci import geometry as geo
 import os
 from astropy.visualization import make_lupton_rgb
 from rur.config import default_path_in_repo, timer
+from itertools import cycle
 
 default_box = np.array([[0, 1], [0, 1], [0, 1]])
 
@@ -668,11 +669,13 @@ def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_ran
         ax = plt.gca()
         for i, pos, label, s in zip(np.arange(smbh.size), poss[mask], labels, ss[mask]):
             #ax.text(pos[proj[0]], pos[proj[1]], label, color='white', ha='center', va='top', fontsize=fontsize, zorder=zorder, transform=ax.transAxes)
-            ax.annotate(label, (pos[proj[0]], pos[proj[1]]), xytext=(3, 3), textcoords='offset points', color=fontcolor, fontsize=fontsize, zorder=zorder)
+            ax.annotate(label, (pos[proj[0]], pos[proj[1]]), xytext=(3, 3), textcoords='offset points',
+                        color=fontcolor, fontsize=fontsize, zorder=zorder)
 
 
 
-def draw_halos(halos, box=None, ax=None, proj=[0, 1], mass_range=None, cmap=plt.cm.jet, colors=None, labels=None, size_key='rvir', shape='circle', fontsize=10, extents=None, **kwargs):
+def draw_halos(halos, box=None, ax=None, proj=[0, 1], mass_range=None, cmap=plt.cm.jet, colors=None, labels=None,
+               size_key='rvir', radius=1, shape='circle', fontsize=10, extents=None, **kwargs):
     proj_keys = np.array(['x', 'y', 'z'])[proj]
 
     if ax is None:
@@ -686,8 +689,8 @@ def draw_halos(halos, box=None, ax=None, proj=[0, 1], mass_range=None, cmap=plt.
         labels = np.full(halos.size, None)
     if(not isinstance(extents, Iterable)):
         extents = np.full(halos.size, extents)
-    else:
-        extents = extents
+    if(not isinstance(radius, Iterable)):
+        radius = np.full(halos.size, radius)
 
     if(colors is None or isinstance(colors, Iterable)):
         colors = repeat(colors)
@@ -706,7 +709,11 @@ def draw_halos(halos, box=None, ax=None, proj=[0, 1], mass_range=None, cmap=plt.
             color_cmp = color
         else:
             color_cmp = cmap((np.log10(halo['mvir']) - mass_range[0]) / (mass_range[1] - mass_range[0]))
-        x, y, r = halo[proj_keys[0]], halo[proj_keys[1]], halo[size_key]
+        x, y = halo[proj_keys[0]], halo[proj_keys[1]]
+        if(size_key is not None):
+            r = halo[size_key]
+        else:
+            r = radius
         if(extent is not None):
             r = extent/2
         if(shape == 'circle'):
@@ -1032,11 +1039,15 @@ def get_tickvalues(range, nticks=4):
         ticks = ticks.astype(int)
     return ticks
 
-def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=None, source='GalaxyMaker', rank=None, rank_order='m',
-           id=None, id_name='id', radius=10, radius_unit='kpc', mode=['star', 'gas'], show_smbh=True,
-           savefile=None, part_method='hist', cell_method='hist', align=False, age_cut=None, proj=[0, 1], smbh_minmass=1E4, interp_order=1,
-           smbh_labels=True, figsize=None, dpi=150, vmaxs=None, qscales=None, phot_filter='SDSS_u', shape=1000, drag_part=True):
-    """Simple galaxy viewer integrated with GalaxyMaker data.
+def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=None, source='GalaxyMaker',
+           rank=None, rank_order='m', id=None, id_name='id', radius=10, radius_unit='kpc', mode=['star', 'gas'],
+           show_smbh=True, savefile=None, part_method='cic', cell_method=None, align=False, age_cut=None, proj=[0, 1],
+           smbh_minmass=1E4, interp_order=1,
+           smbh_labels=True, figsize=None, dpi=150, vmaxs=None, qscales=None, phot_filter='SDSS_u', shape=1000,
+           drag_part=True,
+           axis=False, ruler=True, ruler_size_in_radius_unit=None, props=['contam', 'sfr', 'fedd', 'mbh'], fontsize=8,
+           nrows=1, ncols=-1, size_panel=3.5):
+    """Simple galaxy viewer integrated with GalaxyMaker / SINKPROPS data.
     parameters are used in following priorities, inputs with lower priorities are ignored
     - box
     - center
@@ -1050,13 +1061,31 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
     smbh = None
 
     proj = np.atleast_2d(proj)
-    if(isinstance(mode, Iterable)):
-        ncols = len(mode)
-    else:
-        ncols = proj.shape[0]
+    if cell_method is None:
+        if align:
+            cell_method='cic'
+        else:
+            cell_method='hist'
 
-    if(proj.shape[0] != ncols):
-        proj = np.repeat(proj, ncols, axis=0)
+    if(isinstance(mode, Iterable)):
+        npans = len(mode)
+    else:
+        npans = proj.shape[0]
+
+    if proj.shape[0] == 1:
+        proj = np.repeat(proj, npans, axis=0)
+
+    if ncols == -1:
+        ncols = int(np.ceil(npans//nrows))
+    elif nrows == -1:
+        nrows = int(np.ceil(npans//ncols))
+
+    if not isinstance(mode, Iterable):
+        mode = np.repeat(mode, npans)
+    if not isinstance(show_smbh, Iterable):
+        show_smbh = np.repeat(show_smbh, npans)
+    if not isinstance(smbh_labels, Iterable):
+        smbh_labels = np.repeat(smbh_labels, npans)
 
     vmax_dict = {
         'star':  3E5,
@@ -1100,10 +1129,13 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
                     catalog = uhmi.HaloMaker.load(snap, path_in_repo=default_path_in_repo['GalaxyMaker'], galaxy=True, double_precision=True)
                 elif(source == 'SINKPROPS'):
                     catalog = snap.read_sinkprop(drag_part=drag_part)
+                elif (source == 'sink'):
+                    snap.get_sink(all=True)
+                    catalog = snap.sink.table
                 else:
                     raise ValueError("Unknown source: %s" % source)
 
-            if(rank is None):
+            if rank is None:
                 rank = 1
 
             catalog = np.sort(catalog, order=rank_order)
@@ -1122,53 +1154,61 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
                 target = catalog[-rank]
 
         if (radius_unit in snap.unit):
+            radius_in_unit = radius
             radius = radius * snap.unit[radius_unit]
         elif (radius_unit in target.dtype.names):
+            radius_in_unit = radius
             radius = radius * target[radius_unit]
         elif radius_unit is not None:
+            radius_in_unit = radius / snap.unit[radius_unit]
             warn("Unknown radius_unit, assuming as code unit...")
         snap.set_box_halo(target, radius=radius, use_halo_radius=False)
 
-    if(isinstance(mode, str)):
-        mode = np.repeat(mode, ncols)
-    if(isinstance(show_smbh, bool)):
-        show_smbh = np.repeat(show_smbh, ncols)
-    if(isinstance(smbh_labels, bool)):
-        smbh_labels = np.repeat(smbh_labels, ncols)
-
-    if ('star' in mode or 'dm' or 'sdss' or 'phot' in mode or True in show_smbh):
+    if (np.any(np.isin(['star', 'dm', 'sdss', 'phot'], mode)) or True in show_smbh
+            or np.any(np.isin(['sfr', 'contam'], mode))):
         snap.get_part()
-        if (target is not None and align):
+        if target is not None and align:
             part = align_axis(snap.part, target)
         else:
             part = snap.part
-        if(True in show_smbh):
+        if True in show_smbh:
             smbh = part['smbh']
-            if(smbh is not None):
-                smbh = smbh[smbh['m', 'Msol']>=smbh_minmass]
-    if ('gas' in mode or 'dust' in mode or 'metal' in mode or 'temp' in mode):
+            if smbh is not None:
+                smbh = smbh[smbh['m', 'Msol'] >= smbh_minmass]
+    if np.any(np.isin(['gas', 'dust', 'metal', 'temp'], mode)):
         snap.get_cell()
-        if (target is not None and align):
+        if target is not None and align:
             cell = align_axis_cell(snap.cell, target)
         else:
             cell = snap.cell
 
-    if(figsize is None):
-        figsize = (4*ncols, 4)
-    fig, axes = plt.subplots(figsize=figsize, dpi=dpi, ncols=ncols, nrows=1, squeeze=False)
+    if np.any(np.isin(['fedd', 'mbh'], props)):
+        snap.get_sink()
+        sink = snap.sink
 
-    for icol in np.arange(ncols):
-        plt.sca(axes[0, icol])
-        proj_now = proj[icol]
-        mode_now = mode[icol]
+    if figsize is None:
+        figsize = (size_panel*ncols, size_panel*nrows)
+    fig, axes = plt.subplots(figsize=figsize, dpi=dpi, ncols=ncols, nrows=nrows, squeeze=False)
+    plt.subplots_adjust(wspace=0.05, hspace=0.05, bottom=0.05, top=0.95, left=0.05, right=0.95)
+
+    for ipan in np.arange(ncols * nrows):
+        irow, icol = ipan // ncols, ipan % ncols
+        plt.sca(axes[irow, icol])
+        plt.axis('off')
+
+    for ipan in np.arange(npans):
+        irow, icol = ipan // ncols, ipan % ncols
+        plt.sca(axes[irow, icol])
+        proj_now = proj[ipan]
+        mode_now = mode[ipan]
 
         if(vmaxs is not None):
-            vmax = vmaxs[icol]
+            vmax = vmaxs[ipan]
         else:
             vmax = vmax_dict[mode_now]
 
         if(qscales is not None):
-            qscale = qscales[icol]
+            qscale = qscales[ipan]
         else:
             qscale = qscale_dict[mode_now]
 
@@ -1227,35 +1267,62 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
             raise ValueError('Unknown mode: ', mode_now)
 
         ax_label = ''
-        if(mode_now in ['star', 'phot', 'sdss']):
-            ax_label += 'M$_*$ = %.2e M$_{\odot}$\n' % np.sum(star['m', 'Msol'])
-        elif(mode_now in ['dm']):
-            ax_label += 'M$_{DM}$ = %.2e M$_{\odot}$\n' % np.sum(dm['m', 'Msol'])
-        elif (mode_now in ['gas', 'rho']):
-            ax_label += 'M$_{gas}$ = %.2e M$_{\odot}$\n' % np.sum(cell['m', 'Msol'])
-
-
-        if(show_smbh[icol]):
-            if(smbh_labels[icol]):
+        if(show_smbh[ipan]):
+            if(smbh_labels[ipan]):
                 labels = ['%.2f' % m for m in np.log10(smbh['m', 'Msol'])]
             else:
                 labels = None
             draw_smbhs(smbh, proj=proj_now, labels=labels, color='gray',
-                       fontsize=7, mass_range=[4, 8], facecolor='none', s=100)
-        set_ticks_unit(snap, proj_now, 'kpc')
-        if(icol == 0):
+                       fontsize=fontsize, mass_range=[4, 8], facecolor='none', s=100)
+        if(axis):
+            plt.axis('on')
+            set_ticks_unit(snap, proj_now, 'kpc')
+        if(ipan == 0):
             if (target is not None):
+                ax_label += 'ID = %d\n' % target['id']
                 if(source == 'SINKPROPS'):
-                    ax_label += 'M$_{\\bullet}$ = %.2e M$_{\odot}$' % (target['m']/snap.unit['Msol'])
+                    ax_label += 'log M$_{\\bullet}$ = %.2f' % np.log10(target['m']/snap.unit['Msol'])
+                    ax_label += '\n'
                 elif(source == 'GalaxyMaker'):
-                    ax_label += 'M$_{gal}$ = %.2e M$_{\odot}$' % target['m']
-                else:
-                    ax_label += 'M = %.3e M$_{\odot}$' % target['m']
-            dr.axlabel('z = %.3f' % snap.z, 'right top', color='white', fontsize=10)
+                    ax_label += 'log M$_{gal}$ = %.2f' % np.log10(target['m'])
+                    ax_label += '\n'
 
-        dr.axlabel(ax_label, 'left top', color = 'white', fontsize = 10)
+            ax_label2 = ''
+            for prop in props:
+                if(prop == 'contam'):
+                    dm = part['dm']
+                    contam = np.sum(dm[dm['m'] > np.min(dm['m']) * 2]['m']) / np.sum(dm['m'])
+                    f1 = contam
+                    if(contam > 0):
+                        ax_label2 += '\nf$_{low}$ = %.2f' % f1
+                if(prop == 'fedd' and sink.size > 0):
+                    mms = sink[np.argmax(sink['m'])]
+                    f1 = mms['dM'] / mms['dMEd']
+                    ax_label2 += '\nf$_{Edd}$ = %.3f' % f1
+                if(prop == 'sfr'):
+                    f1 = np.sum(star[star['age', 'Myr'] < 100]['m', 'Msol'] / 1E8)
+                    ax_label2 += '\nSFR$_{100 Myr}$ = %.2f' % f1
+            dr.axlabel(ax_label2, 'right bottom', color='white', fontsize=fontsize, linespacing=1.5)
+
+        if(mode_now in ['star', 'phot', 'sdss']):
+            ax_label += 'log M$_*$ = %.2f\n' % np.log10(np.sum(star['m', 'Msol']))
+        elif(mode_now in ['dm']):
+            ax_label += 'log M$_{DM}$ = %.2f\n' % np.log10(np.sum(dm['m', 'Msol']))
+        elif (mode_now in ['gas', 'rho']):
+            ax_label += 'log M$_{gas}$ = %.2f\n' % np.log10(np.sum(cell['m', 'Msol']))
+
+        dr.axlabel(ax_label, 'left top', color = 'white', fontsize=fontsize, linespacing=1.5)
         if(mode_label is not None):
-            dr.axlabel(mode_label, 'left bottom', color='white', fontsize=10)
+            dr.axlabel(mode_label + ('\nz = %.3f' % snap.z), 'right top', color='white', fontsize=fontsize, linespacing=1.5)
+
+        if(ruler):
+            if(ruler_size_in_radius_unit is None):
+                ruler_size_in_radius_unit = int(radius_in_unit / 2.5)
+            bar_length = 0.5 / radius_in_unit * ruler_size_in_radius_unit
+            rect = Rectangle([0.075, 0.1], bar_length, 0.02, transform=plt.gca().transAxes, color='white', zorder=100)
+            plt.gca().add_patch(rect)
+            plt.text(0.075+bar_length/2, 0.08, '%g %s' % (ruler_size_in_radius_unit, radius_unit), ha='center',
+                     va='top', color='white', transform=plt.gca().transAxes, fontsize=8)
 
 
     if (savefile is not None):
