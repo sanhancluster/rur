@@ -47,6 +47,15 @@ class TimeSeries(object):
             self.snaps[iout] = self.basesnap.switch_iout(iout)
             return self.snaps[iout]
 
+    def get_from_iout(self, iout):
+        return self.get_snap(iout=iout)
+
+    def get_from_aexp(self, aexp):
+        return self.get_snap(aexp=aexp)
+
+    def get_from_age(self, age):
+        return self.get_snap(age=age)
+
     def __getitem__(self, item):
         return self.get_snap(item)
 
@@ -352,7 +361,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.params['lookback_time'] = self.cosmo_table['t'][-1] - self.params['age']
 
         if(timer.verbose>=1):
-            print('Age of the universe (now/z=0): %.3f / %.3f Gyr, z = %.5f (a = %.4f)' % (self.params['age'], self.cosmo_table['t'][-1], params['z'], params['aexp']))
+            print('[Snapshot %05d] Age (Gyr) : %.3f / %.3f, z = %.5f (a = %.4f)' % (self.iout, self.params['age'], self.cosmo_table['t'][-1], params['z'], params['aexp']))
 
     def interpolate_cosmo_table(self, value, name1, name2):
         return np.interp(value, self.cosmo_table[name1], self.cosmo_table[name2])
@@ -372,6 +381,11 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
     def aexp_to_dtdu(self, aexp):
         # returns dt over du (derivative of proper time t in function of ramses time unit u)
         return aexp**2 / (self['H0'] * km * Gyr / Mpc)
+
+    def dcrit(self):
+        # returns critical density in cgs unit using current cosmological parameters
+        # assumes flat LCDM only!
+        return 3 * (self.H0 * km / Mpc)**2 / (8 * np.pi * G_const) / self.aexp ** 3
 
     def set_unit(self):
         set_custom_units(self)
@@ -434,6 +448,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         params['boxsize'] = params['unit_l'] * params['h'] / Mpc / params['aexp']
         params['boxsize_physical'] = params['boxsize'] / (params['h']) * params['aexp']
         params['boxsize_comoving'] = params['boxsize'] / (params['h'])
+
+        params['icoarse'] = params['nstep_coarse']
 
         self.part_dtype = part_dtype[self.mode]
         self.hydro_names = hydro_names[self.mode]
@@ -937,7 +953,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 print('CPU list already satisfied.')
 
     def read_sink(self):
-        if(self.sink_data is not None):
+        if(self.sink_data is not None and timer.verbose>=1):
             print('Sink data already loaded.')
         # since sink files are composed of identical data, we read number 1 only.
         filesize = 0
@@ -977,9 +993,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             icoarses = self.search_sinkprops(path_in_repo)
             icoarse = icoarses[np.argmin(np.abs((self.nstep_coarse) - icoarses))]
             if(icoarse != self.nstep_coarse):
-                if(np.abs(icoarse - self.nstep_coarse) > max_icoarse_offset):
-                    return None
-                else:
+                if not np.abs(icoarse - self.nstep_coarse) > max_icoarse_offset:
                     warnings.warn('Targeted SINKPROP file not found with icoarse = %d\nFile with icoarse = %d is loaded instead.' % (self.nstep_coarse, icoarse))
         path = join(self.repo, path_in_repo)
         check = join(path, sinkprop_format.format(icoarse=icoarse))
@@ -1436,20 +1450,22 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         contam_part = part[part['m'] > mdm_cut]
         dirpath = os.path.join(self.repo, 'contam')
         os.makedirs(dirpath, exist_ok=True)
-        utool.dump(contam_part.table, os.path.join(dirpath, 'contam_part_%05d.pkl' % nc.iout))
+        utool.dump(contam_part.table, os.path.join(dirpath, 'contam_part_%05d.pkl' % self.iout))
 
 def trace_parts(part_ini, cropped):
     return part_ini[np.isin(part_ini['id'], cropped['id'], True)]
 
 def write_zoomparts_music(part_ini: Particle, cropped: Particle,
-                          filepath: str, reduce: int=None):
+                          filepath: str, reduce: int=None, offset=0.):
     """
     writes position table of particles in MUSIC format.
+    offset can be found in music output, and should be divided by 2^level before the input
     """
     cropped_ini = part_ini[np.isin(part_ini['id'], cropped['id'], True)]
     if reduce is not None:
         cropped_ini = np.random.choice(cropped_ini, cropped_ini.size//reduce, replace=False)
-    np.savetxt(filepath, get_vector(cropped_ini))
+    pos = get_vector(cropped_ini) - np.array(offset)
+    np.savetxt(filepath, pos)
     return cropped_ini
 
 def write_parts_rockstar(part: Particle, snap: RamsesSnapshot, filepath: str):
