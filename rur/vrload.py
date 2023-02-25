@@ -263,8 +263,7 @@ class vr_load:
 
             dat     = h5py.File(fname, 'r')
             idlist  = np.array(dat.get("P_Prop/P_ID"))
-            if(horg=='g'): domlist = np.array(dat.get("Domain_List"))
-            else: domlist = np.zeros(1)
+            domlist = np.array(dat.get("Domain_List"))
         else:
             idlist  = np.zeros(1, dtype=np.int64)
             domlist = np.zeros(self.rtype_ndomain, dtype=np.int32) - 1
