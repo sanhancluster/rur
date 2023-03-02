@@ -150,6 +150,8 @@ class TimeSeries(object):
             return np.empty((0,), dtype=iout_avail_dtype)
 
     def clear(self):
+        # Later: need to load all **opened** snaps and clear them manually
+
         self.snaps = None
         self.basesnap = None
 
@@ -336,6 +338,11 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
     def get_path(self, type='amr', icpu=1):
         return self.data_path.format(type=type, icpu=icpu)
 
+    def H_over_H0(self, aexp, params=None):
+        if(params is None):
+            params = self.params
+        return np.sqrt(params['omega_m'] * aexp ** -3 + params['omega_l'])
+
     def set_cosmology(self, params=None, n=5000, snap=None):
         # calculates cosmology table with given cosmology paramters
         # unit of conformal time (u) is in function of hubble time at z=0 and aexp
@@ -347,8 +354,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             # Integrate manually because astropy cosmology calculation is too slow...
             aarr = np.linspace(0, 1, n)[1:] ** 2
             aarr_st = (aarr[:-1] + aarr[1:])/2
-            duda = 1. / (aarr_st ** 3 * np.sqrt(params['omega_m'] * aarr_st ** -3 + params['omega_l']))
-            dtda = 1. / (params['H0'] * km * Gyr / Mpc * aarr_st * np.sqrt(params['omega_m'] * aarr_st ** -3 + params['omega_l']))
+            duda = 1. / (aarr_st ** 3 * self.H_over_H0(aarr_st))
+            dtda = 1. / (params['H0'] * km * Gyr / Mpc * aarr_st * self.H_over_H0(aarr_st))
             aarr = aarr[1:]
 
             uarr = cumtrapz(duda[::-1], aarr[::-1], initial=0)[::-1]
@@ -378,14 +385,38 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
     def epoch_to_aexp(self, epoch):
         return self.interpolate_cosmo_table(epoch, 'u', 'aexp')
 
-    def aexp_to_dtdu(self, aexp):
+    def aexp_to_H(self, aexp=None):
+        if aexp is None:
+            aexp = self.aexp
+        return self['H0'] * km * Gyr / Mpc * self.H_over_H0(aexp)
+
+    def aexp_to_dtdu(self, aexp=None):
         # returns dt over du (derivative of proper time t in function of ramses time unit u)
-        return aexp**2 / (self['H0'] * km * Gyr / Mpc)
+        if aexp is None:
+            aexp = self.aexp
+        return aexp ** 2 / (self['H0'] * km * Gyr / Mpc)
+
+    def aexp_to_dadt(self, aexp=None):
+        # returns da over dt (derivative of aexp in function of proper time t)
+        if aexp is None:
+            aexp = self.aexp
+        return aexp * self.aexp_to_H(aexp)
+
+    def aexp_to_dadu(self, aexp=None):
+        # returns da over du (derivative of aexp in function of ramses time unit u)
+        if aexp is None:
+            aexp = self.aexp
+        return aexp ** 3 * self.H_over_H0(aexp)
 
     def dcrit(self):
+        return self.aexp_to_dcrit(self.aexp)
+
+    def aexp_to_dcrit(self, aexp=None):
         # returns critical density in cgs unit using current cosmological parameters
         # assumes flat LCDM only!
-        return 3 * (self.H0 * km / Mpc)**2 / (8 * np.pi * G_const) / self.aexp ** 3
+        if aexp is None:
+            aexp = self.aexp
+        return 3 * (self.H0 * km / Mpc)**2 / (8 * np.pi * G_const) / aexp ** 3
 
     def set_unit(self):
         set_custom_units(self)
