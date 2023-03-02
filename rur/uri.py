@@ -752,7 +752,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         """
         if(cpulist is None):
             cpulist = self.get_involved_cpu()
-        if (self.part_data is not None):
+        if (self.part is not None):
             if pname == self.part.ptype:
                 if(timer.verbose>=1): print('Searching for extra files...')
                 cpulist = cpulist[np.isin(cpulist, self.cpulist_part, assume_unique=True, invert=True)]
