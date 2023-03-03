@@ -559,7 +559,8 @@ def draw_image(image, extent=None, vmin=None, vmax=None, qscale=3., normmode='lo
     if(imfilter is not None):
         image = imfilter(image)
 
-    ims = plt.imshow(image, extent=extent, vmin=0, vmax=1, origin='lower', zorder=1, cmap=cmap, **kwargs)
+    ax = kwargs.pop('ax',plt.gca())
+    ims = ax.imshow(image, extent=extent, vmin=0, vmax=1, origin='lower', zorder=1, cmap=cmap, **kwargs)
     return ims
 
 
@@ -878,7 +879,7 @@ def blend(image1, image2, mode='average'):
 def combine_image(images_to_combine, mode='screen', weights=None):
     images_to_combine = np.array(images_to_combine)
     if mode == 'average':
-        image = np.average(images_to_combine, axis=0, weights=weights)
+        image = np.average(images_to_combine, axis=0, weights=weights) # (255 0 0) (0 255 0) (122 122 0)
     elif mode == 'sum':
             image = np.sum(images_to_combine, axis=0)
     elif mode == 'multiply':
