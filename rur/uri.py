@@ -626,7 +626,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         tracers = ["tracer","cloud_tracer","star_tracer","gas_tracer"]
         if(pname == 'star'):
             size = nstar_tot
-        elif(pname == 'dm'):
+        elif(pname == 'dm')or(pname == 'DM'):
             size = ndm_tot
         elif(pname == 'sink'):
             size = ncloud_tot
@@ -735,7 +735,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                     cursor += nsize
         return part[:cursor]
 
-    def read_part(self, target_fields=None, cpulist=None, pname=None):
+    def read_part(self, target_fields=None, cpulist=None, pname=None, nthread=4):
         """Reads particle data from current box.
 
         Parameters
@@ -769,7 +769,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 mode = self.mode
                 if mode == 'nc':
                     mode = 'y4'
-                readr.read_part(self.snap_path, self.iout, cpulist, mode, progress_bar, self.longint)
+                readr.read_part(self.snap_path, self.iout, cpulist, mode, progress_bar, self.longint, nthread)
                 timer.record()
 
                 timer.start('Building table for %d particles... ' % readr.integer_table.shape[1], 1)
@@ -1270,7 +1270,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.cell = cell
         return self.cell
 
-    def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None):
+    def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None, nthread=4):
         if(box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -1301,7 +1301,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             else:
                 domain_slicing = True
                 exact_box = False
-            self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname)
+            self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread)
             if(domain_slicing):
                 part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
             else:
@@ -2146,7 +2146,7 @@ def fromndarrays(ndarrays, dtype):
     if(descr.itemsize != itemsize):
         raise ValueError(f"Sum of itemsize ({itemsize}) does not match with desired dtype ({descr.itemsize})")
 
-    array = np.zeros(nitem, descr)
+    array = np.empty(nitem, descr)
     barr = get_bytes_data(array)
     col = 0
     for nda in ndarrays:

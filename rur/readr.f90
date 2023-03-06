@@ -1,4 +1,5 @@
 module readr
+    use omp_lib
     implicit none
 
     ! Tables, used for communication with Pyhton
@@ -31,7 +32,7 @@ contains
         implicit none
 
         integer :: i, j, icpu, jcpu, ilevel, idim, jdim, igrid, icell, jcell, ihvar
-        integer :: ncell_tot, ncpu, ndim, nlevelmax, nboundary, ngrid_a, ndim1
+        integer :: ncell_tot, ncpu, ndim, nlevelmax, nboundary, ngrid_a, ndim1,ngridmax
 
         integer :: amr_n, hydro_n, grav_n, twotondim, skip_amr, skip_hydro, skip_grav
         logical :: ok, is_leaf, output_particle_density
@@ -107,24 +108,25 @@ contains
 
         ! Check total number of grids
         ncell_tot = 0
+        ngridmax = 0
         do i = 1, SIZE(cpu_list)
             icpu = cpu_list(i)
+            amr_n = 10 + omp_get_thread_num()
 
             open(unit=amr_n, file=amr_filename(repo, iout, icpu, mode), status='old', form='unformatted')
             call skip_read(amr_n, 21)
             ! Read grid numbers
             read(amr_n) ngridfile(1:ncpu,1:nlevelmax)
+            ngridmax=maxval(ngridfile)!!!
             call skip_read(amr_n, 7)
             ! For non-periodic boundary conditions (not tested!)
             if(nboundary>0) then
                 call skip_read(amr_n, 3)
             endif
+            allocate(son(1:ngridmax))
             do ilevel = 1, nlevelmax
                 ngrid_a = ngridfile(icpu, ilevel)
                 ! Loop over domains
-                if(ngrid_a > 0) then
-                    allocate(son(1:ngrid_a))
-                end if
                 do jcpu = 1, nboundary + ncpu
                     if(ngridfile(jcpu, ilevel) > 0) then
                         call skip_read(amr_n, 3)
@@ -135,7 +137,7 @@ contains
                             call skip_read(amr_n, 2*ndim) ! Skip nbor index
                             ! Read son index to check refinement
                             do jdim = 1, twotondim
-                                read(amr_n) son
+                                read(amr_n) son(1:ngrid_a)
                                 do igrid=1, ngrid_a
                                     if(son(igrid) == 0) ncell_tot = ncell_tot+1
                                 end do
@@ -146,10 +148,8 @@ contains
                         end if
                     end if
                 end do
-                if(ngrid_a>0) then
-                    deallocate(son)
-                end if
             end do
+            deallocate(son)
             close(amr_n)
         end do
 
@@ -181,6 +181,12 @@ contains
                 call skip_read(amr_n, 2)
                 read(amr_n) ngridfile(ncpu+1:ncpu+nboundary, 1:nlevelmax)
             endif
+            ngridmax=maxval(ngridfile)
+            allocate(son(1:ngridmax))
+            allocate(xg(1:ngridmax, 1:ndim))
+            allocate(hvar(1:ngridmax, 1:twotondim, 1:nhvar))
+            allocate(leaf(1:ngridmax, 1:twotondim))
+            if(grav) allocate(gvar(1:ngridmax, 1:twotondim))
 
             call skip_read(amr_n, 6)
 
@@ -198,13 +204,6 @@ contains
             do ilevel = 1, nlevelmax
                 ngrid_a = ngridfile(icpu, ilevel)
 
-                if(ngrid_a > 0) then
-                    allocate(son(1:ngrid_a))
-                    allocate(xg(1:ngrid_a, 1:ndim))
-                    allocate(hvar(1:ngrid_a, 1:twotondim, 1:nhvar))
-                    allocate(leaf(1:ngrid_a, 1:twotondim))
-                    if(grav) allocate(gvar(1:ngrid_a, 1:twotondim))
-                endif
                 ! Loop over domains
                 do jcpu = 1, nboundary + ncpu
 
@@ -224,7 +223,7 @@ contains
                             call skip_read(amr_n, 2*ndim) ! Skip nbor index
                             ! Read son index to check refinement
                             do jdim = 1, twotondim
-                                read(amr_n) son
+                                read(amr_n) son(1:ngrid_a)
                                 do igrid=1, ngrid_a
                                     leaf(igrid, jdim) = (son(igrid) == 0)
                                 end do
@@ -274,33 +273,31 @@ contains
                     end if
 
                 end do
-                if(ngrid_a>0) then
-                    deallocate(son)
-                    deallocate(xg)
-                    deallocate(hvar)
-                    deallocate(leaf)
-                    if(grav) deallocate(gvar)
-                endif
             end do
             close(amr_n)
             close(hydro_n)
             if(grav) close(grav_n)
+            deallocate(son)
+            deallocate(xg)
+            deallocate(hvar)
+            deallocate(leaf)
+            if(grav) deallocate(gvar)
         end do
         deallocate(ngridfile)
 
     end subroutine read_cell
 
 !#####################################################################
-    subroutine read_part(repo, iout, cpu_list, mode, verbose, longint)
+    subroutine read_part(repo, iout, cpu_list, mode, verbose, longint, nthread)
 !#####################################################################
         implicit none
 
         integer :: i, j, icpu, idim, ipart
         integer :: ncpu, ndim
-        integer :: npart, nstar_int, nsink
+        integer :: npart, nstar_int, nsink, ncursor
         integer(kind=8) :: npart_tot, nstar, npart_c
 
-        integer :: part_n, nreal, nint, nbyte, nlong, nchem
+        integer :: part_n, nreal, nint, nbyte, nlong, nchem, nthread
         integer :: pint
         logical :: ok
 
@@ -312,6 +309,7 @@ contains
         character(len=10),     intent(in) :: mode
         logical,               intent(in) :: verbose
         logical,               intent(in) :: longint
+        integer(kind=4), dimension(:),     allocatable :: cursors_temp, cursors
 
         part_n = 30
 
@@ -340,15 +338,26 @@ contains
         close(part_n)
 
         npart_tot = 0
+        allocate(cursors(1:SIZE(cpu_list)))
+        allocate(cursors_temp(1:SIZE(cpu_list)))
+        cursors_temp = 0
+        !$OMP PARALLEL DO SHARED(npart_tot, cursors_temp) PRIVATE(i, icpu, npart, part_n) NUM_THREADS(nthread)
         do i = 1, SIZE(cpu_list)
             icpu = cpu_list(i)
-
-            open(unit=part_n, file=part_filename(repo, iout, icpu, mode), status='old', form='unformatted')
-            call skip_read(part_n, 2)
-            read(part_n) npart
-            close(part_n)
+            part_n = 30 + omp_get_thread_num()
+            call get_npart(part_n, part_filename(repo, iout, icpu, mode), npart)
+            !$OMP ATOMIC
             npart_tot = npart_tot + npart
+            cursors_temp(i) = npart
         end do
+        !$OMP END PARALLEL DO
+
+        ncursor = 1
+        do i = 1, SIZE(cpu_list)
+            cursors(i) = ncursor
+            ncursor = ncursor + cursors_temp(i)
+        end do
+        deallocate(cursors_temp)
 
         ! Set coulum spaces of each datatype for different versions of RAMSES
         if(mode == 'nh' .or. mode == 'yzics') then ! New Horizon / YZiCS / Horizon-AGN
@@ -405,13 +414,18 @@ contains
 
         ! Step 3: Read the actual particle data
         ! Current position for particle
-        npart_c = 1
-
         if(verbose)write(6, '(a)', advance='no') 'Progress: '
+        !$OMP PARALLEL DO &
+        !$OMP SHARED(integer_table, long_table, real_table, byte_table,ndim,nstar,nsink,nchem) &
+        !$OMP PRIVATE(i,j, icpu,npart,part_n,npart_c,idim,pint) &
+        !$OMP NUM_THREADS(nthread)
         do i = 1, SIZE(cpu_list)
+            !$OMP CRITICAL
             if(verbose)call progress_bar(i, SIZE(cpu_list))
+            !$OMP END CRITICAL
             icpu = cpu_list(i)
-
+            part_n = 30 + omp_get_thread_num()
+            npart_c = cursors(i)
             open(unit=part_n, file=part_filename(repo, iout, icpu, mode), status='old', form='unformatted')
             ! Skip headers
             call skip_read(part_n, 2)
@@ -431,6 +445,7 @@ contains
                 read(part_n) integer_table(pint, npart_c:npart_c+npart-1)
                 pint = pint+1
             end if
+
             ! Read level
             read(part_n) integer_table(pint, npart_c:npart_c+npart-1)
             pint = pint+1
@@ -447,7 +462,6 @@ contains
                 end if
                 ! Add CPU information
                 integer_table(pint, npart_c:npart_c+npart-1) = icpu
-
             elseif(mode == 'iap' .or. mode == 'gem' .or. mode == 'none' .or. mode == 'fornax' &
                 & .or. mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc') then
                 ! family, tag
@@ -481,9 +495,10 @@ contains
                 ! Add CPU information
                 integer_table(pint, npart_c:npart_c+npart-1) = icpu
             end if
-            npart_c = npart_c + npart
             close(part_n)
         end do
+        !$OMP END PARALLEL DO
+        deallocate(cursors)
     end subroutine read_part
 
 !#####################################################################
@@ -728,5 +743,21 @@ contains
             write(6, '(a)', advance='no') '#'
         end if
     end subroutine progress_bar
-end module readr
 
+!#####################################################################
+    subroutine get_npart(part_n, file_path, npart)
+!#####################################################################
+        ! Suggested by ChatGPT
+        implicit none
+        integer, intent(in) :: part_n
+        character(len=*), intent(in) :: file_path
+        integer, intent(out) :: npart
+        open(unit=part_n, file=file_path, status='old', form='unformatted')
+        call skip_read(part_n, 2)
+        read(part_n) npart
+        close(part_n)
+        return
+    end subroutine get_npart
+
+
+end module readr
