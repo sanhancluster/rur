@@ -319,6 +319,7 @@ vel_keys = ['vx', 'vy', 'vz']
 Msol = 2E33  # Msol = 1.9885E33
 
 # parsecs: ramses unit
+Gpc = 3.08E27
 Mpc = 3.08E24
 kpc = 3.08E21
 pc = 3.08E18
@@ -327,6 +328,7 @@ km = 1E5
 
 Gyr = 3.154E16
 Myr = 3.154E13
+kyr = 3.154E10
 yr = 3.154E7
 
 # some constants in cgs
@@ -363,13 +365,22 @@ def set_custom_units(snap):
         'pc': pc / l,
         'kpc': kpc / l,
         'Mpc': Mpc / l,
+        'Gpc': Gpc / l,
         'ly': ly / l,
 
+        'cpc':  1E-6 / snap.boxsize_comoving,
+        'ckpc': 1E-3 / snap.boxsize_comoving,
+        'cMpc': 1E0 / snap.boxsize_comoving,
+        'cGpc': 1E3 / snap.boxsize_comoving,
+
+        'cpc/h':  1E-6 / snap.boxsize_comoving / snap.h,
         'ckpc/h': 1E-3 / snap.boxsize_comoving / snap.h,
         'cMpc/h': 1E0 / snap.boxsize_comoving / snap.h,
 
+        'pc/h':  pc / l / snap.h,
         'kpc/h': kpc / l / snap.h,
         'Mpc/h': Mpc / l / snap.h,
+        'Gpc/h': Gpc / l / snap.h,
 
         # Mass
         'g': 1 / m,
@@ -379,6 +390,7 @@ def set_custom_units(snap):
 
         # Time
         'yr': yr / t,
+        'kyr': kyr / t,
         'Myr': Myr / t,
         'Gyr': Gyr / t,
 

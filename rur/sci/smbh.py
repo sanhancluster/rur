@@ -22,7 +22,8 @@ def set_unit(aexps, snap):
     return unit
 
 
-def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_params=dict(), smooth=1, eagn_T=0.05):
+def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_params=dict(),
+                       smooth=1, eagn_T=0.05, vlines=[]):
     """
     Available modes = ['mass', 'velocity', 'density', 'accretion_rate', 'eddington_rate', 'spin', 'epsilon', 'energy',
                  'tot_energy']
@@ -44,6 +45,8 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
     tl.sort(order='aexp')
     if (xmode == 'aexp'):
         xarr = tl['aexp']
+    if (xmode == 'icoarse'):
+        xarr = tl['icoarse']
 
     aexp_scale = snap.aexp / tl['aexp']
     unit_m = snap.unit_m  # unit to g
@@ -56,6 +59,7 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
     unit_to_Msol = unit_m / uri.Msol
     unit_to_Hcc = unit_d / uri.m_H
     unit_to_yr = unit_t / uri.yr
+    dt_yr = np.gradient(tl['aexp']) / snap.aexp_to_dadt(tl['aexp']) * 1E9
 
     for irow, mode in enumerate(modes):
         plt.sca(axes[irow])
@@ -88,8 +92,10 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
 
         elif (mode == 'accretion_rate'):
             # acc = lambda bh: 4*np.pi* bh['d_avgptr'] * unit_d * (6.674E-8)**2*(bh['m']*unit_m)**2 / (bh['v_avgptr']**2 + bh['c_avgptr']**2)**1.5/unit_v**3 / (uri.Msol/uri.yr)
+            Mdot = tl['dM'] * unit_to_Msol / dt_yr / (1-tl['eps_sink'])
             Macc = tl['Mdot'] * unit_to_Msol / unit_to_yr
             Medd = tl['Medd'] * unit_to_Msol / unit_to_yr
+            draw(xarr, np.log10(Mdot), lsmooth=True, lw=0.7, label='$\dotM_{BH}$')
             draw(xarr, np.log10(Macc), lsmooth=True, lw=0.7, label='$\dotM_{Bon}$')
             draw(xarr, np.log10(Medd), lsmooth=True, lw=0.7, label='$\dotM_{Edd}$')
             plt.ylabel('log M$_{acc}$\n(M$_{\odot}$/yr)')
@@ -97,20 +103,23 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
             plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
 
         elif (mode == 'eddington_rate'):
+            Mdot = gaussian_filter1d(tl['dM'] * unit_to_Msol / dt_yr / (1-tl['eps_sink']), smooth)
             Macc = gaussian_filter1d(tl['Mdot'] * unit_to_Msol / unit_to_yr, smooth)
             Medd = gaussian_filter1d(tl['Medd'] * unit_to_Msol / unit_to_yr, smooth)
-            plt.plot(xarr, np.log10(np.minimum(Macc / Medd, 1)), label='Mdot')
-            plt.plot(xarr, np.log10(np.minimum(tl['Mdot'] / tl['Medd'], 1)), color='k', alpha=0.3, lw=0.5, zorder=-1)
+            plt.plot(xarr, np.log10(np.minimum(Mdot / Medd, 1)), label='f$_{acc}$')
+            plt.plot(xarr, np.log10(np.minimum(Macc / Medd, 1)), label='f$_{Bon}$')
+            plt.plot(xarr, np.log10(np.minimum(tl['dM'] / dt_yr / tl['Medd'] * unit_to_yr / (1-tl['eps_sink']), 1)), color='k', alpha=0.3, lw=0.5, zorder=-1)
             plt.axhline(-2, color='gray', lw=0.5)
             plt.ylabel('log f$_{Edd}$')
             plt.ylim(-4, 0.05)
+            plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
 
         elif (mode == 'spin'):
-            plt.plot(xarr, tl['spinmag'], label='Mdot')
+            plt.plot(xarr, np.log10(1-np.abs(tl['spinmag'])), label='Mdot')
             # plt.plot(xarr, np.log10(np.minimum(tl['Mdot'] / tl['Medd'], 1)), color='k', alpha=0.3, lw=0.5, zorder=-1)
             # plt.axhline(-2, color='gray', lw=0.5)
-            plt.ylabel('Spin magnitude')
-            plt.ylim(-1, 1)
+            plt.ylabel('log (1-a/M)')
+            plt.ylim(-3, 0)
 
         elif (mode == 'epsilon'):
             # draw(xarr, np.log10(np.minimum(tl['Mdot']/tl['Medd'], 1)), label='Mdot')
@@ -163,6 +172,9 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
             xlim[1] = np.max(xarr)
         plt.xlim(xlim)
 
+        for vline in vlines:
+            plt.axvline(vline, color='k', lw=0.5)
+
 
 def edd_acc_rate(mbh, epsilon):
     # eddington accretion rate
@@ -180,6 +192,7 @@ def eps_spin(spinmag):
 
 def eff_mad(spinmag):
     # energy efficiency in MAD model
+    # Fourth-order polynomial fit to the spinup parameters of McKinney et al, 2012
     eff_mad = (4.10507 + 0.328712 * spinmag + 76.0849 * spinmag ** 2
                + 47.9235 * spinmag ** 3 + 3.86634 * spinmag ** 4) / 100.
     return eff_mad

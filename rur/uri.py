@@ -368,7 +368,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.params['lookback_time'] = self.cosmo_table['t'][-1] - self.params['age']
 
         if(timer.verbose>=1):
-            print('[Snapshot %05d] Age (Gyr) : %.3f / %.3f, z = %.5f (a = %.4f)' % (self.iout, self.params['age'], self.cosmo_table['t'][-1], params['z'], params['aexp']))
+            print('[Output %05d] Age (Gyr) : %.3f / %.3f, z = %.5f (a = %.4f)' % (self.iout, self.params['age'], self.cosmo_table['t'][-1], params['z'], params['aexp']))
 
     def interpolate_cosmo_table(self, value, name1, name2):
         return np.interp(value, self.cosmo_table[name1], self.cosmo_table[name2])
