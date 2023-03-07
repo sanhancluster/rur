@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from collections import defaultdict
 import warnings
 from numpy.lib.recfunctions import merge_arrays, drop_fields
+from IPython import get_ipython
 
 import pickle as pkl
 import os

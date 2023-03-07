@@ -2,6 +2,7 @@ from rur.sci.geometry import rss, ss
 import numpy as np
 from collections import defaultdict
 import time
+from IPython import get_ipython
 
 
 def type_of_script():
