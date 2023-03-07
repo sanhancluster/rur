@@ -17,6 +17,8 @@ from rur.sci import geometry as geo
 import os
 from astropy.visualization import make_lupton_rgb
 from rur.config import default_path_in_repo, timer
+import matplotlib as mpl
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from itertools import cycle
 
 default_box = np.array([[0, 1], [0, 1], [0, 1]])
@@ -543,24 +545,35 @@ def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=No
     return draw_image(image, extent=extent, **kwargs)
 
 
-def rgb_image(image,  vmin=None, vmax=None, qscale=3., normmode='log', nanzero=False, imfilter=None, cmap=dr.ccm.laguna):
-    if(not len(image.shape)>2):
+def rgb_image(image, vmin=None, vmax=None, qscale=3., normmode='log', nanzero=False, imfilter=None, cmap=dr.ccm.laguna):
+    # returns rgb array of the target image using the given vmin / vmax
+    if not len(image.shape)>2:
         image = norm(image, vmin, vmax, qscale=qscale, mode=normmode, nanzero=nanzero)
 
-    if(imfilter is not None):
+    if imfilter is not None:
         image = imfilter(image)
 
     return cmap(image)
 
 
-def draw_image(image, extent=None, vmin=None, vmax=None, qscale=3., normmode='log', nanzero=False, imfilter=None, cmap=dr.ccm.laguna, **kwargs):
-    if(not len(image.shape)>2):
-        image = norm(image, vmin, vmax, qscale=qscale, mode=normmode, nanzero=nanzero)
+def draw_image(image, extent=None, vmin=None, vmax=None, qscale=3., normmode='log', nanzero=False, imfilter=None,
+               cmap=dr.ccm.laguna, colorbar=False, colorbar_kw={}, **kwargs):
 
-    if(imfilter is not None):
+    if imfilter is not None:
         image = imfilter(image)
 
-    ims = plt.imshow(image, extent=extent, vmin=0, vmax=1, origin='lower', zorder=1, cmap=cmap, **kwargs)
+    if not len(image.shape)>2:
+        if qscale is not None and vmax is None:
+            vmax = np.nanmax(image)
+        #image = norm(image, vmin, vmax, qscale=qscale, mode=normmode, nanzero=nanzero)
+        nm = get_norm(vmin, vmax, qscale=qscale, mode=normmode)
+        sm = mpl.cm.ScalarMappable(norm=nm, cmap=cmap)
+        ims = plt.imshow(image, extent=extent, norm=sm.norm, origin='lower', zorder=1, cmap=sm.cmap, **kwargs)
+        if colorbar:
+            plt.colorbar(mappable=sm, **colorbar_kw)
+    else:
+        ims = plt.imshow(image, extent=extent, origin='lower', zorder=1, **kwargs)
+
     return ims
 
 
@@ -933,7 +946,34 @@ def composite_image(images, cmaps, weights=None, vmins=None, vmaxs=None, qscales
     return image
 
 
+class ZeroLogNorm(mpl.colors.LogNorm):
+    # LogNorm that returns 0 (instead of 'masked') for values <=0. when clip is True.
+    def __call__(self, value, clip=None):
+        if clip is None:
+            clip = self.clip
+        if clip:
+            value = np.array(value)
+            value[value <= 0.] = self.vmin
+        return super().__call__(value, clip)
+
+
+def get_norm(vmin=None, vmax=None, qscale=3., mode='log', clip=True):
+    if (qscale is None):
+        if (vmin is not None):
+            qscale = np.log10(vmax - vmin)
+    if (vmin is None):
+        vmin = 10. ** (np.log10(vmax) - qscale)
+
+    if mode in ['linear', 'lin', 'norm']:
+        return mpl.colors.Normalize(vmin=vmin, vmax=vmax, clip=clip)
+    elif mode in ['log', 'logscale']:
+        return ZeroLogNorm(vmin=vmin, vmax=vmax, clip=clip)
+    else:
+        raise ValueError("Unknown normalization mode: ", mode)
+
+
 def norm(v, vmin=None, vmax=None, qscale=3., mode='log', nanzero=False):
+    # vmin overrides qscale.
     v = v.copy()
     if (vmax is None):
         vmax = np.nanmax(v)
@@ -1042,9 +1082,9 @@ def get_tickvalues(range, nticks=4):
 def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=None, source='GalaxyMaker',
            rank=None, rank_order='m', id=None, id_name='id', radius=10, radius_unit='kpc', mode=['star', 'gas'],
            show_smbh=True, savefile=None, part_method='cic', cell_method=None, align=False, age_cut=None, proj=[0, 1],
-           smbh_minmass=1E4, interp_order=1,
+           smbh_minmass=1E4, interp_order=1, subplots_adjust_kw=None,
            smbh_labels=True, figsize=None, dpi=150, vmaxs=None, qscales=None, phot_filter='SDSS_u', shape=1000,
-           drag_part=True,
+           drag_part=True, colorbar=False, colorbar_kw=None, colorbar_size=0.15,
            axis=False, ruler=True, ruler_size_in_radius_unit=None, props=['contam', 'sfr', 'fedd', 'mbh'], fontsize=8,
            nrows=1, ncols=-1, size_panel=3.5):
     """Simple galaxy viewer integrated with GalaxyMaker / SINKPROPS data.
@@ -1059,6 +1099,25 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
     cell = None
     part = None
     smbh = None
+
+    subplots_adjust_kw_default = dict(
+        wspace=0.05, hspace=0.05, bottom=0.05, top=0.95, left=0.05, right=0.95)
+
+    if subplots_adjust_kw is None:
+        subplots_adjust_kw = subplots_adjust_kw_default
+    else:
+        subplots_adjust_kw_default.update(subplots_adjust_kw)
+        subplots_adjust_kw = subplots_adjust_kw_default
+
+    colorbar_kw_default = dict(
+        orientation='vertical')
+
+    if colorbar_kw is None:
+        colorbar_kw = colorbar_kw_default
+    else:
+        colorbar_kw_default.update(colorbar_kw)
+        colorbar_kw = colorbar_kw_default
+
 
     proj = np.atleast_2d(proj)
     if cell_method is None:
@@ -1187,9 +1246,13 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
         sink = snap.sink
 
     if figsize is None:
-        figsize = (size_panel*ncols, size_panel*nrows)
+        figsize = [size_panel*ncols, size_panel*nrows]
+        if colorbar:
+            if colorbar_kw['orientation'] == 'horizontal':
+                figsize[1] *= (1.05 + colorbar_size)
+            if colorbar_kw['orientation'] == 'vertical':
+                figsize[0] *= (1.05 + colorbar_size)
     fig, axes = plt.subplots(figsize=figsize, dpi=dpi, ncols=ncols, nrows=nrows, squeeze=False)
-    plt.subplots_adjust(wspace=0.05, hspace=0.05, bottom=0.05, top=0.95, left=0.05, right=0.95)
 
     for ipan in np.arange(ncols * nrows):
         irow, icol = ipan // ncols, ipan % ncols
@@ -1216,8 +1279,9 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
             star = part['star']
             if (age_cut is not None):
                 star = star[star['age', 'Gyr'] < age_cut]
-            draw_partmap(star, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
+            im = draw_partmap(star, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
                                  unit='Msol/pc2')
+            colorbar_label = 'Stellar density\nM$_{\odot}$ pc$^{-2}$'
             mode_label = 'Stars'
         elif (mode_now == 'phot'):
             star = part['star']
@@ -1225,8 +1289,9 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
                 star = star[star['age', 'Gyr'] < age_cut]
             mags = phot.measure_magnitude(star, filter_name=phot_filter, total=False)
             lums = 10**(-mags/2.5)
-            draw_partmap(star, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
+            im = draw_partmap(star, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
                          weights=lums)
+            colorbar_label = 'Stellar flux'
             mode_label = 'Stars'
         elif (mode_now == 'sdss'):
             star = part['star']
@@ -1240,29 +1305,34 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
 
             images = np.array(images) / vmax
             rgb = make_lupton_rgb(*images, Q=10, stretch=0.5)
-            draw_image(rgb, extent=np.concatenate(snap.box[proj_now]))
+            im = draw_image(rgb, extent=np.concatenate(snap.box[proj_now]))
             mode_label = 'SDSS'
         elif (mode_now == 'dm'):
             dm = part['dm']
-            draw_partmap(dm, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
+            im = draw_partmap(dm, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
                                  unit='Msol/pc2')
             mode_label = 'DM'
+            colorbar_label = 'DM density\nM$_{\odot}$ pc$^{-2}$'
         elif (mode_now == 'gas' or mode_now == 'rho'):
-            draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='crho', cmap=ccm.hesperia,
+            im = draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='crho', cmap=ccm.hesperia,
                                 interp_order=interp_order, unit='Msol/pc2', method=cell_method)
             mode_label = 'Gas - Density'
+            colorbar_label = 'Gas density\nM$_{\odot}$ pc$^{-2}$'
         elif (mode_now == 'temp' or mode_now == 'T'):
-            draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='T', cmap=ccm.hesperia,
+            im = draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='T', cmap=ccm.hesperia,
                         unit='K', method=cell_method)
             mode_label = 'Gas - Temperature'
+            colorbar_label = 'Gas temperature\nK'
         elif (mode_now == 'dust'):
-            draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='dust', cmap=ccm.lacerta,
+            im = draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='dust', cmap=ccm.lacerta,
                                 interp_order=interp_order, method=cell_method)
             mode_label = 'Gas - Dust'
+            colorbar_label = 'Dust fraction'
         elif (mode_now == 'metal'):
-            draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='metal', cmap=ccm.lacerta,
+            im = draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='metal', cmap=ccm.lacerta,
                                 interp_order=interp_order, method=cell_method)
             mode_label = 'Gas - Metallicity'
+            colorbar_label = 'Metal fraction'
         else:
             raise ValueError('Unknown mode: ', mode_now)
 
@@ -1274,6 +1344,7 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
                 labels = None
             draw_smbhs(smbh, proj=proj_now, labels=labels, color='gray',
                        fontsize=fontsize, mass_range=[4, 8], facecolor='none', s=100)
+
         if(axis):
             plt.axis('on')
             set_ticks_unit(snap, proj_now, 'kpc')
@@ -1296,7 +1367,10 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
                     if(contam > 0):
                         ax_label2 += '\nf$_{low}$ = %.2f' % f1
                 if(prop == 'fedd' and sink.size > 0):
-                    mms = sink[np.argmax(sink['m'])]
+                    if(source in ['SINKPROPS', 'sink']):
+                        mms = sink[sink['id'] == target['id']]
+                    else:
+                        mms = sink[np.argmax(sink['m'])]
                     f1 = mms['dM'] / mms['dMEd']
                     ax_label2 += '\nf$_{Edd}$ = %.3f' % f1
                 if(prop == 'sfr'):
@@ -1323,6 +1397,22 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
             plt.gca().add_patch(rect)
             plt.text(0.075+bar_length/2, 0.08, '%g %s' % (ruler_size_in_radius_unit, radius_unit), ha='center',
                      va='top', color='white', transform=plt.gca().transAxes, fontsize=8)
+
+        if colorbar:
+            divider = make_axes_locatable(plt.gca())
+            if colorbar_kw['orientation'] == 'horizontal':
+                cax = divider.append_axes('bottom', size=colorbar_size, pad=0.05)
+                cbar = plt.colorbar(im, cax=cax, **colorbar_kw)
+                subplots_adjust_kw['hspace'] += 0.05
+            elif colorbar_kw['orientation'] == 'vertical':
+                cax = divider.append_axes('right', size=colorbar_size, pad=0.05)
+                cbar = plt.colorbar(im, cax=cax, **colorbar_kw)
+                subplots_adjust_kw['wspace'] += 0.05
+            else:
+                raise ValueError("Unknown colorbar orientation: ", colorbar_kw['orientation'])
+            cbar.ax.tick_params(labelsize=fontsize)
+            cbar.set_label(label=colorbar_label, size=fontsize)
+    plt.subplots_adjust(**subplots_adjust_kw)
 
 
     if (savefile is not None):
