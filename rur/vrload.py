@@ -1,5 +1,6 @@
 import numpy as np
 import h5py
+import sys
 import os
 import os.path
 import pickle5 as pickle
@@ -15,6 +16,8 @@ from rur.vr.fortran.get_flux_py import get_flux_py
 from rur.vr.fortran.jsamr2cell_totnum_py import jsamr2cell_totnum_py
 from rur.vr.fortran.jsamr2cell_py import jsamr2cell_py
 from rur.vr.fortran.js_gasmap_py import js_gasmap_py
+from rur.vr.fortran.jsrd_part_totnum_py import jsrd_part_totnum_py
+from rur.vr.fortran.jsrd_part_py import jsrd_part_py
 
 class vr_load:
 
@@ -26,6 +29,7 @@ class vr_load:
         self.simtype    = simtype
         self.dir_table  = pkg_resources.resource_filename('rur', 'vr/table/')
         self.ssp_type   = 'chab'
+        self.sun_met    = 0.02
 
         ##-----
         ## Specify configurations based on the simulation type
@@ -229,72 +233,45 @@ class vr_load:
     ##  To do list
     ##      *) Halo member load is not implemented
     ##-----
-    def f_rdptcl(self, n_snap, id0, horg='g', p_gyr=False, p_sfactor=False, p_mass=True, p_flux=False,
-            p_metal=False, p_id=False, raw=False, boxrange=50., domlist=[0], num_thread=None, sink=False):
+    def f_rdptcl(self, n_snap, id0, radius=-1.0, horg='g', p_age=False, p_flux=False, p_sink=False,
+            num_thread=None, info=None):
 
         # Get funtions
         gf  = vr_getftns(self)
 
         # Initial settings
-        if(p_gyr==False and p_flux==True): p_gyr=True
-        if(num_thread==None): num_thread=self.num_thread
+        if(p_age==False and p_flux==True): p_age=True
+        if(num_thread is None): num_thread=self.num_thread
+        if(info is None): info=gf.g_info(n_snap)
+        if(p_sink==True): p_id=True
 
-        unit_l  = np.double(np.loadtxt(self.dir_raw+'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt", dtype=object, skiprows=15, max_rows=1)[2])
-        unit_t  = np.double(np.loadtxt(self.dir_raw+'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt", dtype=object, skiprows=17, max_rows=1)[2])
-        kms     = np.double(unit_l / unit_t / 1e5)
-        unit_d  = np.double(np.loadtxt(self.dir_raw+'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt", dtype=object, skiprows=16, max_rows=1)[2])
-        unit_m  = unit_d * unit_l**3
-        levmax  = np.int32( np.loadtxt(self.dir_raw+'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt", dtype=object, skiprows=3, max_rows=1)[2])
-        hindex  = np.double(np.loadtxt(self.dir_raw+'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt", dtype=object, skiprows=21)[:,1:])
-        omega_M = np.double(np.loadtxt(self.dir_raw+'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt", dtype=object, skiprows=11, max_rows=1)[2])
-        omega_B = np.double(np.loadtxt(self.dir_raw+'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt", dtype=object, skiprows=14, max_rows=1)[2])
+        #unit_l  = np.double(np.loadtxt(self.dir_raw+'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt", dtype=object, skiprows=15, max_rows=1)[2])
+        #unit_t  = np.double(np.loadtxt(self.dir_raw+'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt", dtype=object, skiprows=17, max_rows=1)[2])
+        #kms     = np.double(unit_l / unit_t / 1e5)
+        #unit_d  = np.double(np.loadtxt(self.dir_raw+'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt", dtype=object, skiprows=16, max_rows=1)[2])
+        #unit_m  = unit_d * unit_l**3
+        #levmax  = np.int32( np.loadtxt(self.dir_raw+'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt", dtype=object, skiprows=3, max_rows=1)[2])
+        #hindex  = np.double(np.loadtxt(self.dir_raw+'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt", dtype=object, skiprows=21)[:,1:])
+        #omega_M = np.double(np.loadtxt(self.dir_raw+'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt", dtype=object, skiprows=11, max_rows=1)[2])
+        #omega_B = np.double(np.loadtxt(self.dir_raw+'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt", dtype=object, skiprows=14, max_rows=1)[2])
 
-        dmp_mass    = 1.0/(self.rtype_neff*self.rtype_neff*self.rtype_neff)*(omega_M - omega_B)/omega_M
+        dmp_mass    = 1.0/(self.rtype_neff*self.rtype_neff*self.rtype_neff)*(info['oM'] - info['oB'])/info['oM']
 
-        if(sink==True):
-            raw =True
-            p_id=True
-
-        # READ PTCL ID & Domain List (Might be skipped when raw==True)
-        if(raw==False):
+        
+        if(radius > 0): # READ PTCLS WITHIN THE APERTURE
+            galtmp  = self.f_rdgal(n_snap, id0, horg=horg)
+            return gf.g_ptcl(n_snap, galtmp['Xc'], galtmp['Yc'], galtmp['Zc'], radius, 
+                info=info, num_thread=num_thread, p_age=p_age, p_flux=p_flux, p_sink=p_sink)
+        else: # READ MEMBER PTCLS ONLY
             if(horg=='h'): fname = self.dir_catalog + 'Halo/VR_Halo/snap_%0.4d'%n_snap+"/"
             elif(horg=='g'): fname = self.dir_catalog + 'Galaxy/VR_Galaxy/snap_%0.4d'%n_snap+"/"
             fname   += 'GAL_%0.6d'%id0+'.hdf5'
 
             dat     = h5py.File(fname, 'r')
-            idlist  = np.array(dat.get("P_Prop/P_ID"))
-            domlist = np.array(dat.get("Domain_List"))
-        else:
-            idlist  = np.zeros(1, dtype=np.int64)
-            domlist = np.zeros(self.rtype_ndomain, dtype=np.int32) - 1
+            idlist  = np.int64(np.array(dat.get("P_Prop/P_ID")))
+            domlist = np.int32(np.array(dat.get("Domain_List")))
+            domlist = np.int32(np.array(np.where(domlist > 0))[0] + 1)
 
-            #----- Find Domain
-            galtmp  = self.f_rdgal(n_snap, id0, horg=horg)
-
-            xc  = galtmp['Xc']/unit_l * 3.086e21
-            yc  = galtmp['Yc']/unit_l * 3.086e21
-            zc  = galtmp['Zc']/unit_l * 3.086e21
-            rr  = galtmp['R_HalfMass']/unit_l * 3.086e21
-            larr    = np.zeros(20, dtype=np.int32)
-            darr    = np.zeros(20, dtype='<f8')
-
-            larr[0] = np.int32(len(xc))
-            larr[1] = np.int32(len(domlist))
-            larr[2] = np.int32(num_thread)
-            larr[3] = np.int32(levmax)
-
-            darr[0] = 50.
-            if(boxrange!=None): darr[0] = boxrange / (rr * unit_l / 3.086e21)
-
-            find_domain_py.find_domain(xc, yc, zc, rr, hindex, larr, darr)
-            domlist     = find_domain_py.dom_list
-            domlist     = domlist[0][:]
-
-        domlist = np.int32(np.array(np.where(domlist > 0))[0] + 1)
-        idlist  = np.int64(idlist)
-
-        #----- LOAD PARTICLE INFO
-        if(raw==False):
             larr    = np.zeros(20, dtype=np.int32)
             darr    = np.zeros(20, dtype='<f8')
 
@@ -305,6 +282,7 @@ class vr_load:
             larr[10]    = np.int32(len(self.dir_raw))
             larr[17]    = 0
 
+
             if(horg=='g'): larr[11] = 1 # STAR
             else: larr[11] = 2 # DM
 
@@ -317,135 +295,138 @@ class vr_load:
 
             get_ptcl_py.get_ptcl(self.dir_raw, idlist, domlist, larr, darr)
             pinfo   = get_ptcl_py.ptcl
-        else:
-            larr    = np.zeros(20,dtype=np.int32)
-            darr    = np.zeros(20,dtype='<f8')
+      
+            #----- EXTRACT
+            n_old       = len(pinfo)*1.
 
-            larr[1] = np.int32(len(domlist))
-            larr[2] = np.int32(n_snap)
-            larr[3] = np.int32(num_thread)
-            larr[10]= np.int32(len(self.dir_raw))
-            larr[17]= 100
+            pinfo       = pinfo[np.where(pinfo[:,0]>-1e7)]
+            n_new       = len(pinfo)*1.
+            rate        = n_new / n_old
 
-            if(horg=='g'): larr[11] = 1 # STAR
-            else: larr[11] = 2 # DM
-            if(sink==True): larr[11] = 3 # SINK
-            
-            if(self.rtype_family==True): larr[18] = 100
-            else: larr[18] = 0
-            if(self.rtype_llint==True): larr[19] = 100
-            else: larr[19] = 0
+            pinfo[:,0]    *= info['unit_l'] / 3.086e21
+            pinfo[:,1]    *= info['unit_l'] / 3.086e21
+            pinfo[:,2]    *= info['unit_l'] / 3.086e21
+            pinfo[:,3]    *= info['kms']
+            pinfo[:,4]    *= info['kms']
+            pinfo[:,5]    *= info['kms']
+            pinfo[:,6]    *= info['unit_m'] / 1.98892e33
 
-            if(horg=='h'): darr[11] = dmp_mass
+            #----- OUTPUT ARRAY
+            dtype   = [('xx', '<f8'), ('yy', '<f8'), ('zz', '<f8'),
+                ('vx', '<f8'), ('vy', '<f8'), ('vz', '<f8'),
+                ('mass', '<f8'), ('sfact', '<f8'), ('gyr', '<f8'), ('metal', '<f8'), ('family', np.int32) , ('domain', np.int32), 
+                ('id', np.int64)]
 
-            get_ptcl_py.get_ptcl(self.dir_raw, idlist, domlist, larr, darr)
-            pinfo   = get_ptcl_py.ptcl
-            idlist  = get_ptcl_py.id_raw
-
-        #----- EXTRACT
-        n_old       = len(pinfo)*1.
-
-        pinfo       = pinfo[np.where(pinfo[:,0]>-1e7)]
-        n_new       = len(pinfo)*1.
-        rate        = n_new / n_old
-
-        pinfo[:,0]    *= unit_l / 3.086e21
-        pinfo[:,1]    *= unit_l / 3.086e21
-        pinfo[:,2]    *= unit_l / 3.086e21
-        pinfo[:,3]    *= kms
-        pinfo[:,4]    *= kms
-        pinfo[:,5]    *= kms
-        pinfo[:,6]    *= unit_m / 1.98892e33
-
-        #----- OUTPUT ARRAY
-        dtype   = [('xx', '<f8'), ('yy', '<f8'), ('zz', '<f8'),
-            ('vx', '<f8'), ('vy', '<f8'), ('vz', '<f8'),
-            ('mass', '<f8'), ('sfact', '<f8'), ('gyr', '<f8'), ('metal', '<f8')]
-        for name in self.vr_fluxlist:
-            dtype   += [('f_' + name, '<f8')]
-
-        ptcl    = np.zeros(np.int32(n_new), dtype=dtype)
-
-        ptcl['xx'][:]   = pinfo[:,0]
-        ptcl['yy'][:]   = pinfo[:,1]
-        ptcl['zz'][:]   = pinfo[:,2]
-
-        ptcl['vx'][:]   = pinfo[:,3]
-        ptcl['vy'][:]   = pinfo[:,4]
-        ptcl['vz'][:]   = pinfo[:,5]
-
-        ptcl['mass'][:] = pinfo[:,6]
-        ptcl['metal'][:]= pinfo[:,8]
-
-        ##----- COMPUTE GYR
-        if(p_gyr==True):
-            gyr = gf.g_gyr(n_snap, pinfo[:,7])
-            ptcl['gyr'][:]  = gyr['gyr'][:]
-            ptcl['sfact'][:]= gyr['sfact'][:]
-
-        ##----- COMPUTE FLUX
-        if(p_flux==True):
             for name in self.vr_fluxlist:
-                ptcl['f_' + name][:] = gf.g_flux(ptcl['mass'][:], ptcl['metal'][:], ptcl['gyr'][:],name)[name]
+                dtype   += [('f_' + name, '<f8')]
 
-        return ptcl, rate, domlist, idlist
+            ptcl    = np.zeros(np.int32(n_new), dtype=dtype)
+
+            ptcl['xx'][:]   = pinfo[:,0]
+            ptcl['yy'][:]   = pinfo[:,1]
+            ptcl['zz'][:]   = pinfo[:,2]
+
+            ptcl['vx'][:]   = pinfo[:,3]
+            ptcl['vy'][:]   = pinfo[:,4]
+            ptcl['vz'][:]   = pinfo[:,5]
+
+            ptcl['mass'][:] = pinfo[:,6]
+            ptcl['metal'][:]= pinfo[:,8]
+
+            ptcl['id'][:]   = idlist
+
+            ##----- COMPUTE GYR
+            if(p_age==True):
+                gyr = gf.g_gyr(n_snap, pinfo[:,7])
+                ptcl['gyr'][:]  = gyr['gyr'][:]
+                ptcl['sfact'][:]= gyr['sfact'][:]
+
+            ##----- COMPUTE FLUX
+            if(p_flux==True):
+                for name in self.vr_fluxlist:
+                    ptcl['f_' + name][:] = gf.g_flux(ptcl['mass'][:], ptcl['metal'][:], ptcl['gyr'][:],name)[name]
+
+
+            get_ptcl_py.get_ptcl_free()
+            return ptcl
 
 
     ##-----
     ## LOAD CELL DATA around galaxies
+    ##  IF domlist is given, the shell is negelected
     ##-----
-    def f_rdamr(self, n_snap, id0, boxrange=None, raw=False, raw_xc=None, raw_yc=None, raw_zc=None):
+    def f_rdamr(self, n_snap, id0, radius, horg='g', info=None, domlist=None, num_thread=None):
 
         ##----- Settings
-        if(boxrange==None): boxrange = 50.
+        gf  = vr_getftns(self)
+        if(info is None): info = gf.g_info(n_snap)
+        if(num_thread is None): num_thread = self.num_thread
 
-        ##----- Box Size Settings
-        galtmp  = self.f_rdgal(n_snap, id0, horg='g')
-        xr  = np.array([-1, 1.],dtype='<f8') * boxrange + galtmp['Xc']
-        yr  = np.array([-1, 1.],dtype='<f8') * boxrange + galtmp['Yc']
-        zr  = np.array([-1, 1.],dtype='<f8') * boxrange + galtmp['Zc']
+        ##----- Read gal
+        galtmp  = self.f_rdgal(n_snap, id0, horg=horg)
+           
+        ##----- Get Domain
+        if(domlist is None):
+            if(radius<0): domlist = np.int32(np.arange(1, info['ncpu']+1))
+            else:
+                domlist = gf.g_domain(n_snap, galtmp['Xc'], galtmp['Yc'], galtmp['Zc'], radius, info=info)
+        else:
+            if(~isinstance(domlist, np.ndarray)): domlist = np.int32(np.array(domlist))
+
+            if(np.amin(domlist) < 1 or np.amax(domlist) > info['ncpu']):
+                print('%-----')
+                print(' Wrongly argued')
+                print('     out of range of the domain: domlist')
+                print('%-----')
+                sys.exit(1)
+
+        ##----- Set box
+        xc = galtmp['Xc']
+        yc = galtmp['Yc']
+        zc = galtmp['Zc']
+
+        return gf.g_amr(n_snap, xc, yc, zc, radius, domlist=domlist, num_thread=num_thread, info=info)
+
 
         ##------ Unit Load
-        infofile    = self.dir_raw + 'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt"
-        unit_l  = np.double(np.loadtxt(infofile, dtype=object, skiprows=15, max_rows=1)[2])
-        unit_t  = np.double(np.loadtxt(infofile, dtype=object, skiprows=17, max_rows=1)[2])
-        unit_d  = np.double(np.loadtxt(infofile, dtype=object, skiprows=16, max_rows=1)[2])
-        hindex  = np.double(np.loadtxt(infofile, dtype=object, skiprows=21)[:,1:])
-        kms     = np.double(unit_l / unit_t / 1e5)
-        unit_m  = unit_d * unit_l**3
-
-        unit_T2 = np.double(1.6600000e-24) / np.double(1.3806200e-16) * np.double(unit_l / unit_t)**2
-        nH  = np.double(0.76) / np.double(1.6600000e-24) * unit_d
+        #infofile    = self.dir_raw + 'output_%0.5d'%n_snap+"/info_%0.5d"%n_snap+".txt"
+        #unit_l  = np.double(np.loadtxt(infofile, dtype=object, skiprows=15, max_rows=1)[2])
+        #unit_t  = np.double(np.loadtxt(infofile, dtype=object, skiprows=17, max_rows=1)[2])
+        #unit_d  = np.double(np.loadtxt(infofile, dtype=object, skiprows=16, max_rows=1)[2])
+        #hindex  = np.double(np.loadtxt(infofile, dtype=object, skiprows=21)[:,1:])
+        #kms     = np.double(unit_l / unit_t / 1e5)
+        #unit_m  = unit_d * unit_l**3
+        #unit_T2 = np.double(1.6600000e-24) / np.double(1.3806200e-16) * np.double(unit_l / unit_t)**2
+        #nH  = np.double(0.76) / np.double(1.6600000e-24) * unit_d
 
         ##----- Find domain
-        domlist = np.zeros(self.rtype_ndomain, dtype=np.int32) - 1
-        xc  = galtmp['Xc']/unit_l * 3.086e21
-        yc  = galtmp['Yc']/unit_l * 3.086e21
-        zc  = galtmp['Zc']/unit_l * 3.086e21
+        #domlist = gf.g_domain(n_snap, xc, yc, zc, radius)
 
-        #----- Reset Center when loading cells around the arbitrary center
-        if(raw==True):
-            if(raw_xc!=None):xc = np.array(raw_xc/unit_l * 3.086e21)
-            if(raw_yc!=None):yc = np.array(raw_yc/unit_l * 3.086e21)
-            if(raw_zc!=None):zc = np.array(raw_zc/unit_l * 3.086e21)
+        #domlist = np.zeros(self.rtype_ndomain, dtype=np.int32) - 1
+        #xc  = galtmp['Xc']/unit_l * 3.086e21
+        #yc  = galtmp['Yc']/unit_l * 3.086e21
+        #zc  = galtmp['Zc']/unit_l * 3.086e21
 
-        rr  = galtmp['R_HalfMass']/unit_l * 3.086e21
-        larr    = np.zeros(20, dtype=np.int32)
-        darr    = np.zeros(20, dtype='<f8')
+        #rr  = galtmp['R_HalfMass']/unit_l * 3.086e21
+        #larr    = np.zeros(20, dtype=np.int32)
+        #darr    = np.zeros(20, dtype='<f8')
 
-        larr[0] = np.int32(len(xc))
-        larr[1] = np.int32(len(domlist))
-        larr[2] = np.int32(self.num_thread)
-        larr[3] = np.int32(self.rtype_levmax)
+        #larr[0] = np.int32(len(xc))
+        #larr[1] = np.int32(len(domlist))
+        #larr[2] = np.int32(self.num_thread)
+        #larr[3] = np.int32(self.rtype_levmax)
 
-        darr[0] = 50.
-        if(boxrange!=None): darr[0] = boxrange / (rr * unit_l / 3.086e21)
+        #darr[0] = 50.
+        #if(radius!=None): darr[0] = radius / (rr * unit_l / 3.086e21)
 
-        find_domain_py.find_domain(xc, yc, zc, rr, hindex, larr, darr)
-        domlist     = find_domain_py.dom_list
-        domlist     = domlist[0][:]
-        domlist = np.int32(np.array(np.where(domlist > 0))[0] + 1)
+        #find_domain_py.find_domain(xc, yc, zc, rr, hindex, larr, darr)
+        #domlist     = find_domain_py.dom_list
+        #domlist     = domlist[0][:]
+        #domlist = np.int32(np.array(np.where(domlist > 0))[0] + 1)
 
+
+
+        """
         #----- READ AMR (Get Total number of leaf cells)
         larr    = np.zeros(20, dtype=np.int32)
         darr    = np.zeros(20, dtype='<f8')
@@ -467,6 +448,7 @@ class vr_load:
         ntot    = jsamr2cell_totnum_py.ntot
         nvarh   = jsamr2cell_totnum_py.nvarh
         mg_ind  = jsamr2cell_totnum_py.mg_ind
+        jsamr2cell_totnum_py.jsamr2cell_totnum_free()
 
         #----- READ AMR (ALLOCATE)
         data    = np.zeros(ntot, dtype=[('xx','<f8'), ('yy','<f8'), ('zz','<f8'),
@@ -494,20 +476,21 @@ class vr_load:
         hvdum   = np.array(jsamr2cell_py.mesh_hd,dtype='<f8')
         dxdum   = np.array(jsamr2cell_py.mesh_dx,dtype='<f8')
         lvdum   = np.array(jsamr2cell_py.mesh_lv,dtype='int32')
+        jsamr2cell_py.jsamr2cell_free()
 
-        data['xx'][:]   = xgdum[:,0] * unit_l / np.double(3.086e21)
-        data['yy'][:]   = xgdum[:,1] * unit_l / np.double(3.086e21)
-        data['zz'][:]   = xgdum[:,2] * unit_l / np.double(3.086e21)
+        data['xx'][:]   = xgdum[:,0] * info['unit_l'] / np.double(3.086e21)
+        data['yy'][:]   = xgdum[:,1] * info['unit_l'] / np.double(3.086e21)
+        data['zz'][:]   = xgdum[:,2] * info['unit_l'] / np.double(3.086e21)
         data['vx'][:]   = hvdum[:,1] * kms
         data['vy'][:]   = hvdum[:,2] * kms
         data['vz'][:]   = hvdum[:,3] * kms
         data['den'][:]  = hvdum[:,0]
         data['temp'][:] = hvdum[:,4]
         data['metal'][:]= hvdum[:,5]
-        data['dx'][:]   = dxdum[:] * unit_l / np.double(3.086e21)
+        data['dx'][:]   = dxdum[:] * info['unit_l'] / np.double(3.086e21)
         data['level'][:]= lvdum[:]
-        #data['mass'][:] = np.double(10.**(np.log10(hvdum[:,0]) + np.log10(unit_d) + np.double(3.0) * (np.log10(dxdum[:]) + np.log10(unit_l)) - np.log10(1.98892e33)))
-        data['mass'][:] = hvdum[:,0] *unit_d * (dxdum[:] * unit_l)**3 / np.double(1.98892e33)
+        #data['mass'][:] = np.double(10.**(np.log10(hvdum[:,0]) + np.log10(unit_d) + np.double(3.0) * (np.log10(dxdum[:]) + np.log10(info['unit_l'])) - np.log10(1.98892e33)))
+        data['mass'][:] = hvdum[:,0] *unit_d * (dxdum[:] * info['unit_l'])**3 / np.double(1.98892e33)
 
         data    = data[np.where(lvdum >= 0)]
         dumA = data['temp'][:]
@@ -515,10 +498,11 @@ class vr_load:
 
         data['temp'][:] = data['temp'][:] / data['den'][:] * unit_T2    # [K/mu]
         data['den'][:]  *= nH                                           # [atom/cc]
-        data['P_thermal'][:]    = dumA * unit_m / unit_l / unit_t**2 / np.double(1.3806200e-16)
+        data['P_thermal'][:]    = dumA * unit_m / info['unit_l'] / unit_t**2 / np.double(1.3806200e-16)
 
-        units   = {'unit_l':unit_l, 'unit_m':unit_m, 'unit_t':unit_t, 'kms':kms, 'unit_nH':nH, 'unit_T2':unit_T2}
-        return data, boxrange, units
+        units   = {'unit_l':info['unit_l'], 'unit_m':unit_m, 'unit_t':unit_t, 'kms':kms, 'unit_nH':nH, 'unit_T2':unit_T2}
+        return data, radius, units
+        """
 
 ##-----
 ## Get Tree Data
@@ -630,27 +614,28 @@ class vr_draw:
 
     ##-----
     ## Draw Gas map
+    ##      Currently aborted
     ##-----
     def d_gasmap(self, n_snap, id0, cell2, amrtype=None, wtype=None, xr=None, yr=None, zr=None, n_pix=None, minlev=None, maxlev=None, proj=None):
 
-
+        """
         ##----- Settings
-        if(n_pix==None): n_pix      = 1000
-        if(amrtype==None): amrtype  = 'D'
-        if(wtype==None): wtype      = 'MW'
-        if(minlev==None): minlev    = self.vrobj.rtype_levmin
-        if(maxlev==None): maxlev    = self.vrobj.rtype_levmax
-        if(proj==None): proj        = 'xy'
+        if(n_pix is None): n_pix      = 1000
+        if(amrtype is None): amrtype  = 'D'
+        if(wtype is None): wtype      = 'MW'
+        if(minlev is None): minlev    = self.vrobj.rtype_levmin
+        if(maxlev is None): maxlev    = self.vrobj.rtype_levmax
+        if(proj is None): proj        = 'xy'
 
         cell    = cell2[0]
-        boxrange= cell2[1]
+        radius= cell2[1]
         units   = cell2[2]
 
         ##----- Boxsize
         galtmp  = self.vrobj.f_rdgal(n_snap, id0, horg='g')
-        if(xr==None): xr  = np.array([-1, 1.],dtype='<f8') * boxrange + galtmp['Xc']
-        if(yr==None): yr  = np.array([-1, 1.],dtype='<f8') * boxrange + galtmp['Yc']
-        if(zr==None): zr  = np.array([-1, 1.],dtype='<f8') * boxrange + galtmp['Zc']
+        if(xr is None): xr  = np.array([-1, 1.],dtype='<f8') * radius + galtmp['Xc']
+        if(yr is None): yr  = np.array([-1, 1.],dtype='<f8') * radius + galtmp['Yc']
+        if(zr is None): zr  = np.array([-1, 1.],dtype='<f8') * radius + galtmp['Zc']
 
         ##----- Allocate
         gasmap  = np.zeros((n_pix,n_pix),dtype='<f8')
@@ -720,6 +705,7 @@ class vr_draw:
             #mapdum  = js_gasmap_py.map
 
         mapdum  = js_gasmap_py.map
+        js_gasmap_py.js_gasmap_free()
 
         gasmap  = np.zeros((n_pix,n_pix),dtype='<f8')
         gasmap_t= np.zeros((n_pix,n_pix),dtype='<f8')
@@ -735,21 +721,374 @@ class vr_draw:
             if(np.size(cut)>0): gasmap[cut] = 0.
 
         return gasmap, xr, yr
-
+        """
 ##-----
 ## Call FTNs
 ##-----
 class vr_getftns:
     def __init__(self, vrobj):
         self.vrobj      = vrobj
+        self.gasall_rfact = 5.0
+
+    ##-----
+    ## Get Sim info
+    ##-----
+    def g_info(self, snapnum):
+        fname   = self.vrobj.dir_raw + "output_%0.5d"%snapnum + "/info_%0.5d"%snapnum + ".txt"
+       
+        fdata1  = np.loadtxt(fname, dtype=object, max_rows=6, delimiter='=')
+        fdata2  = np.loadtxt(fname, dtype=object, skiprows=7, max_rows=11, delimiter='=')
+
+        info    = {'ncpu':0, 'ndim':0, 'levmin':0, 'levmax':0, 'aexp':0, 
+                'H0':0, 'oM':0, 'oB':0, 'oL':0, 'unit_l':0, 'unit_d':0, 'unit_T2':0, 'nH':0, 
+                'unit_t':0, 'kms':0, 'unit_m':0, 'hindex':0}
+
+        info['ncpu']    = np.int32(fdata1[0][1])
+        info['ndim']    = np.int32(fdata1[1][1])
+        info['levmin']  = np.int32(fdata1[2][1])
+        info['levmax']  = np.int32(fdata1[3][1])
+        info['aexp']    = np.double(fdata2[2][1])
+        info['H0']      = np.double(fdata2[3][1])
+        info['oM']      = np.double(fdata2[4][1])
+        info['oL']      = np.double(fdata2[5][1])
+        info['oB']      = np.double(fdata2[7][1])
+        info['unit_l']  = np.double(fdata2[8][1])
+        info['unit_d']  = np.double(fdata2[9][1])
+        info['unit_t']  = np.double(fdata2[10][1])
+        info['unit_T2'] = np.double(1.66e-24) / np.double(1.3806200e-16) * np.double(info['unit_l'] / info['unit_t'])**2
+        info['nH']      = np.double(0.76) / np.double(1.66e-24) * info['unit_d']
+        info['kms']     = info['unit_l'] / info['unit_t'] / 1e5
+        info['unit_m']  = info['unit_d'] * info['unit_l']**3
+
+        info['hindex']  = np.double(np.loadtxt(fname, dtype=object, skiprows=21)[:,1:])
+        return info
+    ##-----
+    ## Get Domain enclosing the shell
+    ##  Domain list enclosing the input sphere
+    ##      xc, yc, zc, rr as in kpc unit
+    ##  
+    ##      xc, yc, zc, rr can be a numpy array
+    ##-----
+    def g_domain(self, snapnum, xc, yc, zc, rr, info=None):
+        if(info is None): info = self.g_info(snapnum)
+
+        xc2  = np.array(xc / info['unit_l'] * 3.086e21, dtype='<f8')
+        yc2  = np.array(yc / info['unit_l'] * 3.086e21, dtype='<f8')
+        zc2  = np.array(zc / info['unit_l'] * 3.086e21, dtype='<f8')
+        rr2  = np.array(rr / info['unit_l'] * 3.086e21, dtype='<f8')
+        hindex  = info['hindex']
+
+        larr    = np.zeros(20, dtype=np.int32)
+        darr    = np.zeros(20, dtype='<f8')
+
+        larr[0] = np.int32(np.size(xc2))
+        larr[1] = np.int32(info['ncpu'])
+        larr[2] = np.int32(self.vrobj.num_thread)
+        larr[3] = np.int32(info['levmax'])
+
+        darr[0] = np.double(1.0)
+
+        find_domain_py.find_domain(xc2, yc2, zc2, rr2, hindex, larr, darr)
+        domlist = find_domain_py.dom_list
+        domlist = domlist[0][:]
+        domlist = np.int32(np.array(np.where(domlist > 0))[0] + 1)
+
+        find_domain_py.find_domain_free()
+        return domlist
+
+    ##-----
+    ## Get Particle within the domain enclosing the shell
+    ##      1) xc, yc, zc, rr [kpc]
+    ##          single value or a numpy array
+    ##      2) if 'domlist' argued, the given shell (xc, yc, zc, rr) is negelected
+    ##      3) Negative rr gives all ptcls
+    ##-----
+    def g_ptcl(self, snapnum, xc, yc, zc, rr, domlist=None, num_thread=None, info=None, 
+        p_age=False, p_flux=False, p_sink=False):
+
+        # Initial settings
+        if(info is None): info = self.g_info(snapnum)
+        if(num_thread is None): num_thread = self.vrobj.num_thread
+
+        # Get Domain
+        if(domlist is None):
+            if(rr<0): domlist = np.int32(np.arange(1, info['ncpu']+1))
+            else:
+                domlist = self.g_domain(snapnum, xc, yc, zc, rr, info=info)
+        else:
+            if(~isinstance(domlist, np.ndarray)): domlist = np.int32(np.array(domlist))
+
+            if(np.amin(domlist) < 1 or np.amax(domlist) > info['ncpu']):
+                print('%-----')
+                print(' Wrongly argued')
+                print('     out of range of the domain: domlist')
+                print('%-----')
+                sys.exit(1)
+
+        fname   = self.vrobj.dir_raw + "output_%0.5d"%snapnum + "/part_%0.5d"%snapnum + ".out"
+
+        # Get total particle numbers and omp index
+        larr        = np.zeros(20, dtype=np.int32)
+        darr        = np.zeros(20, dtype='<f8')
+
+        larr[0]     = np.int32(len(domlist))
+        larr[2]     = np.int32(num_thread)
+        larr[3]     = np.int32(len(fname))
+
+
+        jsrd_part_totnum_py.jsrd_part_totnum(larr, darr, fname, domlist)
+        npart_tot   = jsrd_part_totnum_py.npart_tot
+        part_ind    = np.array(jsrd_part_totnum_py.part_ind, dtype=np.int32)
+
+        # Allocate
+        dtype   = [('xx', '<f8'), ('yy', '<f8'), ('zz', '<f8'),
+            ('vx', '<f8'), ('vy', '<f8'), ('vz', '<f8'),
+            ('mass', '<f8'), ('sfact', '<f8'), ('gyr', '<f8'), ('metal', '<f8'), ('family', np.int32) , ('domain', np.int32), 
+            ('id', np.int64)]
+        for name in self.vrobj.vr_fluxlist:
+            dtype   += [('f_' + name, '<f8')]
+
+        ptcl    = np.zeros(np.int32(npart_tot), dtype=dtype)
+
+        # Read Ptcls
+        larr        = np.zeros(20, dtype=np.int32)
+        darr        = np.zeros(20, dtype='<f8')
+
+        larr[0]     = np.int32(len(domlist))
+        larr[2]     = np.int32(num_thread)
+        larr[3]     = np.int32(len(fname))
+        larr[4]     = np.int32(npart_tot)
+
+        if(self.vrobj.rtype_family == True): larr[18] = 20
+        else: larr[18] = 0
+
+        if(self.vrobj.rtype_llint == True): larr[19] = 20
+        else: larr[19] = 0
+
+        jsrd_part_py.jsrd_part(larr, darr, fname, part_ind, domlist)
+
+        # Input
+        ptcl['xx'][:]   = jsrd_part_py.xx * info['unit_l'] / 3.086e21
+        ptcl['yy'][:]   = jsrd_part_py.yy * info['unit_l'] / 3.086e21
+        ptcl['zz'][:]   = jsrd_part_py.zz * info['unit_l'] / 3.086e21
+
+        ptcl['vx'][:]   = jsrd_part_py.vx * info['kms']
+        ptcl['vy'][:]   = jsrd_part_py.vy * info['kms']
+        ptcl['vz'][:]   = jsrd_part_py.vz * info['kms']
+
+        ptcl['mass'][:] = jsrd_part_py.mp * info['unit_m'] / 1.98892e33
+        #ptcl['ap'][:]   = jsrd_part_py.ap
+        ptcl['metal'][:]= jsrd_part_py.zp
+
+        ptcl['family'][:]   = jsrd_part_py.fam
+        ptcl['domain'][:]   = jsrd_part_py.domain
+
+        ptcl['id'][:]       = jsrd_part_py.idvar
+
+        
+
+        ##----- COMPUTE GYR
+        if(p_age==True):
+            gyr = self.g_gyr(snapnum, ptcl['ap'][:])
+            ptcl['gyr'][:]  = gyr['gyr'][:]
+            ptcl['sfact'][:]= gyr['sfact'][:]
+
+        ##----- COMPUTE FLUX
+        if(p_flux==True):
+            for name in self.vrobj.vr_fluxlist:
+                ptcl['f_' + name][:] = self.g_flux(ptcl['mass'][:], ptcl['metal'][:], ptcl['gyr'][:],name)[name]
+
+        jsrd_part_totnum_py.jsrd_part_totnum_free()
+        jsrd_part_py.jsrd_part_free()
+        return ptcl
+                
+    ##-----
+    ## Get AMR within the domain enclosing the shell
+    ##      1) xc, yc, zc, rr [kpc]
+    ##          single value or a numpy array
+    ##      2) if 'domlist' argued, the given shell (xc, yc, zc, rr) is negelected
+    ##      3) Negative rr gives all cells
+    ##-----
+    def g_amr(self, snapnum, xc, yc, zc, rr, domlist=None, num_thread=None, info=None):
+
+        ##----- Settings
+        if(num_thread is None): num_thread = self.vrobj.num_thread
+        if(domlist is None):
+            if(rr<0): domlist = np.int32(np.arange(1, info['ncpu']+1))
+            else:
+                domlist = self.g_domain(snapnum, xc, yc, zc, rr, info=info)
+        else:
+            if(~isinstance(domlist, np.ndarray)): domlist = np.int32(np.array(domlist))
+
+            if(np.amin(domlist) < 1 or np.amax(domlist) > info['ncpu']):
+                print('%-----')
+                print(' Wrongly argued')
+                print('     out of range of the domain: domlist')
+                print('%-----')
+                sys.exit(1)
+
+        if(info is None):info = self.g_info(snapnum)
+
+        xr  = np.array([-1, 1.],dtype='<f8') * rr + xc
+        yr  = np.array([-1, 1.],dtype='<f8') * rr + yc
+        zr  = np.array([-1, 1.],dtype='<f8') * rr + zc
+
+        #----- READ AMR (Get Total number of leaf cells)
+        larr    = np.zeros(20, dtype=np.int32)
+        darr    = np.zeros(20, dtype='<f8')
+
+        file_a  = self.vrobj.dir_raw + 'output_%0.5d'%snapnum + '/amr_%0.5d'%snapnum + '.out'
+        file_h  = self.vrobj.dir_raw + 'output_%0.5d'%snapnum + '/hydro_%0.5d'%snapnum + '.out'
+        file_i  = self.vrobj.dir_raw + 'output_%0.5d'%snapnum + '/info_%0.5d'%snapnum + '.txt'
+
+        larr[0] = np.int32(len(domlist))
+        larr[2] = np.int32(1)#np.int32(num_thread)
+        larr[3] = np.int32(len(file_a))
+        larr[4] = np.int32(len(file_h))
+        larr[5] = np.int32(self.vrobj.rtype_ndomain)
+        larr[6] = np.int32(self.vrobj.rtype_ndim)
+        larr[7] = np.int32(self.vrobj.rtype_levmin)
+        larr[8] = np.int32(self.vrobj.rtype_levmax)
+
+
+        jsamr2cell_totnum_py.jsamr2cell_totnum(larr, darr, file_a, file_h, domlist)
+        ntot    = jsamr2cell_totnum_py.ntot
+        nvarh   = jsamr2cell_totnum_py.nvarh
+        mg_ind  = jsamr2cell_totnum_py.mg_ind
+        
+
+        #----- READ AMR (ALLOCATE)
+        data    = np.zeros(ntot, dtype=[('xx','<f8'), ('yy','<f8'), ('zz','<f8'),
+            ('vx','<f8'), ('vy','<f8'), ('vz','<f8'), ('dx','<f8'), ('mass', '<f8'),
+            ('den','<f8'), ('temp','<f8'), ('P_thermal','<f8'), ('metal','<f8'), ('level','int32')])
+
+        ##----- READ AMR
+        larr    = np.zeros(20, dtype=np.int32)
+        darr    = np.zeros(20, dtype='<f8')
+
+        larr[0] = np.int32(len(domlist))
+        larr[2] = np.int32(num_thread)
+        larr[3] = np.int32(len(file_a))
+        larr[4] = np.int32(len(file_h))
+        larr[5] = np.int32(len(file_i))
+        larr[6] = np.int32(self.vrobj.rtype_ndomain)
+        larr[7] = np.int32(self.vrobj.rtype_ndim)
+        larr[8] = np.int32(self.vrobj.rtype_levmin)
+        larr[9] = np.int32(self.vrobj.rtype_levmax)
+        larr[10]= np.int32(ntot)
+        larr[11]= np.int32(nvarh)
+
+        jsamr2cell_py.jsamr2cell(larr, darr, file_a, file_h, file_i, mg_ind, domlist)
+        xgdum   = np.array(jsamr2cell_py.mesh_xg,dtype='<f8')
+        hvdum   = np.array(jsamr2cell_py.mesh_hd,dtype='<f8')
+        dxdum   = np.array(jsamr2cell_py.mesh_dx,dtype='<f8')
+        lvdum   = np.array(jsamr2cell_py.mesh_lv,dtype='int32')
+
+        data['xx'][:]   = xgdum[:,0] * info['unit_l'] / np.double(3.086e21)
+        data['yy'][:]   = xgdum[:,1] * info['unit_l'] / np.double(3.086e21)
+        data['zz'][:]   = xgdum[:,2] * info['unit_l'] / np.double(3.086e21)
+        data['vx'][:]   = hvdum[:,1] * info['kms']
+        data['vy'][:]   = hvdum[:,2] * info['kms']
+        data['vz'][:]   = hvdum[:,3] * info['kms']
+        data['den'][:]  = hvdum[:,0]
+        data['temp'][:] = hvdum[:,4]
+        data['metal'][:]= hvdum[:,5]
+        data['dx'][:]   = dxdum[:] * info['unit_l'] / np.double(3.086e21)
+        data['level'][:]= lvdum[:]
+        #data['mass'][:] = np.double(10.**(np.log10(hvdum[:,0]) + np.log10(unit_d) + np.double(3.0) * (np.log10(dxdum[:]) + np.log10(unit_l)) - np.log10(1.98892e33)))
+        data['mass'][:] = hvdum[:,0] * info['unit_d'] * (dxdum[:] * info['unit_l'])**3 / np.double(1.98892e33)
+
+        data    = data[np.where(lvdum >= 0)]
+        dumA = data['temp'][:]
+        dumB = data['den'][:]
+
+        data['temp'][:] = data['temp'][:] / data['den'][:] * info['unit_T2']    # [K/mu]
+        data['den'][:]  *= info['nH']                                           # [atom/cc]
+        data['P_thermal'][:]    = dumA * info['unit_m'] / info['unit_l'] / info['unit_t']**2 / np.double(1.3806200e-16)
+
+        units   = {'unit_l':info['unit_l'], 'unit_m':info['unit_m'], 'unit_t':info['unit_t'], 'kms':info['kms'], 'unit_nH':info['nH'], 'unit_T2':info['unit_T2']}
+
+        jsamr2cell_totnum_py.jsamr2cell_totnum_free()
+        jsamr2cell_py.jsamr2cell_free()
+
+        return data, units
+
+    ##-----
+    ## Get AMR related properties
+    ##  Compute following using cells within "rr X rfact"
+    ## 
+    ##      - Particles within rr X 5 are used to compute potential
+    ##-----
+    def g_celltype(self, snapnum, cell, xc, yc, zc, rr, domlist=None, info=None, num_thread=None):
+
+        ##----- Settings
+        if(num_thread is None): num_thread = self.vrobj.num_thread
+        if(domlist is None):
+            if(rr<0): domlist = np.int32(np.arange(1, info['ncpu']+1))
+            else:
+                domlist = self.g_domain(snapnum, xc, yc, zc, rr, info=info)
+        else:
+            if(~isinstance(domlist, np.ndarray)): domlist = np.int32(np.array(domlist))
+
+            if(np.amin(domlist) < 1 or np.amax(domlist) > info['ncpu']):
+                print('%-----')
+                print(' Wrongly argued')
+                print('     out of range of the domain: domlist')
+                print('%-----')
+                sys.exit(1)
+
+        if(info is None):info = self.g_info(snapnum)
+
+        ##----- Extract Cell properties
+        cell_m  = cell['mass']
+        cell_met= cell['metal'] / self.vrobj.sun_met
+
+        # Read Particles within the sphere
+        ptcl    = self.g_ptcl(snapnum, xc, yc, zc, rr, 
+            domlist=domlist, num_thread=num_thread, info=info)
+
+        d3d     = np.sqrt((ptcl['xx']-xc)**2 + (ptcl['yy']-yc)**2 + (ptcl['zz']-zc)**2)
+        return ptcl, d3d
+        # HERE123123
+        
+        # Settings
+        #rfact0  = rfact
+        return 1
+
+
+    ##-----
+    ## Get AMR related properties
+    ##  Compute following using cells within the shell
+    ##-----
+    def g_gasall(self, snapnum, xc, yc, zc, radius, info=None, domlist=None, cell=None, num_thread=None):
+
+        
+        # initial settings
+        if(num_thread is None): num_thread = self.vrobj.num_thread
+        xr, yr, zr = np.zeros(2, dtype='<f8'), np.zeros(2, dtype='<f8'), np.zeros(2, dtype='<f8')
+        xr[0], xr[1] = xc - radius, xc + radius
+        yr[0], yr[1] = yc - radius, yc + radius
+        zr[0], zr[1] = zc - radius, zc + radius
+
+        # Get Sim props
+        if(info is None): info = self.g_info(snapnum)
+        if(domlist is None): domlist = self.g_domain(snapnum, xc, yc, zc, radius, info)
+        if(cell is None):
+            cell = self.g_amr(snapnum, xc, yc, zc, radius, domlist=domlist, info=info)
+        
+        # Compute AMR type (ISM / CGM / IGM)
+        celltype    = self.g_celltype(snapnum, cell, xc, yc, zc, radius, domlist=domlist, info=info, num_thread=num_thread)
+
+        return cell
+
 
     ##-----
     ## Get img
     ##-----
     def g_img(self, gasmap, zmin=None, zmax=None, scale=None):
 
-        if(zmin==None): zmin = np.min(gasmap)
-        if(zmax==None): zmax = np.max(gasmap)
+        if(zmin is None): zmin = np.min(gasmap)
+        if(zmax is None): zmax = np.max(gasmap)
 
         ind    = np.where(gasmap < zmin)
         if(np.size(ind)>0): gasmap[ind] = 0
@@ -762,7 +1101,7 @@ class vr_getftns:
 
         gasmap  /= (zmax - zmin)
 
-        if(scale=='log' or scale==None):
+        if(scale=='log' or scale is None):
             gasmap  = np.log(gasmap*1000. + 1.) / np.log(1000.)
             #gasmap  = np.int32(gasmap * 255.)
         return gasmap
@@ -938,7 +1277,7 @@ class vr_getftns:
 
             data[self.vrobj.vr_fluxlist[i]]    = flux_tmp / flux0
 
-
+            get_flux_py.get_flux_free()
         return data
 """
     Currently aborted because some snapshots do not have the corresponding sinkprops.dat
