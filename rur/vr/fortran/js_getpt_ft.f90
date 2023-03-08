@@ -786,4 +786,8 @@ CONTAINS
         return
       end subroutine quicksort
       END SUBROUTINE js_getpt_ft
+      SUBROUTINE js_getpt_ft_free()
+              IF(ALLOCATED(pot)) DEALLOCATE(pot)
+      END SUBROUTINE
+
 END MODULE

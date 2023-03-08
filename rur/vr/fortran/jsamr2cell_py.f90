@@ -117,7 +117,6 @@ CONTAINS
         WRITE(domnum, '(I5.5)') i
         fdum_a = TRIM(fname_a)//TRIM(domnum)
         fdum_h = TRIM(fname_h)//TRIM(domnum)
-
         uout = OMP_GET_THREAD_NUM() + 10
         uout2 = OMP_GET_THREAD_NUM() + ncpu
 
@@ -133,6 +132,9 @@ CONTAINS
 
         xbound=(/dble(nx/2),dble(ny/2),dble(nz/2)/)
 
+        IF(ALLOCATED(ngridlevel)) DEALLOCATE(ngridlevel)
+        IF(ALLOCATED(ngridfile)) DEALLOCATE(ngridfile)
+        IF(ALLOCATED(ngridbound)) DEALLOCATE(ngridbound)
         ALLOCATE(ngridlevel(1:ncpu,1:levelmax))
         ALLOCATE(ngridfile(1:ncpu+nboundary,1:levelmax))
         IF(nboundary>0) ALLOCATE(ngridbound(1:nboundary,1:levelmax))
@@ -340,5 +342,12 @@ CONTAINS
       ENDDO ! END LOOP FOR CPUs
       !!$OMP END PARALLEL DO
 
+      END SUBROUTINE
+
+      SUBROUTINE jsamr2cell_free()
+              IF(ALLOCATED(mesh_xg)) DEALLOCATE(mesh_xg)
+              IF(ALLOCATED(mesh_hd)) DEALLOCATE(mesh_hd)
+              IF(ALLOCATED(mesh_dx)) DEALLOCATE(mesh_dx)
+              IF(ALLOCATED(mesh_lv)) DEALLOCATE(mesh_lv)
       END SUBROUTINE
 END MODULE

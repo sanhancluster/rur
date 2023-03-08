@@ -40,12 +40,15 @@ CONTAINS
       !ALLOCATE(ptcl(1:n_ptcl,1:9))
       !ptcl = -1.0d8
       IF(ALLOCATED(ptcl)) DEALLOCATE(ptcl)
+      IF(ALLOCATED(id_raw)) DEALLOCATE(id_raw)
       CALL OMP_SET_NUM_THREADS(n_thread)
 
 !!!!! RD PART
 
       CALL RD_PART_NBODY(dir_raw, dom_list, n_dom, n_raw, n_str, n_snap)
 
+      IF(ALLOCATED(raw_dbl)) DEALLOCATE(raw_dbl)
+      IF(ALLOCATED(raw_int)) DEALLOCATE(raw_int)
       ALLOCATE(raw_dbl(1:n_raw,1:9))
       ALLOCATE(raw_int(1:n_raw,1:2))
 
@@ -63,6 +66,10 @@ CONTAINS
       IF(larr(19) .LT. 10) &
         CALL GET_PTCL_NUM_YZiCS(raw_int, raw_dbl, n_raw, n_star, n_thread, &
                 horg, dmp_mass)
+
+
+      IF(ALLOCATED(raw_dbl2)) DEALLOCATE(raw_dbl2)
+      IF(ALLOCATED(raw_int2)) DEALLOCATE(raw_int2)
 
       ALLOCATE(raw_dbl2(1:n_star,1:9))
       ALLOCATE(raw_int2(1:n_star,1:1))
@@ -632,4 +639,8 @@ CONTAINS
         if (j+1 < last)  call quicksort(a, nn, j+1, last)
         return
       end subroutine quicksort
+      subroutine get_ptcl_free()
+              IF(ALLOCATED(ptcl)) DEALLOCATE(ptcl)
+              IF(ALLOCATED(id_raw)) DEALLOCATE(id_raw)
+      end subroutine
 END MODULE get_ptcl_py

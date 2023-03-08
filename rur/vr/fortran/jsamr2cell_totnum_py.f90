@@ -95,4 +95,8 @@ CONTAINS
       ntot = ind_tmp
 
       END SUBROUTINE
+
+      SUBROUTINE jsamr2cell_totnum_free()
+              IF(ALLOCATED(mg_ind)) DEALLOCATE(mg_ind)
+      END SUBROUTINE
 END MODULE

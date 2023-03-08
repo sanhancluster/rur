@@ -290,4 +290,7 @@ CONTAINS
 
       Return
       End Subroutine
+      subroutine get_flux_free()
+              IF(ALLOCATED(flux)) DEALLOCATE(flux)
+      end subroutine
 END MODULE

@@ -147,4 +147,8 @@ CONTAINS
         RETURN
       ENDIF
       END SUBROUTINE
+
+      SUBROUTINE js_gasmap_free()
+        IF(ALLOCATEd(map)) DEALLOCATE(map)
+      END SUBROUTINE
 END MODULE
