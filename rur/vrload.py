@@ -965,7 +965,7 @@ class vr_getftns:
         #----- READ AMR (ALLOCATE)
         data    = np.zeros(ntot, dtype=[('xx','<f8'), ('yy','<f8'), ('zz','<f8'),
             ('vx','<f8'), ('vy','<f8'), ('vz','<f8'), ('dx','<f8'), ('mass', '<f8'),
-            ('type',np.itn32), ('PE','<f8'), ('KE','<f8'), ('UE','<f8'), 
+            ('type',np.int32), ('PE','<f8'), ('KE','<f8'), ('UE','<f8'), 
             ('den','<f8'), ('temp','<f8'), ('P_thermal','<f8'), ('metal','<f8'), ('level',np.int32)])
 
         ##----- READ AMR
@@ -1018,7 +1018,7 @@ class vr_getftns:
         jsamr2cell_py.jsamr2cell_free()
 
         if(amrtype == True):
-            celltype    = self.g_celltype(snapnum, cell, xc, yc, zc, vxc, vyc, vzc, rr, domlist=domlist, info=info, num_thread=num_thread)
+            celltype    = self.g_celltype(snapnum, data, xc, yc, zc, vxc, vyc, vzc, rr, domlist=domlist, info=info, num_thread=num_thread)
             data['type']    = celltype[0]
             data['PE']    = celltype[1]
             data['KE']    = celltype[2]
