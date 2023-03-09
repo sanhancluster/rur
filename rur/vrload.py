@@ -10,6 +10,8 @@ from scipy import interpolate
 from scipy.io import FortranFile
 import scipy.integrate as integrate
 
+from rur.sci import kinematics
+
 from rur.vr.fortran.find_domain_py import find_domain_py
 from rur.vr.fortran.get_ptcl_py import get_ptcl_py
 from rur.vr.fortran.get_flux_py import get_flux_py
@@ -728,7 +730,7 @@ class vr_draw:
 class vr_getftns:
     def __init__(self, vrobj):
         self.vrobj      = vrobj
-        self.gasall_rfact = 5.0
+        self.pot_bsize  = np.int32(1024)    # leaf bucket size for potential calculation
 
     ##-----
     ## Get Sim info
@@ -1011,7 +1013,7 @@ class vr_getftns:
         jsamr2cell_totnum_py.jsamr2cell_totnum_free()
         jsamr2cell_py.jsamr2cell_free()
 
-        return data, units
+        return data
 
     ##-----
     ## Get AMR related properties
@@ -1019,7 +1021,7 @@ class vr_getftns:
     ## 
     ##      - Particles within rr X 5 are used to compute potential
     ##-----
-    def g_celltype(self, snapnum, cell, xc, yc, zc, rr, domlist=None, info=None, num_thread=None):
+    def g_celltype(self, snapnum, cell, xc, yc, zc, vxc, vyc, vzc, rr, domlist=None, info=None, num_thread=None, n_shell=None):
 
         ##----- Settings
         if(num_thread is None): num_thread = self.vrobj.num_thread
@@ -1038,29 +1040,129 @@ class vr_getftns:
                 sys.exit(1)
 
         if(info is None):info = self.g_info(snapnum)
+        if(n_shell is None): n_shell = 100
+        d_shell = rr / n_shell
 
         ##----- Extract Cell properties
         cell_m  = cell['mass']
         cell_met= cell['metal'] / self.vrobj.sun_met
 
-        # Read Particles within the sphere
+        # Read Particles and Extract star & DM within the sphere
         ptcl    = self.g_ptcl(snapnum, xc, yc, zc, rr, 
             domlist=domlist, num_thread=num_thread, info=info)
 
         d3d     = np.sqrt((ptcl['xx']-xc)**2 + (ptcl['yy']-yc)**2 + (ptcl['zz']-zc)**2)
-        return ptcl, d3d
-        # HERE123123
+        ptcl    = ptcl[np.logical_and( d3d < rr, np.logical_or(ptcl['family']==1, ptcl['family']==2))]
+        if len(ptcl) == 0:
+                print('%-----')
+                print(' Warning (g_celltype)')
+                print('     No ptcls within the domain')
+                print('%-----')
         
-        # Settings
-        #rfact0  = rfact
-        return 1
+        # Create new arrays for potential calculations
+        npart   = len(ptcl) + len(cell)
+        #pos     = np.zeros((npart,3),dtype='<f8')
+        #pos[:,0]    = np.concatenate((ptcl['xx'],cell['xx']))
+        #pos[:,1]    = np.concatenate((ptcl['yy'],cell['yy']))
+        #pos[:,2]    = np.concatenate((ptcl['zz'],cell['zz']))
+
+        pos     = np.concatenate((ptcl['xx'], cell['xx'], ptcl['yy'], cell['yy'], ptcl['zz'], cell['zz']), dtype='<f8')
+        pos     = np.resize(pos,(3,npart)).T
+        pot_m   = np.concatenate((ptcl['mass'], cell['mass']))
+        
+        # Reset the bucket size
+        bsize   = self.pot_bsize
+        if(npart < 1e6):bsize = np.int32(512)
+        if(npart < 5e5):bsize = np.int32(256)
+        if(npart < 1e5):bsize = np.int32(128)
+        if(npart < 5e4):bsize = np.int32(64)
+        if(npart < 1e4):bsize = np.int32(32)
+        if(npart < 5e3):bsize = np.int32(16)
+        if(npart < 1e3):bsize = np.int32(8)
+
+        # Potential calculation
+        pot     = kinematics.f_getpot(pos, pot_m, num_thread=self.vrobj.num_thread, bsize=bsize)
+        pot     = pot[len(ptcl):npart]
+
+        # Kinetic E & Thermal E
+        KE      = (cell['vx'] - vxc)**2 + (cell['vy'] - vyc)**2 + (cell['vz'] - vzc)**2
+        KE      = KE * 0.5      # [km/s]^2
+
+        UE      = cell['temp'] / (5./3. - 1.) / (1.66e-24) * 1.380649e-23 * 1e-3    # [km/s]^2
+        E_tot   = KE + UE + pot
+
+        # Cell type
+        #      1  - ISM
+        #      0  - CGM
+        #      -1 - IGM
+        cell_type   = np.zeros(len(cell),dtype=np.int32) - 1
+        cell_d3d    = np.sqrt((cell['xx']-xc)**2 + (cell['yy']-yc)**2 + (cell['zz']-zc)**2)
+
+        E_zero      = 0.
+        Mcut        = 1.
+        minZval     = 0.1 # Lowest metallicity for CGM (in Zsun)
+
+        # ISM (bound gas)
+        cell_type[E_tot < E_zero] = 1
+
+        # Compute ISM Metallicity
+        ism_met     = np.zeros((n_shell, 2), dtype='<f8')
+        ism_met[:,0]= 1e8
+        ism_met[:,1]= 0.
+
+        for i in range(0,n_shell):
+            r0 = d_shell * i
+            r1 = d_shell * (i+1.)
+
+            ind     = (cell_d3d >= r0) * (cell_d3d < r1) * (cell_type == 1)
+            if sum(ind) == 0: continue
+
+            ism_met[i,0] = np.average(cell_met[ind], weights=cell_m[ind])
+            # for weighted std
+            ism_met[i,1] = np.sqrt( np.sum( cell_m[ind] * (cell_met[ind] - ism_met[i,0])**2 )   / np.sum(cell_m[ind]))
+
+        # Extrapolate
+        for i in range(1,n_shell):
+            if( ism_met[i,0] > 1e7 ):
+                ism_met[i,0]    = ism_met[i-1,0]
+                ism_met[i,1]    = ism_met[i-1,1]
+
+
+        # CGM as
+        #   1) E_tot > 0
+        #   2) Z > Z_ism - dZ_ism
+        #   3) Z > Z_minval
+        #   4) outflowing ( dot(r,v) > 0 )
+        #   5) Hot gas (T > 1e7)
+        
+        vdot    = (cell['xx'] - xc) * (cell['vx'] - vxc) + (cell['yy'] - yc) * (cell['vy'] - vyc) + (cell['zz'] - zc) * (cell['vz'] - vzc)
+
+        for i in range(0,n_shell):
+            r0 = d_shell * i
+            r1 = d_shell * (i+1.)
+
+            ind     = (cell_d3d >= r0) * (cell_d3d < r1) * (cell_type == -1)
+            if sum(ind) == 0: continue
+
+            met_avg = np.average(cell_met[ind], weights=cell_m[ind])
+            lowZval = np.amax([ism_met[i,0]-Mcut*ism_met[i,1], minZval])
+
+            ind2    = ind * np.logical_or(vdot > 0., cell['temp']>1e7) * (cell_met > lowZval)
+            if sum(ind2) == 0: continue
+
+            cell_type[ind2] = 0
+            
+
+        # The others are IGM
+
+        return cell_type, E_tot, KE, UE
 
 
     ##-----
     ## Get AMR related properties
     ##  Compute following using cells within the shell
     ##-----
-    def g_gasall(self, snapnum, xc, yc, zc, radius, info=None, domlist=None, cell=None, num_thread=None):
+    def g_gasall(self, snapnum, xc, yc, zc, vxc, vyc, vzc, radius, info=None, domlist=None, cell=None, num_thread=None):
 
         
         # initial settings
@@ -1077,8 +1179,9 @@ class vr_getftns:
             cell = self.g_amr(snapnum, xc, yc, zc, radius, domlist=domlist, info=info)
         
         # Compute AMR type (ISM / CGM / IGM)
-        celltype    = self.g_celltype(snapnum, cell, xc, yc, zc, radius, domlist=domlist, info=info, num_thread=num_thread)
+        celltype    = (self.g_celltype(snapnum, cell, xc, yc, zc, vxc, vyc, vzc, radius, domlist=domlist, info=info, num_thread=num_thread))[0]
 
+        # FROM HERE 123123
         return cell
 
 
