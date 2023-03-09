@@ -357,7 +357,7 @@ class vr_load:
     ## LOAD CELL DATA around galaxies
     ##  IF domlist is given, the shell is negelected
     ##-----
-    def f_rdamr(self, n_snap, id0, radius, horg='g', info=None, domlist=None, num_thread=None):
+    def f_rdamr(self, n_snap, id0, radius, horg='g', info=None, domlist=None, num_thread=None, amrtype=False):
 
         ##----- Settings
         gf  = vr_getftns(self)
@@ -386,8 +386,11 @@ class vr_load:
         xc = galtmp['Xc']
         yc = galtmp['Yc']
         zc = galtmp['Zc']
+        vxc = galtmp['VXc']
+        vyc = galtmp['VYc']
+        vzc = galtmp['VZc']
 
-        return gf.g_amr(n_snap, xc, yc, zc, radius, domlist=domlist, num_thread=num_thread, info=info)
+        return gf.g_amr(n_snap, xc, yc, zc, vxc, vyc, vzc, radius, domlist=domlist, num_thread=num_thread, info=info, amrtype=amrtype)
 
 
         ##------ Unit Load
@@ -911,7 +914,7 @@ class vr_getftns:
     ##      2) if 'domlist' argued, the given shell (xc, yc, zc, rr) is negelected
     ##      3) Negative rr gives all cells
     ##-----
-    def g_amr(self, snapnum, xc, yc, zc, rr, domlist=None, num_thread=None, info=None):
+    def g_amr(self, snapnum, xc, yc, zc, vxc, vyc, vzc, rr, domlist=None, num_thread=None, info=None, amrtype=False):
 
         ##----- Settings
         if(num_thread is None): num_thread = self.vrobj.num_thread
@@ -962,7 +965,8 @@ class vr_getftns:
         #----- READ AMR (ALLOCATE)
         data    = np.zeros(ntot, dtype=[('xx','<f8'), ('yy','<f8'), ('zz','<f8'),
             ('vx','<f8'), ('vy','<f8'), ('vz','<f8'), ('dx','<f8'), ('mass', '<f8'),
-            ('den','<f8'), ('temp','<f8'), ('P_thermal','<f8'), ('metal','<f8'), ('level','int32')])
+            ('type',np.itn32), ('PE','<f8'), ('KE','<f8'), ('UE','<f8'), 
+            ('den','<f8'), ('temp','<f8'), ('P_thermal','<f8'), ('metal','<f8'), ('level',np.int32)])
 
         ##----- READ AMR
         larr    = np.zeros(20, dtype=np.int32)
@@ -1013,8 +1017,14 @@ class vr_getftns:
         jsamr2cell_totnum_py.jsamr2cell_totnum_free()
         jsamr2cell_py.jsamr2cell_free()
 
+        if(amrtype == True):
+            celltype    = self.g_celltype(snapnum, cell, xc, yc, zc, vxc, vyc, vzc, rr, domlist=domlist, info=info, num_thread=num_thread)
+            data['type']    = celltype[0]
+            data['PE']    = celltype[1]
+            data['KE']    = celltype[2]
+            data['UE']    = celltype[3]
         return data
-
+        
     ##-----
     ## Get AMR related properties
     ##  Compute following using cells within "rr X rfact"
@@ -1155,7 +1165,7 @@ class vr_getftns:
 
         # The others are IGM
 
-        return cell_type, E_tot, KE, UE
+        return cell_type, pot, KE, UE
 
 
     ##-----
@@ -1176,10 +1186,10 @@ class vr_getftns:
         if(info is None): info = self.g_info(snapnum)
         if(domlist is None): domlist = self.g_domain(snapnum, xc, yc, zc, radius, info)
         if(cell is None):
-            cell = self.g_amr(snapnum, xc, yc, zc, radius, domlist=domlist, info=info)
+            cell = self.g_amr(snapnum, xc, yc, zc, vxc, vyc, vzc, radius, domlist=domlist, info=info, amrtype=True)
         
         # Compute AMR type (ISM / CGM / IGM)
-        celltype    = (self.g_celltype(snapnum, cell, xc, yc, zc, vxc, vyc, vzc, radius, domlist=domlist, info=info, num_thread=num_thread))[0]
+        #celltype    = (self.g_celltype(snapnum, cell, xc, yc, zc, vxc, vyc, vzc, radius, domlist=domlist, info=info, num_thread=num_thread))[0]
 
         # FROM HERE 123123
         return cell
