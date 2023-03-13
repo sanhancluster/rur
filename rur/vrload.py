@@ -627,7 +627,7 @@ class vr_load:
     ##-----
     ## Convert to RamsesSnapshot object
     ##-----
-    def f_torur_part(self, snapnum, part, gal=None, center=None, radius=None):
+    def f_touri_part(self, snapnum, part, gal=None, center=None, radius=None):
 
         """
         if(part is None) and (cell is None):
