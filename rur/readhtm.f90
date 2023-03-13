@@ -71,8 +71,9 @@ contains
             read(unitfile) ! rbin
             read(unitfile) ! density? at r
          else
-            read(unitfile) real_table_dp(ihalo,20:23) ! rvir, mvir, tvir, cvel
-            read(unitfile) real_table_dp(ihalo,24:25) ! rho0, rc
+            read(unitfile) real_table_dp(ihalo,20)    ! sigma
+            read(unitfile) real_table_dp(ihalo,21:24) ! rvir, mvir, tvir, cvel
+            read(unitfile) real_table_dp(ihalo,25:26) ! rho0, rc
          end if
 
       end if
@@ -258,7 +259,11 @@ contains
       if(galaxy)then
          call allocate_table(nhalo, 8, 28, dp)
       else
-         call allocate_table(nhalo, 8, 25, dp)
+         if(dp) then
+            call allocate_table(nhalo, 8, 26, dp)
+         else
+            call allocate_table(nhalo, 8, 25, dp)
+         end if
       end if
 
       do iout=start,end-1

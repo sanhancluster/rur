@@ -104,6 +104,16 @@ class HaloMaker:
         ('ek', 'f4'), ('ep', 'f4'), ('et', 'f4'), ('spin', 'f4'),
         ('rvir', 'f4'), ('mvir', 'f4'), ('tvir', 'f4'), ('cvel', 'f4'),
         ('rho0', 'f4'), ('rc', 'f4')]
+    halo_dtype_dp = [
+        ('nparts', 'i4'), ('id', 'i4'), ('timestep', 'i4'), ('level', 'i4'),
+        ('host', 'i4'), ('hostsub', 'i4'), ('nbsub', 'i4'), ('nextsub', 'i4'),
+        ('aexp', 'f4'), ('m', 'f4'), ('x', 'f4'), ('y', 'f4'), ('z', 'f4'),
+        ('vx', 'f4'), ('vy', 'f4'), ('vz', 'f4'),
+        ('Lx', 'f4'), ('Ly', 'f4'), ('Lz', 'f4'),
+        ('r', 'f4'), ('a', 'f4'), ('b', 'f4'), ('c', 'f4'),
+        ('ek', 'f4'), ('ep', 'f4'), ('et', 'f4'), ('spin', 'f4'),('sigma', 'f4'),
+        ('rvir', 'f4'), ('mvir', 'f4'), ('tvir', 'f4'), ('cvel', 'f4'),
+        ('rho0', 'f4'), ('rc', 'f4')]
 
     galaxy_dtype = [
         ('nparts', 'i4'), ('id', 'i4'), ('timestep', 'i4'), ('level', 'i4'),
@@ -151,8 +161,11 @@ class HaloMaker:
                 dtype = HaloMaker.galaxy_dtype_dp
         else:
             if(path_in_repo is None):
-                path_in_repo = 'halo/DM'
-            dtype = HaloMaker.halo_dtype
+                path_in_repo = default_path_in_repo['HaloMaker']
+            if(not double_precision):
+                dtype = HaloMaker.halo_dtype
+            else:
+                dtype = HaloMaker.halo_dtype_dp
         path = os.path.join(repo, path_in_repo)
 
         if(full_path is not None):
