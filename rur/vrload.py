@@ -11,6 +11,7 @@ from scipy.io import FortranFile
 import scipy.integrate as integrate
 
 from rur.sci import kinematics
+import rur.uri as uri
 
 from rur.vr.fortran.find_domain_py import find_domain_py
 from rur.vr.fortran.get_ptcl_py import get_ptcl_py
@@ -145,6 +146,18 @@ class vr_load:
         self.rtype_levmin         = np.int32( np.loadtxt(infofile, dtype=object, skiprows=2, max_rows=1)[2] )
         self.rtype_levmax         = np.int32( np.loadtxt(infofile, dtype=object, skiprows=3, max_rows=1)[2] )
 
+        ##----- Catalog output
+        self.dtype_part = [('xx', '<f8'), ('yy', '<f8'), ('zz', '<f8'),
+                ('vx', '<f8'), ('vy', '<f8'), ('vz', '<f8'),
+                ('mass', '<f8'), ('sfact', '<f8'), ('gyr', '<f8'), ('metal', '<f8'), ('family', np.int32) , ('domain', np.int32), 
+                ('id', np.int64)]
+        for name in self.vr_fluxlist:
+            self.dtype_part   += [('f_' + name, '<f8')]
+
+        self.dtype_amr  = [('xx','<f8'), ('yy','<f8'), ('zz','<f8'),
+            ('vx','<f8'), ('vy','<f8'), ('vz','<f8'), ('dx','<f8'), ('mass', '<f8'),
+            ('type',np.int32), ('PE','<f8'), ('KE','<f8'), ('UE','<f8'), 
+            ('den','<f8'), ('temp','<f8'), ('P_thermal','<f8'), ('metal','<f8'), ('level',np.int32)]
 
     ##-----
     ## Load Galaxy
@@ -314,13 +327,14 @@ class vr_load:
             pinfo[:,6]    *= info['unit_m'] / 1.98892e33
 
             #----- OUTPUT ARRAY
-            dtype   = [('xx', '<f8'), ('yy', '<f8'), ('zz', '<f8'),
-                ('vx', '<f8'), ('vy', '<f8'), ('vz', '<f8'),
-                ('mass', '<f8'), ('sfact', '<f8'), ('gyr', '<f8'), ('metal', '<f8'), ('family', np.int32) , ('domain', np.int32), 
-                ('id', np.int64)]
+            #dtype   = [('xx', '<f8'), ('yy', '<f8'), ('zz', '<f8'),
+            #    ('vx', '<f8'), ('vy', '<f8'), ('vz', '<f8'),
+            #    ('mass', '<f8'), ('sfact', '<f8'), ('gyr', '<f8'), ('metal', '<f8'), ('family', np.int32) , ('domain', np.int32), 
+            #    ('id', np.int64)]
 
-            for name in self.vr_fluxlist:
-                dtype   += [('f_' + name, '<f8')]
+            #for name in self.vr_fluxlist:
+            #    dtype   += [('f_' + name, '<f8')]
+            dtype   = self.dtype_part
 
             ptcl    = np.zeros(np.int32(n_new), dtype=dtype)
 
@@ -373,7 +387,7 @@ class vr_load:
             else:
                 domlist = gf.g_domain(n_snap, galtmp['Xc'], galtmp['Yc'], galtmp['Zc'], radius, info=info)
         else:
-            if(~isinstance(domlist, np.ndarray)): domlist = np.int32(np.array(domlist))
+            if not (isinstance(domlist, np.ndarray)): domlist = np.int32(np.array(domlist))
 
             if(np.amin(domlist) < 1 or np.amax(domlist) > info['ncpu']):
                 print('%-----')
@@ -609,6 +623,91 @@ class vr_load:
             gal[i]  = self.f_rdgal(snlist[i], idlist[i], horg)
 
         return gal
+
+    ##-----
+    ## Convert to RamsesSnapshot object
+    ##-----
+    def f_torur_part(self, snapnum, part, gal=None, center=None, radius=None):
+
+        """
+        if(part is None) and (cell is None):
+            print('%-----')
+            print(' either part or cell must be aruged')
+            print('%-----')
+            sys.exit(1)
+        """
+
+        ##-----
+        ## initial settings
+        ##-----
+        gf  = vr_getftns(self)
+        info    = gf.g_info(snapnum)
+        ##-----
+        ## Object
+        ##-----
+        snap = uri.RamsesSnapshot(self.dir_raw[:-11], iout=snapnum, mode='none')
+
+        dtype_part   = snap.part_dtype
+        for name in self.vr_fluxlist:
+            dtype_part   += [('f_' + name, '<f8')]
+
+        ##-----
+        ## Input
+        ##-----
+        snap.longint    = self.rtype_llint
+
+
+        if not (part is None):
+            arr     = np.zeros(len(part), dtype=dtype_part)
+            #return part, arr, snap
+            arr['x']    = part['xx'] * 3.086e21 / info['unit_l']
+            arr['y']    = part['yy'] * 3.086e21 / info['unit_l']
+            arr['z']    = part['zz'] * 3.086e21 / info['unit_l']
+
+            arr['vx']   = part['vx'] / info['kms']
+            arr['vy']   = part['vy'] / info['kms']
+            arr['vz']   = part['vz'] / info['kms']
+
+            arr['m']    = part['mass']
+            #arr['epoch']=?
+            arr['metal']= part['metal']
+            arr['id']   = part['id']
+            arr['cpu']  = part['domain']
+            arr['family']   = part['family']
+            #arr['tag']      = part['tag']
+
+            for name in self.vr_fluxlist:
+                arr['f_' + name]   = part['f_' + name]
+
+
+
+            snap.set_box    = np.median([arr['x']])
+            snap.part_data  = arr
+            snap.part       = snap.Particle(arr, snap) # required?
+
+        #if ~(cell is None):
+
+        if center is None:
+            if not (gal is None):
+                center  = [gal['Xc'], gal['Yc'], gal['Zc']] * 3.086e21 / info['unit_l']
+            else:
+                center  = [np.median(arr['x']), np.median(arr['y']), np.median(arr['z'])]
+        center  = np.array(center)
+
+        if radius is None:
+            if not (gal is None):
+                radius  = gal['R_HalfMass'] * 3.086e21 / info['unit_l']
+            else:
+                xmax    = np.amax(np.abs(arr['x'] - center[0]))
+                ymax    = np.amax(np.abs(arr['y'] - center[1]))
+                zmax    = np.amax(np.abs(arr['z'] - center[2]))
+                radius  = np.amax(np.array([xmax, ymax, zmax]))
+        radius  = np.array([radius, radius, radius])
+        snap.box    = np.stack([center-radius, center+radius], axis=-1)
+
+        return snap
+       
+
 
 ##-----
 ## Some basic drawing routines
@@ -846,12 +945,14 @@ class vr_getftns:
         part_ind    = np.array(jsrd_part_totnum_py.part_ind, dtype=np.int32)
 
         # Allocate
-        dtype   = [('xx', '<f8'), ('yy', '<f8'), ('zz', '<f8'),
-            ('vx', '<f8'), ('vy', '<f8'), ('vz', '<f8'),
-            ('mass', '<f8'), ('sfact', '<f8'), ('gyr', '<f8'), ('metal', '<f8'), ('family', np.int32) , ('domain', np.int32), 
-            ('id', np.int64)]
-        for name in self.vrobj.vr_fluxlist:
-            dtype   += [('f_' + name, '<f8')]
+        #dtype   = [('xx', '<f8'), ('yy', '<f8'), ('zz', '<f8'),
+        #    ('vx', '<f8'), ('vy', '<f8'), ('vz', '<f8'),
+        #    ('mass', '<f8'), ('sfact', '<f8'), ('gyr', '<f8'), ('metal', '<f8'), ('family', np.int32) , ('domain', np.int32), 
+        #    ('id', np.int64)]
+
+        #for name in self.vrobj.vr_fluxlist:
+        #    dtype   += [('f_' + name, '<f8')]
+        dtype   = self.vrobj.dtype_part
 
         ptcl    = np.zeros(np.int32(npart_tot), dtype=dtype)
 
@@ -923,7 +1024,7 @@ class vr_getftns:
             else:
                 domlist = self.g_domain(snapnum, xc, yc, zc, rr, info=info)
         else:
-            if(~isinstance(domlist, np.ndarray)): domlist = np.int32(np.array(domlist))
+            if not (isinstance(domlist, np.ndarray)): domlist = np.int32(np.array(domlist))
 
             if(np.amin(domlist) < 1 or np.amax(domlist) > info['ncpu']):
                 print('%-----')
@@ -963,10 +1064,12 @@ class vr_getftns:
         
 
         #----- READ AMR (ALLOCATE)
-        data    = np.zeros(ntot, dtype=[('xx','<f8'), ('yy','<f8'), ('zz','<f8'),
-            ('vx','<f8'), ('vy','<f8'), ('vz','<f8'), ('dx','<f8'), ('mass', '<f8'),
-            ('type',np.int32), ('PE','<f8'), ('KE','<f8'), ('UE','<f8'), 
-            ('den','<f8'), ('temp','<f8'), ('P_thermal','<f8'), ('metal','<f8'), ('level',np.int32)])
+        data    = np.zeros(ntot, dtype=self.vrobj.dtype_amr)
+                
+        #        [('xx','<f8'), ('yy','<f8'), ('zz','<f8'),
+        #    ('vx','<f8'), ('vy','<f8'), ('vz','<f8'), ('dx','<f8'), ('mass', '<f8'),
+        #    ('type',np.int32), ('PE','<f8'), ('KE','<f8'), ('UE','<f8'), 
+        #    ('den','<f8'), ('temp','<f8'), ('P_thermal','<f8'), ('metal','<f8'), ('level',np.int32)])
 
         ##----- READ AMR
         larr    = np.zeros(20, dtype=np.int32)
@@ -1040,7 +1143,7 @@ class vr_getftns:
             else:
                 domlist = self.g_domain(snapnum, xc, yc, zc, rr, info=info)
         else:
-            if(~isinstance(domlist, np.ndarray)): domlist = np.int32(np.array(domlist))
+            if not (isinstance(domlist, np.ndarray)): domlist = np.int32(np.array(domlist))
 
             if(np.amin(domlist) < 1 or np.amax(domlist) > info['ncpu']):
                 print('%-----')
