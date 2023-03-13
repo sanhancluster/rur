@@ -147,6 +147,8 @@ class HaloMaker:
         start = snap.iout
         end = start+1
         if(double_precision is None):
+            if(snap.mode=='yzics'):
+                double_precision=True
             if(snap.mode=='nh' and galaxy):
                 # NewHorizon galaxies uses dp, while halo data uses sp
                 double_precision=True
@@ -182,7 +184,6 @@ class HaloMaker:
 
         if(array.size==0):
             print("No tree_brick file found, or no halo found in %s" % path)
-
         if(load_parts):
             part_ids = readh.part_ids
             if(copy_part_id):
