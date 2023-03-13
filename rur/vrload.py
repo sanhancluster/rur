@@ -2,6 +2,7 @@ import numpy as np
 import h5py
 import sys
 import os
+import copy
 import os.path
 import pickle5 as pickle
 import pkg_resources
@@ -647,7 +648,7 @@ class vr_load:
         ##-----
         snap = uri.RamsesSnapshot(self.dir_raw[:-11], iout=snapnum, mode='none')
 
-        dtype_part   = snap.part_dtype
+        dtype_part   = copy.deepcopy(snap.part_dtype)
         for name in self.vr_fluxlist:
             dtype_part   += [('f_' + name, '<f8')]
 
@@ -679,9 +680,6 @@ class vr_load:
             for name in self.vr_fluxlist:
                 arr['f_' + name]   = part['f_' + name]
 
-
-
-            snap.set_box    = np.median([arr['x']])
             snap.part_data  = arr
             snap.part       = snap.Particle(arr, snap) # required?
 
@@ -689,21 +687,24 @@ class vr_load:
 
         if center is None:
             if not (gal is None):
-                center  = [gal['Xc'], gal['Yc'], gal['Zc']] * 3.086e21 / info['unit_l']
+                center  = np.array([gal['Xc'], gal['Yc'], gal['Zc']]) * 3.086e21 / info['unit_l']
             else:
-                center  = [np.median(arr['x']), np.median(arr['y']), np.median(arr['z'])]
-        center  = np.array(center)
-
+                center  = np.array([np.median(arr['x']), np.median(arr['y']), np.median(arr['z'])])
+        
         if radius is None:
             if not (gal is None):
-                radius  = gal['R_HalfMass'] * 3.086e21 / info['unit_l']
+                radius  = gal['R_HalfMass'] * 3.086e21 / info['unit_l'] * 2.5
             else:
                 xmax    = np.amax(np.abs(arr['x'] - center[0]))
                 ymax    = np.amax(np.abs(arr['y'] - center[1]))
                 zmax    = np.amax(np.abs(arr['z'] - center[2]))
                 radius  = np.amax(np.array([xmax, ymax, zmax]))
+
+
         radius  = np.array([radius, radius, radius])
         snap.box    = np.stack([center-radius, center+radius], axis=-1)
+        snap.box.resize(3,2)
+
 
         return snap
        
