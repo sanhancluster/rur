@@ -709,6 +709,71 @@ class vr_load:
         return snap
        
 
+    def f_touri_cell(self, snapnum, cell, gal=None, center=None, radius=None):
+
+
+        ##-----
+        ## initial settings
+        ##-----
+        gf  = vr_getftns(self)
+        info    = gf.g_info(snapnum)
+        ##-----
+        ## Object
+        ##-----
+        snap = uri.RamsesSnapshot(self.dir_raw[:-11], iout=snapnum, mode='none')
+
+        dtype_cell   = [('x', '<f8'), ('y', '<f8'), ('z', '<f8')]
+        for name in snap.hydro_names:
+            dtype_cell  += [(name, '<f8')]
+        dtype_cell  += [('level', '<i4')]
+
+        ##-----
+        ## Input
+        ##-----
+        arr     = np.zeros(len(cell), dtype=dtype_cell)
+        #return part, arr, snap
+        arr['x']    = cell['xx'] * 3.086e21 / info['unit_l']
+        arr['y']    = cell['yy'] * 3.086e21 / info['unit_l']
+        arr['z']    = cell['zz'] * 3.086e21 / info['unit_l']
+
+        arr['vx']   = cell['vx'] / info['kms']
+        arr['vy']   = cell['vy'] / info['kms']
+        arr['vz']   = cell['vz'] / info['kms']
+
+        arr['rho']  = cell['den']
+        arr['P']    = cell['P_thermal']
+        arr['level']= cell['level']
+
+        #arr['epoch']=?
+        #arr['tag']      = part['tag']
+
+        snap.cell_data  = arr
+        snap.cell       = snap.Cell(arr, snap) # required?
+
+        #if ~(cell is None):
+
+        if center is None:
+            if not (gal is None):
+                center  = np.array([gal['Xc'], gal['Yc'], gal['Zc']]) * 3.086e21 / info['unit_l']
+            else:
+                center  = np.array([np.median(arr['x']), np.median(arr['y']), np.median(arr['z'])])
+        
+        if radius is None:
+            if not (gal is None):
+                radius  = gal['R_HalfMass'] * 3.086e21 / info['unit_l'] * 2.5
+            else:
+                xmax    = np.amax(np.abs(arr['x'] - center[0]))
+                ymax    = np.amax(np.abs(arr['y'] - center[1]))
+                zmax    = np.amax(np.abs(arr['z'] - center[2]))
+                radius  = np.amax(np.array([xmax, ymax, zmax]))
+
+
+        radius  = np.array([radius, radius, radius])
+        snap.box    = np.stack([center-radius, center+radius], axis=-1)
+        snap.box.resize(3,2)
+
+
+        return snap
 
 ##-----
 ## Some basic drawing routines
