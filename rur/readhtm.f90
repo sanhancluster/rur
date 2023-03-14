@@ -71,8 +71,9 @@ contains
             read(unitfile) ! rbin
             read(unitfile) ! density? at r
          else
-            read(unitfile) real_table_dp(ihalo,20:23) ! rvir, mvir, tvir, cvel
-            read(unitfile) real_table_dp(ihalo,24:25) ! rho0, rc
+            read(unitfile) real_table_dp(ihalo,20)    ! sigma
+            read(unitfile) real_table_dp(ihalo,21:24) ! rvir, mvir, tvir, cvel
+            read(unitfile) real_table_dp(ihalo,25:26) ! rho0, rc
          end if
 
       end if
@@ -81,11 +82,12 @@ contains
    end subroutine read_halo_brick
 
 !#########################################################
-   subroutine read_halo_member(unitfile)
+   subroutine read_halo_member(unitfile, dp)
 !#########################################################
       implicit none
       integer(kind=4) :: unitfile, npart_halo
       real(kind=4)    :: aexp
+      logical :: dp
 
       read(unitfile) npart_halo ! nparts
       read(unitfile) part_ids(ipart:ipart+npart_halo-1) ! ID of members
@@ -96,7 +98,11 @@ contains
       if(galaxy) then
          call skip_read(unitfile, 6)
       else
-         call skip_read(unitfile, 2)
+         if(dp) then
+            call skip_read(unitfile, 3)
+         else
+            call skip_read(unitfile, 2)
+         end if
       end if
 
       return
@@ -169,13 +175,14 @@ contains
    end subroutine read_tree_brick
 
 !#########################################################
-   subroutine read_member_brick(halofile)
+   subroutine read_member_brick(halofile,dp)
 !#########################################################
       implicit none
       integer(kind=4)  :: unitfile,ierr,nhalo_snap,nmem=0,i
       real(kind=4)    :: aexp, massp, omega_t, age_univ
       integer(kind=4) :: nbodies, nb_of_halos, nb_of_subhalos, nhalo
       character(len=128):: halofile
+      logical :: dp
 
       unitfile = 55
       !write(*,*) '---> processing...  ', trim(halofile)
@@ -185,7 +192,7 @@ contains
       nhalo_snap = nb_of_subhalos + nb_of_halos
 
       do i=1, nhalo_snap
-         call read_halo_member(unitfile)
+         call read_halo_member(unitfile, dp)
       enddo
       close(unitfile)
 
@@ -258,7 +265,11 @@ contains
       if(galaxy)then
          call allocate_table(nhalo, 8, 28, dp)
       else
-         call allocate_table(nhalo, 8, 25, dp)
+         if(dp) then
+            call allocate_table(nhalo, 8, 26, dp)
+         else
+            call allocate_table(nhalo, 8, 25, dp)
+         end if
       end if
 
       do iout=start,end-1
@@ -278,7 +289,7 @@ contains
             halofile = TRIM(repository)//'/tree_bricks'//snout
             inquire(file=halofile,exist=ok_exist)
             if(ok_exist)then
-               call read_member_brick(halofile)
+               call read_member_brick(halofile,dp)
             end if
          end do
       end if
