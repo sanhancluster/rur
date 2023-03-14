@@ -1561,6 +1561,24 @@ class vr_getftns:
 
             get_flux_py.get_flux_free()
         return data
+
+    ##-----
+    ## HaloMaker matching
+    ##-----
+    def g_HMmatch(self, snapnum, g_vr, g_hm, info=None):
+        if info is None: info = self.g_info(snapnum)
+
+        # convert to code unit
+        xc_vr   = g_vr['Xc'] * 3.086e21 / info['unit_l']
+        yc_vr   = g_vr['Yc'] * 3.086e21 / info['unit_l']
+        zc_vr   = g_vr['Zc'] * 3.086e21 / info['unit_l']
+
+        #distance
+        d3d = np.sqrt(
+                (xc_vr - g_hm['x'])**2 + (yc_vr - g_hm['y'])**2 + (zc_vr - g_hm['z'])**2)
+
+        return g_hm[d3d == np.amin(d3d)]
+
 """
     Currently aborted because some snapshots do not have the corresponding sinkprops.dat
     Last updated 22.09.01 Jinsu
