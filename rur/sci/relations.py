@@ -3,7 +3,7 @@ from scipy.interpolate import interp2d
 from scipy.interpolate import interp1d
 
 # galaxy-BH mass relation
-def mgal_mbh(self, tag, logscale=False):
+def mgal_mbh(tag, logscale=False):
     try:
         params_dict = {
             'RV15a': [1.05, 1E11, 7.45],  # Reines & Volonteri 2015 (AGNs)
@@ -11,14 +11,16 @@ def mgal_mbh(self, tag, logscale=False):
             'BM19': [1.64, 1E11, 7.88],  # Baron & Ménard 2019 (All?)
             'S20a': [1.64, 1, -10.29],  # Suh 2020 (All)
             'S20b': [0.78, 1, -0.33],  # Suh 2020 (High-z AGNs)
+            'Z23': [0.98, 1, -1.92],  # Zhang 2023 (z~2 Type I AGNs)
+
         }
     except KeyError:
         raise ValueError("Available tags: RV15a, RV15b, BM19, S20a, S20b")
     params = params_dict[tag]
     if not logscale:
-        return lambda mgal: 10**(params[0]*np.log10(params[1])+params[2])
+        return lambda mgal: 10**(params[0]*np.log10(mgal/params[1])+params[2])
     else:
-        return lambda mgal: (params[0]*np.log10(params[1])+params[2])
+        return lambda mgal: (params[0]*np.log10(mgal/params[1])+params[2])
 
 # sigma*-BH mass relation
 def sigma_mbh(tag, z=0):

@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 from rur.config import m_H, c_const, G_const, sigma_T
-
+from rur.sci.relations import mgal_mbh, sigma_mbh
 
 def set_unit(aexps, snap):
     aexp_scale = snap.aexp / aexps
@@ -23,7 +23,7 @@ def set_unit(aexps, snap):
 
 
 def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_params=dict(),
-                       smooth=1, eagn_T=0.05, vlines=[]):
+                       smooth=1, eagn_T=0.05, vlines=[], title=None, savefile=None):
     """
     Available modes = ['mass', 'velocity', 'density', 'accretion_rate', 'eddington_rate', 'spin', 'epsilon', 'energy',
                  'tot_energy']
@@ -41,6 +41,8 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
                  'tot_energy']
     nrows = len(modes)
     fig, axes = plt.subplots(ncols=1, nrows=nrows, figsize=(8, nrows * 2), dpi=150, sharex=True)
+    if(title is not None):
+        axes[0].set_title(title)
     plt.subplots_adjust(hspace=0.1)
     tl.sort(order='aexp')
     if (xmode == 'aexp'):
@@ -107,12 +109,12 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
             Macc = gaussian_filter1d(tl['Mdot'] * unit_to_Msol / unit_to_yr, smooth)
             Medd = gaussian_filter1d(tl['Medd'] * unit_to_Msol / unit_to_yr, smooth)
             plt.plot(xarr, np.log10(np.minimum(Mdot / Medd, 1)), label='f$_{acc}$')
-            plt.plot(xarr, np.log10(np.minimum(Macc / Medd, 1)), label='f$_{Bon}$')
+            #plt.plot(xarr, np.log10(np.minimum(Macc / Medd, 1)), label='f$_{Bon}$')
             plt.plot(xarr, np.log10(np.minimum(tl['dM'] / dt_yr / tl['Medd'] * unit_to_yr / (1-tl['eps_sink']), 1)), color='k', alpha=0.3, lw=0.5, zorder=-1)
             plt.axhline(-2, color='gray', lw=0.5)
             plt.ylabel('log f$_{Edd}$')
             plt.ylim(-4, 0.05)
-            plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
+            #plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
 
         elif (mode == 'spin'):
             plt.plot(xarr, np.log10(1-np.abs(tl['spinmag'])), label='Mdot')
@@ -174,6 +176,8 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
 
         for vline in vlines:
             plt.axvline(vline, color='k', lw=0.5)
+    if (savefile is not None):
+        painter.save_figure(savefile)
 
 
 def edd_acc_rate(mbh, epsilon):
