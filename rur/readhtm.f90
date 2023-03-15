@@ -446,6 +446,49 @@ contains
 
 
 !#####################################################################
+   subroutine read_one(repository,galaxy_ini,hmid,nchem)
+!#####################################################################
+      implicit none
+      integer(kind=4)::nparts, nrow,i
+      character(LEN=7):: ncharg
+      character(LEN=300):: nomfich
+      character(len=10)::iout_format
+
+      character(len=128),intent(in)::repository
+      logical,intent(in)::galaxy_ini
+      integer(kind=4),intent(in):: hmid, nchem
+
+      iout_format='(I0.7)'
+      write(ncharg,TRIM(iout_format)) hmid
+      if(galaxy_ini) then
+         nomfich = TRIM(repository)//'/gal_stars_'//TRIM(ncharg)
+         nrow=9+nchem
+      else
+         nomfich = TRIM(repository)//'/halo_dms_'//TRIM(ncharg)
+         nrow=7
+      end if
+      open(unit=9,file=nomfich,form='unformatted')
+      call skip_read(9,6)
+      read(9) nparts
+      
+      call close()
+      allocate(integer_table(1,1:nparts))
+      allocate(real_table_dp(1:nrow,1:nparts))
+
+      do i=1,7
+         read(9) real_table_dp(i,1:nparts)
+      end do
+      read(9) integer_table(1,1:nparts)
+      if(galaxy_ini) then
+         do i=1,2+nchem
+            read(9) real_table_dp(i+7,1:nparts)
+         end do
+      end if
+      close(9)
+      return
+   end subroutine
+
+!#####################################################################
    subroutine skip_read(unit,nskip)
 !#####################################################################
       ! skip the given number of reads
