@@ -20,6 +20,9 @@ module readr
     ! part: family, tag
     integer(kind=1), dimension(:,:),   allocatable :: byte_table
 
+    ! Table to count number of cells per level, cpu
+    integer(kind=4), dimension(:,:),   allocatable :: ncell_table
+
     integer :: nhvar
 
     ! Some useful header informations...
@@ -617,7 +620,110 @@ contains
         close(sink_n)
 
     end subroutine read_sink
+!#####################################################################
+    subroutine count_cell(repo, iout, cpu_list, mode)
+!#####################################################################
+        ! Counts the number of leaf cells per level
+        implicit none
 
+        integer :: i, j, icpu, jcpu, ilevel, idim, jdim, igrid
+        integer :: ncell_loc, ncpu, ndim, nlevelmax, nboundary, ngrid_a, ndim1, ngridmax
+
+        integer :: amr_n, hydro_n, twotondim, skip_amr, skip_hydro
+        logical :: ok, is_leaf, output_particle_density
+        character(len=128) :: file_path
+
+        ! temporary arrays
+        integer(kind=4), dimension(:,:),   allocatable :: ngridfile
+        integer(kind=4), dimension(:),     allocatable :: son
+
+        character(len=128),    intent(in) :: repo
+        integer,               intent(in) :: iout
+        integer, dimension(:), intent(in) :: cpu_list
+        character(len=10),     intent(in) :: mode
+
+        amr_n = 10
+        hydro_n = 20
+        ! Positional offset for 3-dimensional oct-tree
+
+        file_path = amr_filename(repo, iout, cpu_list(1), mode)
+
+        ! Step 1: Check if there is file
+        inquire(file=file_path, exist=ok)
+        if ( .not. ok ) then
+            print *,'File not found in repo: '//file_path
+            stop
+        endif
+
+        ! Step 2: Read first file for header
+        open(unit=amr_n, file=amr_filename(repo, iout, cpu_list(1), mode), status='old', form='unformatted')
+        read(amr_n) ncpu
+        read(amr_n) ndim
+        read(amr_n)
+        read(amr_n) nlevelmax
+        read(amr_n)
+        read(amr_n) nboundary
+
+        allocate(ngridfile(1:ncpu+nboundary, 1:nlevelmax))
+        close(amr_n)
+
+        if(allocated(ncell_table)) deallocate(ncell_table)
+        allocate(ncell_table(1:ncpu+nboundary, 1:nlevelmax))
+        ncell_table(:,:) = 0
+
+        twotondim = 2**ndim
+        skip_amr = 3 * (2**ndim + ndim) + 1
+
+        ! Check total number of grids
+        ngridmax = 0
+        do i = 1, SIZE(cpu_list)
+            icpu = cpu_list(i)
+            amr_n = 10 + omp_get_thread_num()
+
+            open(unit=amr_n, file=amr_filename(repo, iout, icpu, mode), status='old', form='unformatted')
+            call skip_read(amr_n, 21)
+            ! Read grid numbers
+            read(amr_n) ngridfile(1:ncpu,1:nlevelmax)
+            ngridmax=maxval(ngridfile)!!!
+            call skip_read(amr_n, 7)
+            ! For non-periodic boundary conditions (not tested!)
+            if(nboundary>0) then
+                call skip_read(amr_n, 3)
+            endif
+
+            allocate(son(1:ngridmax))
+            do ilevel = 1, nlevelmax
+                ncell_loc = 0
+                ngrid_a = ngridfile(icpu, ilevel)
+                ! Loop over domains
+                do jcpu = 1, nboundary + ncpu
+                    if(ngridfile(jcpu, ilevel) > 0) then
+                        call skip_read(amr_n, 3)
+                        ! Read grid center
+                        if(jcpu == icpu) then
+                            call skip_read(amr_n, ndim) ! Skip position
+                            read(amr_n) ! Skip father index
+                            call skip_read(amr_n, 2*ndim) ! Skip nbor index
+                            ! Read son index to check refinement
+                            do jdim = 1, twotondim
+                                read(amr_n) son(1:ngrid_a)
+                                do igrid=1, ngrid_a
+                                    if(son(igrid) == 0) ncell_loc = ncell_loc+1
+                                end do
+                            end do
+                            call skip_read(amr_n, 2*twotondim) ! Skip cpu, refinement map
+                        else
+                            call skip_read(amr_n, skip_amr)
+                        end if
+                    end if
+                end do
+                ncell_table(icpu, ilevel) = ncell_table(icpu, ilevel) + ncell_loc
+            end do
+
+            deallocate(son)
+            close(amr_n)
+        end do
+    end subroutine count_cell
 !#####################################################################
     subroutine close()
 !#####################################################################

@@ -1483,6 +1483,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         os.makedirs(dirpath, exist_ok=True)
         utool.dump(contam_part.table, os.path.join(dirpath, 'contam_part_%05d.pkl' % self.iout))
 
+    def get_ncell(self, cpulist=None):
+        if cpulist is None:
+            cpulist = np.arange(1, self.ncpu+1)
+        readr.count_cell(self.snap_path, self.iout, cpulist, self.mode)
+        return readr.ncell_table
+
 def trace_parts(part_ini, cropped):
     return part_ini[np.isin(part_ini['id'], cropped['id'], True)]
 
