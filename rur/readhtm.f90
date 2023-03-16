@@ -475,14 +475,22 @@ contains
       allocate(integer_table(1,1:nparts))
       allocate(real_table_dp(1:nrow,1:nparts))
 
-      do i=1,7
-         read(9) real_table_dp(i,1:nparts)
-      end do
+      read(9) real_table_dp(1,1:nparts)
+      read(9) real_table_dp(2,1:nparts)
+      read(9) real_table_dp(3,1:nparts)
+      read(9) real_table_dp(4,1:nparts)
+      read(9) real_table_dp(5,1:nparts)
+      read(9) real_table_dp(6,1:nparts)
+      read(9) real_table_dp(7,1:nparts)
       read(9) integer_table(1,1:nparts)
       if(galaxy_ini) then
-         do i=1,2+nchem
-            read(9) real_table_dp(i+7,1:nparts)
-         end do
+         read(9) real_table_dp(8,1:nparts)
+         read(9) real_table_dp(9,1:nparts)
+         if(nchem.gt.0) then
+            do i=1,nchem
+               read(9) real_table_dp(i+9,1:nparts)
+            end do
+         end if
       end if
       close(9)
       return
