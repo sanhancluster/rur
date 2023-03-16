@@ -184,7 +184,7 @@ class HaloMaker:
                 with FortranFile(fname, 'r') as f:
                     ncont=f.read_ints('i4')
                     mcont=f.read_reals('f8')*1e11
-                dtype += [("mcontam", "f8")]
+                dtype = dtype + [("mcontam", "f8")]
 
         if(not double_precision):
             array = fromarrays([*readh.integer_table.T, *readh.real_table.T], dtype=dtype)
