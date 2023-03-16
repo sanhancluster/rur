@@ -147,13 +147,13 @@ class HaloMaker:
         start = snap.iout
         end = start+1
         if(double_precision is None):
-            if(snap.mode=='yzics'):
-                double_precision=True
             if(snap.mode=='nh' and galaxy):
                 # NewHorizon galaxies uses dp, while halo data uses sp
                 double_precision=True
             else:
                 double_precision=False
+            if(snap.mode=='yzics'):
+                double_precision=True
         if (galaxy):
             if(path_in_repo is None):
                 path_in_repo = default_path_in_repo['GalaxyMaker']
@@ -227,6 +227,75 @@ class HaloMaker:
         snap.set_box_halo(halo, radius_name='r', use_halo_radius=True)
         snap.get_part()
         star = snap.part['star']
+    
+    @staticmethod
+    def read_one(snap, path, galaxy, hmid, nchem):
+        from rur.fortranfile import FortranFile
+        dtype = [('id', 'i4'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
+        boxsize_physical = snap['boxsize_physical']
+        if(galaxy):
+            nomfich = os.path.join(path, f"gal_stars_{hmid:07d}")
+            dtype = dtype+[('epoch', 'f8'), ('metal', 'f8')]
+            if nchem>0:
+                raise ValueError("Currently non-zero `nchem` is not supported!")
+        else:
+            nomfich = os.path.join(path, f"halo_dms_{hmid:07d}")
+
+        with FortranFile(nomfich, 'r') as f:
+            f.skip_records(6)
+            nparts, = f.read_ints()
+            array = np.empty(nparts, dtype=dtype)
+            array['x'] = f.read_reals() / boxsize_physical + 0.5
+            array['y'] = f.read_reals() / boxsize_physical + 0.5
+            array['z'] = f.read_reals() / boxsize_physical + 0.5
+            array['vx'] = f.read_reals()
+            array['vy'] = f.read_reals()
+            array['vz'] = f.read_reals()
+            array['m'] = f.read_reals()*1e11
+            array['id'] = f.read_ints()
+            if(galaxy):
+                array['epoch'] = f.read_reals()
+                array['metal'] = f.read_reals()
+        return array
+
+    @staticmethod
+    def read_member_star(snap, hmid, nchem=0, galaxy=False, path_in_repo=None, full_path=None, usefortran=False):
+        # usefortran=False is faster
+        if(full_path is None):
+            if(path_in_repo is None):
+                if (galaxy):        
+                    path_in_repo = default_path_in_repo['GalaxyMaker']
+                    temp = "GAL"
+                else:
+                    path_in_repo = default_path_in_repo['HaloMaker']
+                    temp = "HAL"
+            path = os.path.join(snap.repo, path_in_repo, f"{temp}_{snap.iout:05d}")
+        else:
+            path = full_path # ex: /storage8/.../galaxy/GAL_00001
+            if not ("AL" in path):
+                if (galaxy):        
+                    temp = "GAL"
+                else:
+                    temp = "HAL"
+                path = os.path.join(path, f"{temp}_{snap.iout:05d}")
+        if(usefortran):
+            readh.read_one(path, galaxy, hmid, nchem)
+
+            dtype = [('id', 'i4'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
+            if(galaxy):
+                dtype = dtype+[('epoch', 'f8'), ('metal', 'f8')]
+                if nchem>0:
+                    raise ValueError("Currently non-zero `nchem` is not supported!")
+            array = uri.fromndarrays([readh.integer_table.T, readh.real_table_dp.T], dtype=dtype)
+            array['m'] *= 1e11
+            boxsize_physical = snap['boxsize_physical']
+            array['x'] = array['x'] / boxsize_physical + 0.5
+            array['y'] = array['y'] / boxsize_physical + 0.5
+            array['z'] = array['z'] / boxsize_physical + 0.5
+            readh.close()
+        else:
+            array = HaloMaker.read_one(snap, path, galaxy, hmid, nchem)
+        return uri.Particle(array, snap)
 
     from rur.uri import RamsesSnapshot
     @staticmethod
@@ -342,18 +411,22 @@ class PhantomTree:
     ptree_file_format = 'ptree_%05d.pkl'
     desc_name = 'desc'
     pass_name = 'pass'
+    full_path_ptree = None
+    full_path_halomaker = None
 
     @staticmethod
     def from_halomaker(snap, lookup, rankup=1, path_in_repo=path_in_repo, max_part_size=None,
                        ptree_file_format=ptree_file_format, nparts_min=None,
-                       part_array_buffer=1.1, skip_jumps=False, start_on_middle=False, path_in_repo_halomaker=default_path_in_repo['GalaxyMaker'], **kwargs):
+                       part_array_buffer=1.1, skip_jumps=False, start_on_middle=False, 
+                       path_in_repo_halomaker=default_path_in_repo['GalaxyMaker'], full_path_ptree=None,
+                       full_path_halomaker=None,**kwargs):
         print('Building PhantomTree from HaloMaker data in %s' % snap.repo)
         max_iout = snap.iout
         uri.timer.verbose = 0
         snap_iouts = np.arange(snap.iout, 0, -1)
 
         if (max_part_size is None):
-            halo, part_ids = HaloMaker.load(snap, path_in_repo=path_in_repo_halomaker, load_parts=True, **kwargs)
+            halo, part_ids = HaloMaker.load(snap, path_in_repo=path_in_repo_halomaker,full_path=full_path_halomaker, load_parts=True, **kwargs)
             max_part_size = int(np.max(part_ids) * part_array_buffer)
 
         part_pool = np.full((lookup, max_part_size), -1, dtype='i4')
@@ -372,7 +445,7 @@ class PhantomTree:
                     iterator.close()
                     break
 
-            halo, part_ids = HaloMaker.load(snap, load_parts=True, path_in_repo=path_in_repo_halomaker, **kwargs)
+            halo, part_ids = HaloMaker.load(snap, load_parts=True, path_in_repo=path_in_repo_halomaker, full_path=full_path_halomaker,**kwargs)
             if(halo.size == 0):
                 if(skip_jumps):
                     continue
@@ -436,7 +509,10 @@ class PhantomTree:
             # merge generated tree data
             halo = merge_arrays([halo, tree_data], fill_value=-2, flatten=True, usemask=False)
 
-            path = os.path.join(snap.repo, path_in_repo, ptree_file_format % iout)
+            if full_path_ptree is None:
+                path = os.path.join(snap.repo, path_in_repo, ptree_file_format % iout)
+            else:
+                path = os.path.join(full_path_ptree, ptree_file_format % iout)
             dump(halo, path, msg=False)
         uri.timer.verbose = 1
 
@@ -465,8 +541,8 @@ class PhantomTree:
         return desc_idx, npass
 
     @staticmethod
-    def merge_ptree(repo, iout_max, path_in_repo=path_in_repo, ptree_file=ptree_file, ptree_file_format=ptree_file_format, skip_jumps=False, dtype_id='i8'):
-        dirpath = os.path.join(repo, path_in_repo)
+    def merge_ptree(repo, iout_max, full_path=None, path_in_repo=path_in_repo, ptree_file=ptree_file, ptree_file_format=ptree_file_format, skip_jumps=False, dtype_id='i8'):
+        dirpath = os.path.join(repo, path_in_repo) if full_path is None else full_path
         iout = iout_max
         ptree = []
 
@@ -678,19 +754,19 @@ class PhantomTree:
 
 
     @staticmethod
-    def load(repo, path_in_repo=path_in_repo, ptree_file=ptree_file, ptree_file_format=ptree_file_format, iout=None, msg=True):
+    def load(repo, full_path=None, path_in_repo=path_in_repo, ptree_file=ptree_file, ptree_file_format=ptree_file_format, iout=None, msg=True):
         if(isinstance(repo, uri.RamsesSnapshot)):
             repo = repo.repo
         if(iout is None):
             filename = ptree_file
         else:
             filename = ptree_file_format % iout
-        path = os.path.join(repo, path_in_repo, filename)
+        path = os.path.join(repo, path_in_repo, filename) if full_path is None else os.path.join(full_path, filename)
         return load(path, msg=msg)
 
     @staticmethod
-    def save(ptree, repo, path_in_repo=path_in_repo, ptree_file=ptree_file, msg=True, format='pkl'):
-        path = os.path.join(repo, path_in_repo, ptree_file)
+    def save(ptree, repo, full_path=None, path_in_repo=path_in_repo, ptree_file=ptree_file, msg=True, format='pkl'):
+        path = os.path.join(repo, path_in_repo, ptree_file) if full_path is None else os.path.join(full_path, ptree_file)
         dump(ptree, path, msg=msg, format=format)
 
     @staticmethod
