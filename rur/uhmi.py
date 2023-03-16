@@ -229,7 +229,38 @@ class HaloMaker:
         star = snap.part['star']
     
     @staticmethod
-    def read_member_star(snap, hmid, nchem=0, galaxy=False, path_in_repo=None, full_path=None):
+    def read_one(snap, path, galaxy, hmid, nchem):
+        from rur.fortranfile import FortranFile
+        dtype = [('id', 'i4'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
+        boxsize_physical = snap['boxsize_physical']
+        if(galaxy):
+            nomfich = os.path.join(path, f"gal_stars_{hmid:07d}")
+            dtype = dtype+[('epoch', 'f8'), ('metal', 'f8')]
+            if nchem>0:
+                raise ValueError("Currently non-zero `nchem` is not supported!")
+        else:
+            nomfich = os.path.join(path, f"halo_dms_{hmid:07d}")
+
+        with FortranFile(nomfich, 'r') as f:
+            f.skip_records(6)
+            nparts, = f.read_ints()
+            array = np.empty(nparts, dtype=dtype)
+            array['x'] = f.read_reals() / boxsize_physical + 0.5
+            array['y'] = f.read_reals() / boxsize_physical + 0.5
+            array['z'] = f.read_reals() / boxsize_physical + 0.5
+            array['vx'] = f.read_reals()
+            array['vy'] = f.read_reals()
+            array['vz'] = f.read_reals()
+            array['m'] = f.read_reals()*1e111
+            array['id'] = f.read_ints()
+            if(galaxy):
+                array['epoch'] = f.read_reals()
+                array['metal'] = f.read_reals()
+        return array
+
+    @staticmethod
+    def read_member_star(snap, hmid, nchem=0, galaxy=False, path_in_repo=None, full_path=None, usefortran=False):
+        # usefortran=False is faster
         if(full_path is None):
             if(path_in_repo is None):
                 if (galaxy):        
@@ -247,21 +278,23 @@ class HaloMaker:
                 else:
                     temp = "HAL"
                 path = os.path.join(path, f"{temp}_{snap.iout:05d}")
-        readh.read_one(path, galaxy, hmid, nchem)
+        if(usefortran):
+            readh.read_one(path, galaxy, hmid, nchem)
 
-        dtype = [('id', 'i4'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
-        if(galaxy):
-            dtype = dtype+[('epoch', 'f8'), ('metal', 'f8')]
-            if nchem>0:
-                raise ValueError("Currently non-zero `nchem` is not supported!")
-        array = fromarrays([*readh.integer_table, *readh.real_table_dp], dtype=dtype)
-        array['m'] *= 1e11
-        boxsize_physical = snap['boxsize_physical']
-        array['x'] = array['x'] / boxsize_physical + 0.5
-        array['y'] = array['y'] / boxsize_physical + 0.5
-        array['z'] = array['z'] / boxsize_physical + 0.5
-        readh.close()
-
+            dtype = [('id', 'i4'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
+            if(galaxy):
+                dtype = dtype+[('epoch', 'f8'), ('metal', 'f8')]
+                if nchem>0:
+                    raise ValueError("Currently non-zero `nchem` is not supported!")
+            array = uri.fromndarrays([readh.integer_table.T, readh.real_table_dp.T], dtype=dtype)
+            array['m'] *= 1e11
+            boxsize_physical = snap['boxsize_physical']
+            array['x'] = array['x'] / boxsize_physical + 0.5
+            array['y'] = array['y'] / boxsize_physical + 0.5
+            array['z'] = array['z'] / boxsize_physical + 0.5
+            readh.close()
+        else:
+            array = HaloMaker.read_one(snap, path, galaxy, hmid, nchem)
         return uri.Particle(array, snap)
 
     from rur.uri import RamsesSnapshot
