@@ -251,7 +251,7 @@ class HaloMaker:
             array['vx'] = f.read_reals()
             array['vy'] = f.read_reals()
             array['vz'] = f.read_reals()
-            array['m'] = f.read_reals()*1e111
+            array['m'] = f.read_reals()*1e11
             array['id'] = f.read_ints()
             if(galaxy):
                 array['epoch'] = f.read_reals()
