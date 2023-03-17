@@ -107,13 +107,13 @@ class HaloMaker:
     halo_dtype_dp = [
         ('nparts', 'i4'), ('id', 'i4'), ('timestep', 'i4'), ('level', 'i4'),
         ('host', 'i4'), ('hostsub', 'i4'), ('nbsub', 'i4'), ('nextsub', 'i4'),
-        ('aexp', 'f4'), ('m', 'f4'), ('x', 'f4'), ('y', 'f4'), ('z', 'f4'),
-        ('vx', 'f4'), ('vy', 'f4'), ('vz', 'f4'),
-        ('Lx', 'f4'), ('Ly', 'f4'), ('Lz', 'f4'),
-        ('r', 'f4'), ('a', 'f4'), ('b', 'f4'), ('c', 'f4'),
-        ('ek', 'f4'), ('ep', 'f4'), ('et', 'f4'), ('spin', 'f4'),('sigma', 'f4'),
-        ('rvir', 'f4'), ('mvir', 'f4'), ('tvir', 'f4'), ('cvel', 'f4'),
-        ('rho0', 'f4'), ('rc', 'f4')]
+        ('aexp', 'f8'), ('m', 'f8'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'),
+        ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'),
+        ('Lx', 'f8'), ('Ly', 'f8'), ('Lz', 'f8'),
+        ('r', 'f8'), ('a', 'f8'), ('b', 'f8'), ('c', 'f8'),
+        ('ek', 'f8'), ('ep', 'f8'), ('et', 'f8'), ('spin', 'f8'),('sigma', 'f8'),
+        ('rvir', 'f8'), ('mvir', 'f8'), ('tvir', 'f8'), ('cvel', 'f8'),
+        ('rho0', 'f8'), ('rc', 'f8')]
 
     galaxy_dtype = [
         ('nparts', 'i4'), ('id', 'i4'), ('timestep', 'i4'), ('level', 'i4'),
@@ -175,11 +175,24 @@ class HaloMaker:
 
         #print("Searching for tree_brick in ", path)
         readh.read_bricks(path, galaxy, start, end, load_parts, double_precision)
+        contam=False
+        if(not galaxy):
+            fname = f"{path}/by-product/halos_contam.{start:04d}"
+            if os.path.isfile(fname):
+                contam=True
+                from rur.fortranfile import FortranFile
+                with FortranFile(fname, 'r') as f:
+                    ncont=f.read_ints('i4')
+                    mcont=f.read_reals('f8')*1e11
+                dtype = dtype + [("mcontam", "f8")]
 
         if(not double_precision):
             array = fromarrays([*readh.integer_table.T, *readh.real_table.T], dtype=dtype)
         else:
-            array = fromarrays([*readh.integer_table.T, *readh.real_table_dp.T], dtype=dtype)
+            if(contam):
+                array = fromarrays([*readh.integer_table.T, *readh.real_table_dp.T, mcont], dtype=dtype)
+            else:
+                array = fromarrays([*readh.integer_table.T, *readh.real_table_dp.T], dtype=dtype)
         array = HaloMaker.unit_conversion(array, snap)
 
         if(array.size==0):
@@ -259,7 +272,7 @@ class HaloMaker:
         return array
 
     @staticmethod
-    def read_member_star(snap, hmid, nchem=0, galaxy=False, path_in_repo=None, full_path=None, usefortran=False):
+    def read_member_part(snap, hmid, nchem=0, galaxy=False, path_in_repo=None, full_path=None, usefortran=False):
         # usefortran=False is faster
         if(full_path is None):
             if(path_in_repo is None):
@@ -295,6 +308,11 @@ class HaloMaker:
             readh.close()
         else:
             array = HaloMaker.read_one(snap, path, galaxy, hmid, nchem)
+        # Convert to codeunit
+        array['m'] *= snap.unit['Msol']
+        array['vx'] *= snap.unit['km/s']
+        array['vy'] *= snap.unit['km/s']
+        array['vz'] *= snap.unit['km/s']
         return uri.Particle(array, snap)
 
     from rur.uri import RamsesSnapshot

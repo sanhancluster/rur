@@ -11,11 +11,13 @@ module readhtm
 
 contains
 !#########################################################
-   subroutine read_halo_brick(unitfile,aexp)
+   subroutine read_halo_brick(unitfile,aexp,dp)
 !#########################################################
       implicit none
       integer(kind=4) :: unitfile
       real(kind=4)    :: aexp
+      real(kind=4)    :: aexp_dp
+      logical :: dp
 
       read(unitfile) integer_table(ihalo,1) ! nparts
       npart_tot = npart_tot + integer_table(ihalo,1)
@@ -55,7 +57,8 @@ contains
             read(unitfile) real_table(ihalo,24:25) ! rho0, rc
          end if
       else
-         real_table_dp(ihalo,1) = aexp ! aexp
+         aexp_dp = dble(aexp)
+         real_table_dp(ihalo,1) = aexp_dp ! aexp
          read(unitfile) real_table_dp(ihalo,2) ! m
          read(unitfile) real_table_dp(ihalo,3:5) ! x
          read(unitfile) real_table_dp(ihalo,6:8) ! v
@@ -86,7 +89,6 @@ contains
 !#########################################################
       implicit none
       integer(kind=4) :: unitfile, npart_halo
-      real(kind=4)    :: aexp
       logical :: dp
 
       read(unitfile) npart_halo ! nparts
@@ -138,20 +140,27 @@ contains
 
 
 !#########################################################
-   subroutine read_tree_brick(halofile)
+   subroutine read_tree_brick(halofile,dp)
 !#########################################################
       implicit none
       integer(kind=4)  :: unitfile,ierr,nhalo_snap,nmem=0,i
       real(kind=4)    :: aexp, massp, omega_t, age_univ
+      real(kind=8)    :: aexp_dp
       integer(kind=4) :: nbodies, nb_of_halos, nb_of_subhalos, nhalo
       character(len=128):: halofile
+      logical :: dp
 
       unitfile = 55
       !write(*,*) '---> processing...  ', trim(halofile)
       open(unit=unitfile, file=halofile, form='unformatted', status='old')
       read(unitfile) nbodies
       read(unitfile) massp
-      read(unitfile) aexp
+      if(dp) then
+         read(unitfile) aexp_dp
+         aexp = real(aexp_dp, kind=4)
+      else
+         read(unitfile) aexp
+      end if
       read(unitfile) omega_t
       read(unitfile) age_univ
       read(unitfile) nb_of_halos, nb_of_subhalos
@@ -165,7 +174,7 @@ contains
       endif
 
       do i=1, nhalo_snap
-         call read_halo_brick(unitfile, aexp)
+         call read_halo_brick(unitfile, aexp,dp)
          ihalo = ihalo + 1
       enddo
       close(unitfile)
@@ -277,7 +286,7 @@ contains
          halofile = TRIM(repository)//'/tree_bricks'//snout
          inquire(file=halofile,exist=ok_exist)
          if(ok_exist)then
-            call read_tree_brick(halofile)
+            call read_tree_brick(halofile,dp)
          end if
       end do
 
