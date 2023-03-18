@@ -129,11 +129,32 @@ class vr_load:
             self.vr_galprop     = ['SFR', 'ABmag']              # Bulk properties computed in the post-processing
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
-                                                                # flux zero points
+
+        elif(simtype == 'NC'):
+            # Path related
+            self.dir_raw        = '/storage7/NewCluster2/snapshots/'
+            self.dir_catalog    = '/storage7/NewCluster2/VELOCIraptor/'
+            self.dir_sink       = '/storage7/NewCluster2/SINKPROPS/'
+
+            # Ramses related
+            self.rtype_llint    = False     # Whether particle IDs are 64 byte integer
+            self.rtype_family   = True     # Whether part_out contains family
+            self.rtype_neff     = int(4096) # Effective resolution of the zoom region
+
+            # VR output related
+            self.vr_columnlist  = ['ID', 'ID_mbp', 'hostHaloID', 'numSubStruct', 'Structuretype', 'Mvir', 'Mass_tot', 'Mass_FOF',
+                       'Mass_200mean', 'Efrac', 'Mass_200crit', 'Rvir', 'R_size', 'R_200mean', 'R_200crit',
+                       'R_HalfMass', 'R_HalfMass_200mean', 'R_HalfMass_200crit', 'Rmax', 'Xc', 'Yc', 'Zc', 'VXc',
+                       'VYc', 'VZc', 'Lx', 'Ly', 'Lz', 'sigV', 'Vmax', 'npart']
+                                                                # Catalog output
+            self.vr_galprop     = ['SFR', 'ABmag']              # Bulk properties computed in the post-processing
+            self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
+            self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
+                                                                # flux zero points                                                                # flux zero points
         else:
             print('%-----')
             print(' Wrong argument for the simtype')
-            print('     Simtype list: NH, NH2, FORNAX(or FN), NC(not yet)')
+            print('     Simtype list: NH, NH2, FORNAX(or FN), NC')
             print('%-----')
 
         ##----- Simulation Parameter load
@@ -159,6 +180,11 @@ class vr_load:
             ('vx','<f8'), ('vy','<f8'), ('vz','<f8'), ('dx','<f8'), ('mass', '<f8'),
             ('type',np.int32), ('PE','<f8'), ('KE','<f8'), ('UE','<f8'), 
             ('den','<f8'), ('temp','<f8'), ('P_thermal','<f8'), ('metal','<f8'), ('level',np.int32)]
+
+        ##----- LOAD TREE DATA
+        self.tree_data_g = None
+        self.tree_data_h = None
+        self.tree_simtype= None\
 
     ##-----
     ## Load Galaxy
@@ -549,26 +575,52 @@ class vr_load:
             return bdata, b_startind, tree_key
     def f_gettree(self, n_snap, id0, horg='g'):
 
+        # Check whether tree has ever been loaded
+        if(self.tree_simtype == None or self.tree_simtype != self.simtype):
+            self.tree_simtype = copy.deepcopy(self.simtype)
 
-        directory   = self.dir_catalog
-        ## Initialize
-        if(horg=='g'):
-            dir_tree    = directory + 'Galaxy/tree/'
-        elif(horg=='h'):
-            dir_tree    = directory + 'Halo/tree/'
+            directory   = self.dir_catalog
 
-        ## Is pickle?
-        fname   = dir_tree + 'ctree.pkl'
-        isfile = os.path.isfile(fname)
+            ## FOR GALAXIES            
+            dir_tree_g  = directory + 'Galaxy/tree/'
 
-        if(isfile==True):
-            with open(fname, 'rb') as f:
-                data = pickle.load(f)
-        else:
-            fname_bin   = dir_tree + 'ctree.dat'
-            data    = self.f_gettree_readdat(fname_bin)
-            with open(fname, 'wb') as f:
-                pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
+            ## Is pickle?
+            fname_g   = dir_tree_g + 'ctree.pkl'
+            isfile = os.path.isfile(fname_g)
+
+            if(isfile==True):
+                with open(fname_g, 'rb') as f:
+                    data_g = pickle.load(f)
+            else:
+                fname_bin   = dir_tree_g + 'ctree.dat'
+                data_g    = self.f_gettree_readdat(fname_bin)
+                with open(fname_g, 'wb') as f:
+                    pickle.dump(data_g, f, pickle.HIGHEST_PROTOCOL)
+
+            self.tree_data_g = data_g
+
+            ## FOR HALOS            
+            dir_tree_h  = directory + 'Halo/tree/'
+
+            ## Is pickle?
+            fname_h   = dir_tree_h + 'ctree.pkl'
+            isfile = os.path.isfile(fname_h)
+
+            if(isfile==True):
+                with open(fname_h, 'rb') as f:
+                    data_h = pickle.load(f)
+            else:
+                fname_bin   = dir_tree_h + 'ctree.dat'
+                data_h    = self.f_gettree_readdat(fname_bin)
+                with open(fname, 'wb') as f:
+                    pickle.dump(data_h, f, pickle.HIGHEST_PROTOCOL)
+
+            self.tree_data_h = data_h
+
+
+        # LOAD TREE
+        if(horg == 'g'): data = self.tree_data_g
+        if(horg == 'h'): data = self.tree_data_h
 
         branch  = data[0]
         bind    = data[1]
@@ -658,32 +710,31 @@ class vr_load:
         snap.longint    = self.rtype_llint
 
 
-        if not (part is None):
-            arr     = np.zeros(len(part), dtype=dtype_part)
-            #return part, arr, snap
-            arr['x']    = part['xx'] * 3.086e21 / info['unit_l']
-            arr['y']    = part['yy'] * 3.086e21 / info['unit_l']
-            arr['z']    = part['zz'] * 3.086e21 / info['unit_l']
+        arr     = np.zeros(len(part), dtype=dtype_part)
+        #return part, arr, snap
+        arr['x']    = part['xx'] * 3.086e21 / info['unit_l']
+        arr['y']    = part['yy'] * 3.086e21 / info['unit_l']
+        arr['z']    = part['zz'] * 3.086e21 / info['unit_l']
 
-            arr['vx']   = part['vx'] / info['kms']
-            arr['vy']   = part['vy'] / info['kms']
-            arr['vz']   = part['vz'] / info['kms']
+        arr['vx']   = part['vx'] / info['kms']
+        arr['vy']   = part['vy'] / info['kms']
+        arr['vz']   = part['vz'] / info['kms']
 
-            arr['m']    = part['mass']
-            #arr['epoch']=?
-            arr['metal']= part['metal']
-            arr['id']   = part['id']
-            arr['cpu']  = part['domain']
-            arr['family']   = part['family']
-            #arr['tag']      = part['tag']
+        arr['m']    = part['mass']
+        #arr['epoch']=?
+        arr['metal']= part['metal']
+        arr['id']   = part['id']
+        arr['cpu']  = part['domain']
+        arr['family']   = part['family']
+        #arr['tag']      = part['tag']
 
-            for name in self.vr_fluxlist:
-                arr['f_' + name]   = part['f_' + name]
+        for name in self.vr_fluxlist:
+            arr['f_' + name]   = part['f_' + name]
 
-            snap.part_data  = arr
-            snap.part       = snap.Particle(arr, snap) # required?
+        snap.part_data  = arr
+        snap.part       = snap.Particle(arr, snap) # required?
 
-        #if ~(cell is None):
+
 
         if center is None:
             if not (gal is None):
@@ -725,7 +776,7 @@ class vr_load:
         dtype_cell   = [('x', '<f8'), ('y', '<f8'), ('z', '<f8')]
         for name in snap.hydro_names:
             dtype_cell  += [(name, '<f8')]
-        dtype_cell  += [('level', '<i4')]
+        dtype_cell  += [('level', '<i4'), ('temp', '<f8')]
 
         ##-----
         ## Input
@@ -743,7 +794,7 @@ class vr_load:
         arr['rho']  = cell['den']
         arr['P']    = cell['P_thermal']
         arr['level']= cell['level']
-
+        arr['temp']    = cell['temp']
         #arr['epoch']=?
         #arr['tag']      = part['tag']
 
