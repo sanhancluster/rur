@@ -612,7 +612,7 @@ class vr_load:
             else:
                 fname_bin   = dir_tree_h + 'ctree.dat'
                 data_h    = self.f_gettree_readdat(fname_bin)
-                with open(fname, 'wb') as f:
+                with open(fname_h, 'wb') as f:
                     pickle.dump(data_h, f, pickle.HIGHEST_PROTOCOL)
 
             self.tree_data_h = data_h
