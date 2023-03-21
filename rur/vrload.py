@@ -206,11 +206,11 @@ class vr_load:
     ##      2) More efficienct way of reading multiple hdf5 files?
     ##-----
     class f_rdgal_parallel:
-        def __init__(self):
-            self.galdata = None
-            self.gidlist = None
-            self.h5data = None
-            self.vrobj = None
+        def __init__(self, vrobj, h5data, gidlist, galdata):
+            self.galdata = galdata
+            self.gidlist = gidlist
+            self.h5data = h5data
+            self.vrobj = vrobj
 
         def f_rdgal_input(self, start, end):
             for i in range(start, end):
@@ -315,11 +315,7 @@ class vr_load:
         #    pool.close()
         #    pool.join()
         #if __name__ == '__main__':
-        p_input = self.f_rdgal_parallel()
-        p_input.vrobj = self
-        p_input.gidlist = idlist
-        p_input.h5data = dat
-        p_input.galdata = galdata
+        p_input = self.f_rdgal_parallel(self, dat, idlist, galdata)
 
         if n_gal < self.num_thread:
             #serially
@@ -740,6 +736,21 @@ class vr_load:
 ##-----
 ## Get Merger Tree
 ##-----
+    class f_getevol_p:
+        def __init__(self, galdata, idlist, slist, horg):
+            self.galdata = galdata
+            self.idlist = idlist
+            self.slist = slist
+            self.horg = horg
+
+        def run(self, start, end, q):
+            for i in range(start, end):
+                self.galdata[i] = self.f_rdgal(self.slist[i], self.idlist[i], horg=self.horg)
+
+            q.put((start, end, self.galdata[start:end]))
+
+
+
     def f_getevol(self, n_snap, id0, horg='g'):#, gprop=gal_properties, directory=dir_catalog):
 
         # Get funtions
@@ -760,9 +771,41 @@ class vr_load:
 
         ## READ
         ind = np.array(range(n_link),dtype='int32')
-        for i in ind:
-            gal[i]  = self.f_rdgal(snlist[i], idlist[i], horg)
 
+        print("parallelization should be tested")
+        if(n_link < self.num_thread):
+            for i in ind:
+                gal[i]  = self.f_rdgal(snlist[i], idlist[i], horg=horg)
+        else:
+            prun = self.f_getevol_p(galdata, idlist, snlist, horg)
+
+            dind = np.int32(n_link / self.num_thread)
+            ps = []
+            q = Queue()
+
+            for th in range(self.num_thread):
+                i0 = th*dind
+                i1 = (th+1)*dind
+                if(th==0): i0 = 0
+                if(th==self.num_thread-1): i1 = n_link
+                p.Process(target=prun.run, args=(i0, i1, q))
+                ps.append(p)
+
+                p.start()
+                while not q.empty():
+                    i0, i1, dumdata = q.get()
+                    gal[i0:i1] = dumdata
+            ok = False
+            while not ok:
+                ok = True
+                for idx in np.arange(len(ps)):
+                    if (ps[idx].is_alive()):
+                        ok = False
+                if(not q.empty()):
+                    i0, i1, dumdata = q.get()
+                    gal[i0:i1] = dumdata
+                else:
+                    sleep(0.5)
         return gal
 
     ##-----
