@@ -6,6 +6,9 @@ import copy
 import os.path
 import pickle5 as pickle
 import pkg_resources
+import multiprocessing
+from multiprocessing import Process, Queue
+from time import sleep
 
 from scipy import interpolate
 from scipy.io import FortranFile
@@ -55,7 +58,9 @@ class vr_load:
                        'R_HalfMass', 'R_HalfMass_200mean', 'R_HalfMass_200crit', 'Rmax', 'Xc', 'Yc', 'Zc', 'VXc',
                        'VYc', 'VZc', 'Lx', 'Ly', 'Lz', 'sigV', 'Vmax', 'npart']
                                                                 # Catalog output
-            self.vr_galprop     = ['SFR', 'ABmag']              # Bulk properties computed in the post-processing
+            self.vr_galprop     = ['SFR', 'ABmag', 'ConFrac_n', 'ConFrac_M']              # Bulk properties computed in the post-processing
+            self.vr_general     = ['SFR_R', 'SFR_T', 'MAG_R', 'CONF_R']
+            self.vr_galinfo     = ['isclump', 'rate', 'Aexp', 'Domain_List']
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
                                                                 # flux zero points
@@ -76,7 +81,9 @@ class vr_load:
                        'R_HalfMass', 'R_HalfMass_200mean', 'R_HalfMass_200crit', 'Rmax', 'Xc', 'Yc', 'Zc', 'VXc',
                        'VYc', 'VZc', 'Lx', 'Ly', 'Lz', 'sigV', 'Vmax', 'npart']
                                                                 # Catalog output
-            self.vr_galprop     = ['SFR', 'ABmag']              # Bulk properties computed in the post-processing
+            self.vr_galprop     = ['SFR', 'ABmag', 'ConFrac_n', 'ConFrac_M']              # Bulk properties computed in the post-processing
+            self.vr_general     = ['SFR_R', 'SFR_T', 'MAG_R', 'CONF_R']
+            self.vr_galinfo     = ['isclump', 'rate', 'Aexp', 'Domain_List']
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
                                                                 # flux zero points
@@ -98,7 +105,9 @@ class vr_load:
                        'R_HalfMass', 'R_HalfMass_200mean', 'R_HalfMass_200crit', 'Rmax', 'Xc', 'Yc', 'Zc', 'VXc',
                        'VYc', 'VZc', 'Lx', 'Ly', 'Lz', 'sigV', 'Vmax', 'npart']
                                                                 # Catalog output
-            self.vr_galprop     = ['SFR', 'ABmag']              # Bulk properties computed in the post-processing
+            self.vr_galprop     = ['SFR', 'ABmag', 'ConFrac_n', 'ConFrac_M']              # Bulk properties computed in the post-processing
+            self.vr_general     = ['SFR_R', 'SFR_T', 'MAG_R', 'CONF_R']
+            self.vr_galinfo     = ['isclump', 'rate', 'Aexp', 'Domain_List']
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
                                                                 # flux zero points
@@ -126,7 +135,9 @@ class vr_load:
                        'R_HalfMass', 'R_HalfMass_200mean', 'R_HalfMass_200crit', 'Rmax', 'Xc', 'Yc', 'Zc', 'VXc',
                        'VYc', 'VZc', 'Lx', 'Ly', 'Lz', 'sigV', 'Vmax', 'npart']
                                                                 # Catalog output
-            self.vr_galprop     = ['SFR', 'ABmag']              # Bulk properties computed in the post-processing
+            self.vr_galprop     = ['SFR', 'ABmag', 'ConFrac_n', 'ConFrac_M']              # Bulk properties computed in the post-processing
+            self.vr_general     = ['SFR_R', 'SFR_T', 'MAG_R', 'CONF_R']
+            self.vr_galinfo     = ['isclump', 'rate', 'Aexp', 'Domain_List']
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
 
@@ -147,7 +158,9 @@ class vr_load:
                        'R_HalfMass', 'R_HalfMass_200mean', 'R_HalfMass_200crit', 'Rmax', 'Xc', 'Yc', 'Zc', 'VXc',
                        'VYc', 'VZc', 'Lx', 'Ly', 'Lz', 'sigV', 'Vmax', 'npart']
                                                                 # Catalog output
-            self.vr_galprop     = ['SFR', 'ABmag']              # Bulk properties computed in the post-processing
+            self.vr_galprop     = ['SFR', 'ABmag', 'ConFrac_n', 'ConFrac_M']              # Bulk properties computed in the post-processing
+            self.vr_general     = ['SFR_R', 'SFR_T', 'MAG_R', 'CONF_R']
+            self.vr_galinfo     = ['isclump', 'rate', 'Aexp', 'Domain_List']
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
                                                                 # flux zero points                                                                # flux zero points
@@ -184,7 +197,7 @@ class vr_load:
         ##----- LOAD TREE DATA
         self.tree_data_g = None
         self.tree_data_h = None
-        self.tree_simtype= None\
+        self.tree_simtype= None
 
     ##-----
     ## Load Galaxy
@@ -192,83 +205,158 @@ class vr_load:
     ##      1) do not use imglist.txt
     ##      2) More efficienct way of reading multiple hdf5 files?
     ##-----
-    def f_rdgal(self, n_snap, id0, horg='g'):
+    class f_rdgal_parallel:
+        def __init__(self):
+            self.galdata = None
+            self.gidlist = None
+            self.h5data = None
+            self.vrobj = None
+
+        def f_rdgal_input(self, start, end):
+            for i in range(start, end):
+                idstr  = 'ID_%0.6d'%self.gidlist[i]
+
+                for name in self.vrobj.vr_columnlist:
+                    xdata = self.h5data.get(idstr + "/G_Prop/G_" + name)
+                    self.galdata[name][i] = np.array(xdata)
+
+                for name in self.vrobj.vr_galprop:
+                    xdata = self.h5data.get(idstr + "/G_Prop/G_" + name)
+                    self.galdata[name][i] = np.array(xdata)
+    
+                for name in self.vrobj.vr_general:
+                    xdata = self.h5data.get("/" + name)
+                    self.galdata[name][i] = np.array(xdata)
+    
+                for name in self.vrobj.vr_galinfo:
+                    xdata = self.h5data.get(idstr + "/" + name)
+                    self.galdata[name][i] = np.array(xdata)
+        
+        def f_rdgal_input_p(self, start, end, q):
+            for i in range(start, end):
+                idstr  = 'ID_%0.6d'%self.gidlist[i]
+
+                for name in self.vrobj.vr_columnlist:
+                    xdata = self.h5data.get(idstr + "/G_Prop/G_" + name)
+                    self.galdata[name][i] = np.array(xdata)
+
+                for name in self.vrobj.vr_galprop:
+                    xdata = self.h5data.get(idstr + "/G_Prop/G_" + name)
+                    self.galdata[name][i] = np.array(xdata)
+    
+                for name in self.vrobj.vr_general:
+                    xdata = self.h5data.get("/" + name)
+                    self.galdata[name][i] = np.array(xdata)
+    
+                for name in self.vrobj.vr_galinfo:
+                    xdata = self.h5data.get(idstr + "/" + name)
+                    self.galdata[name][i] = np.array(xdata)
+
+            q.put((start, end, self.galdata[start:end]))
+
+    def f_rdgal(self, n_snap, id0, mrange=None, horg='g'):
 
         # Path setting
-        directory   = self.dir_catalog
-        if(horg=='h'): directory += 'Halo/VR_Halo/snap_%0.4d'%n_snap + '/'
-        elif(horg=='g'): directory += 'Galaxy/VR_Galaxy/snap_%0.4d'%n_snap+'/'
+        if(horg=='h'): fname = self.dir_catalog + 'Halo/VR_Halo/snap_%0.4d'%n_snap + '.hdf5'
+        elif(horg=='g'): fname = self.dir_catalog + 'Galaxy/VR_Galaxy/snap_%0.4d'%n_snap+'.hdf5'
         else:
             print('%-----')
             print(' Wrong argument for the horg')
             print('     horg = "g" (for galaxy) or "h" (for halo)')
             print('%-----')
 
-        # Get file list
-        if(id0>=0): flist=[directory + 'GAL_%0.6d'%id0 + '.hdf5']
+
+        # Open hdf5
+        dat     = h5py.File(fname, 'r')
+
+        # Get ID & Mass First
+        mass_tot    = np.array(dat.get('Mass_tot'),dtype='<f8')
+        mvir        = np.array(dat.get('Mvir'),dtype='<f8')
+        idlist      = np.array(dat.get('ID'),dtype='<i4')
+
+        # Extract
+        if id0 > 0:
+            idlist = idlist[idlist == id0]
         else:
-            flist=os.system('ls '+directory+'GAL_*.hdf5 > imglist.txt')
-                              #flist=os.system('find -type f -name "'+proj_images_dir+'*.pickle" -print0 | xargs -0 -n 10 ls > '+proj_images_dir+'imglist.dat')
-            flist=np.loadtxt("imglist.txt", dtype=str)
-            ## find a more simple way
+            if not (mrange is None):
+                if horg == 'g': idlist = idlist[(mass_tot >= mrange[0]) * (mass_tot < mrange[1])]
+                if horg == 'h': idlist = idlist[(mvir >= mrange[0]) * (mvir < mrange[1])]
+
+        n_gal   = len(idlist)
 
         # Set column list
         dtype=[]
+
+        ##----- Original catalog
         for name in self.vr_columnlist:
-            if(name=='SFR' and horg=='g'): dtype=dtype+[(name, 'object')]
-            elif(name=='ABmag' and horg=='g'): dtype=dtype+[(name, 'object')]
-            elif(name=='ID' or name=='hostHaloID' or name=='numSubStruct' or name=='Structuretype' or name=='npart'): dtype=dtype+[(name, np.int32)]
+            if(name=='ID' or name=='hostHaloID' or name=='numSubStruct' or name=='Structuretype' or name=='npart'): dtype=dtype+[(name, np.int32)]
             elif(name=='ID_mbp'): dtype=dtype+[(name, np.int64)]
             else: dtype=dtype+[(name, '<f8')]
 
-        if(horg=='g'):
-            column_list_additional=['Domain_List', 'Flux_List', 'MAG_R', 'SFR_R', 'SFR_T', 'ConFrac', 'CONF_R',
-                                   'isclump', 'rate', 'Aexp', 'snapnum']
-            for name in self.vr_galprop:
-                column_list_additional=column_list_additional+[name]
+
+        ##----- Gal prop with post-processing
+        for name in self.vr_galprop:
+            dtype=dtype+[(name, 'object')]
+
+        for name in self.vr_general:
+            dtype=dtype+[(name, 'object')]
+
+        for name in self.vr_galinfo:
+            if(name=='Domain_List'):
+                dtype=dtype + [(name, 'object')]
+            else:
+                dtype=dtype + [(name, '<f8')]
+
+        galdata=np.zeros(n_gal, dtype=dtype)
+
+        #with multiprocessing.Pool(self.num_thread) as pool:
+        #    #tasks = [(self.f_rdgal_input, (i, gid, galdata, dat)) for i, gid in enumerate(idlist)]
+        #    void = pool.starmap(self.f_rdgal_input, [(i, gid, galdata, dat) for i, gid in enumerate(idlist)])
+        #    pool.close()
+        #    pool.join()
+        #if __name__ == '__main__':
+        p_input = self.f_rdgal_parallel()
+        p_input.vrobj = self
+        p_input.gidlist = idlist
+        p_input.h5data = dat
+        p_input.galdata = galdata
+
+        if n_gal < self.num_thread:
+            #serially
+            p_input.f_rdgal_input(0, n_gal)
+            return p_input.galdata
         else:
-            column_list_additional=['']###['Domain_List', 'ConFrac', 'CONF_R', 'rate', 'Aexp', 'snapnum']
+            #parallelly (motivated by uhmi.py)
+            dind  = np.int32(n_gal / self.num_thread)
+            ps = []
+            q = Queue()
 
+            for th in range(self.num_thread):
+                i0 = th * dind
+                i1 = (th+1) * dind
+                if(th==0): i0 = 0
+                if(th==self.num_thread-1): i1 = n_gal
+                p = Process(target=p_input.f_rdgal_input_p, args=(i0, i1, q))
+                ps.append(p)
 
-        if(horg=='g'):
-            for name in column_list_additional:
-                if(name=='isclump'): dtype=dtype+[(name, np.int32)]
-                elif(name=='rate'): dtype=dtype+[(name, '<f8')]
-                elif(name=='Aexp'): dtype=dtype+[(name, '<f8')]
-                elif(name=='snapnum'): dtype=dtype+[(name, np.int32)]
-                else: dtype=dtype+[(name, 'object')]
-
-        galdata=np.zeros(len(flist), dtype=dtype)
-
-        for i, fn in enumerate(flist):
-            dat= h5py.File(fn, 'r')
-            for name in self.vr_columnlist:
-                if(horg=='g'):
-                    xdata=dat.get("G_Prop/G_"+name)
-                    galdata[name][i]=np.array(xdata)
+                p.start()
+                while not q.empty():
+                    i0, i1, dumdata = q.get()
+                    galdata[i0:i1] = dumdata
+            ok = False
+            while not ok:
+                ok = True
+                for idx in np.arange(len(ps)):
+                    if (ps[idx].is_alive()):
+                        ok = False
+                if(not q.empty()):
+                    i0, i1, dumdata = q.get()
+                    galdata[i0:i1] = dumdata
                 else:
-                    if(name!='SFR' and name!='ABmag'):
-                        xdata=dat.get("G_Prop/G_"+name)
-                        galdata[name][i]=np.array(xdata)
+                    sleep(0.5)
 
-            if(horg=='g'):
-                for name in column_list_additional:
-                    if(name=='ConFrac'): xdata=dat.get("/G_Prop/G_ConFrac")
-                    elif(name=='CONF_R'): xdata=dat.get("/CONF_R")
-                    elif(name=='isclump'): xdata=dat.get("/isclump")
-                    elif(name=='rate'): xdata=dat.get("/rate")
-                    elif(name=='Aexp'): xdata=dat.get("/Aexp")
-                    elif(name=='Domain_List'): xdata=dat.get("/Domain_List")
-                    elif(name=='Flux_List'): xdata=np.array(dat.get("/Flux_List"),dtype=np.str)
-                    elif(name=='MAG_R'): xdata=dat.get("/MAG_R")
-                    elif(name=='SFR_R'): xdata=dat.get("/SFR_R")
-                    elif(name=='SFR_T'): xdata=dat.get("/SFR_T")
-                    elif(name=='snapnum'): xdata=np.int32(n_snap)
-                    elif(name=='SFR' or name=='ABmag'): xdata=dat.get("G_Prop/G_" + name)
-                    ##    break
-                    ##else: xdata=dat.get(name)
-                    galdata[name][i]=np.array(xdata)
-        return galdata
+            return galdata
+
 
     ##-----
     ## Load Particle of a galaxy
