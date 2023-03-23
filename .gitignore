@@ -8,3 +8,4 @@
 **/rur.egg-info/**
 **genmod**
 *.i90
+*.mod
