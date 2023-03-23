@@ -147,12 +147,12 @@ class HaloMaker:
         start = snap.iout
         end = start+1
         if(double_precision is None):
-            if(snap.mode=='nh' and galaxy):
-                # NewHorizon galaxies uses dp, while halo data uses sp
+            if(galaxy):
+                # galaxies uses dp, while halo data uses sp
                 double_precision=True
             else:
                 double_precision=False
-            if(snap.mode=='yzics'):
+            if(snap.mode=='yzics')or(snap.mode=='nh'):
                 double_precision=True
         if (galaxy):
             if(path_in_repo is None):
