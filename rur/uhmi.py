@@ -152,7 +152,7 @@ class HaloMaker:
                 double_precision=True
             else:
                 double_precision=False
-            if(snap.mode=='yzics')or(snap.mode=='nh'):
+            if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2'):
                 double_precision=True
         if (galaxy):
             if(path_in_repo is None):
