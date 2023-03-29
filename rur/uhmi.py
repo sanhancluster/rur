@@ -1225,6 +1225,20 @@ class TreeMaker:
         ('mfat1', 'f4'), ('mfat2', 'f4'), ('mfat3', 'f4'), ('mfat4', 'f4'), ('mfat5', 'f4'),
         ('rvir', 'f4'), ('mvir', 'f4'), ('tvir', 'f4'), ('cvel', 'f4'),
         ('rho0', 'f4'), ('rc', 'f4')]
+    
+    dtype_dp = [
+        ('id', 'i4'), ('timestep', 'i4'), ('level', 'i4'),
+        ('host', 'i4'), ('hostsub', 'i4'), ('nbsub', 'i4'), ('nextsub', 'i4'),
+        ('nfat', 'i4'), ('fat1', 'i4'), ('fat2', 'i4'), ('fat3', 'i4'), ('fat4', 'i4'), ('fat5', 'i4'),
+        ('nson', 'i4'), ('son1', 'i4'), ('son2', 'i4'), ('son3', 'i4'), ('son4', 'i4'), ('son5', 'i4'),
+        ('aexp', 'f4'), ('age_univ', 'f4'), ('m', 'f8'), ('macc', 'f8'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'),
+        ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'),
+        ('Lx', 'f8'), ('Ly', 'f8'), ('Lz', 'f8'),
+        ('r', 'f8'), ('a', 'f8'), ('b', 'f8'), ('c', 'f8'),
+        ('ek', 'f8'), ('ep', 'f8'), ('et', 'f8'), ('spin', 'f8'),
+        ('mfat1', 'f8'), ('mfat2', 'f8'), ('mfat3', 'f8'), ('mfat4', 'f8'), ('mfat5', 'f8'),
+        ('rvir', 'f8'), ('mvir', 'f8'), ('tvir', 'f8'), ('cvel', 'f8'),
+        ('rho0', 'f8'), ('rc', 'f8')]
 
     @staticmethod
     def unit_conversion(array, snap):
@@ -1247,27 +1261,28 @@ class TreeMaker:
 
     @staticmethod
     # boxsize: comoving length of the box in Mpc
-    def load(snap, path_in_repo=None, galaxy=False, dp_ini=False):
+    def load(snap, path_in_repo=None, galaxy=False, double_precision=None):
         repo = snap.repo
-        if(snap.mode=='yzics'):
-            dp_ini=False
-        elif(snap.mode=='nh'):
-            dp_ini=True
+        if(double_precision is None):
+            if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2'):
+                double_precision=True
+            else:
+                double_precision=False
         if (galaxy):
             if(path_in_repo is None):
-                path_in_repo = 'GalaxyMaker/gal/tree.dat'
-            path = os.path.join(repo, path_in_repo)
+                path_in_repo = default_path_in_repo['GalaxyMaker']
+            path = os.path.join(repo, path_in_repo, "tree.dat")
         else:
             if(path_in_repo is None):
-                path_in_repo = 'halo/DM/tree.dat'
-            path = os.path.join(repo, path_in_repo)
-        dtype = TreeMaker.dtype
+                path_in_repo = default_path_in_repo['HaloMaker']
+            path = os.path.join(repo, path_in_repo, "tree.dat")
+        dtype = TreeMaker.dtype if double_precision else TreeMaker.dtype_dp
         if(not os.path.exists(path)):
             raise FileNotFoundError('Error: Tree file not found in path: %s' % path)
 
         print('Reading %s... ' % path)
         timer.start()
-        readh.read_single_tree(path, galaxy, dp_ini=dp_ini)
+        readh.read_single_tree(path, galaxy, dp_ini=double_precision)
         print('Took %.3fs' % timer.time())
 
         print('Building table for %d nodes... ' % readh.integer_table.shape[-1] , end='')

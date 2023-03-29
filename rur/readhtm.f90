@@ -357,7 +357,7 @@ contains
          do st = 1, nsteps
             call progress_bar(st, nsteps)
             do j = 1, nb_of_halos(st)+nb_of_subhalos(st)
-               call read_halo(unitfile, st, aexp(st), age_univ(st))
+               call read_halo(unitfile, st, aexp(st), age_univ(st), dp_ini)
                ihalo = ihalo + 1
             end do
          end do
@@ -370,7 +370,7 @@ contains
 
 
 !#########################################################
-   subroutine read_halo(unitfile, st, aexp, age_univ)
+   subroutine read_halo(unitfile, st, aexp, age_univ, dp_ini)
 !#########################################################
       implicit none
       integer(kind=4) :: st, nb_fathers, nb_sons, temp_space, i, max_ind
@@ -379,11 +379,11 @@ contains
       real(kind=8)    :: macc
       integer(kind=4), dimension(:), allocatable :: integer_temp
       real(kind=4),    dimension(:), allocatable :: real_temp
+      logical,intent(in) :: dp_ini
 
       read(unitfile) integer_table(ihalo, 1) ! my_number
       read(unitfile) integer_table(ihalo, 2)                       ! BushID
       read(unitfile) integer_table(ihalo, 2) ! my_timestep
-
       ! change the time step number to match the number of branching (time resolution)
       ! you decided your tree is going to have
       !integer_table(ihalo,3) = 0 ! meaningless in this program (TK)
@@ -451,6 +451,8 @@ contains
       end if
       read(unitfile) real_table(ihalo,27:30) ! rvir, mvir, tvir, cvel
       read(unitfile) real_table(ihalo,31:32) ! rho0, rc
+      read(unitfile) ! ncont
+      read(unitfile) ! mcont
    end subroutine read_halo
 
 
