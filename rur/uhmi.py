@@ -581,10 +581,10 @@ class PhantomTree:
         fname = os.path.join(dirpath, ptree_file)
         if(os.path.isfile(fname)):
             ptree = load(fname, msg=True)
-            ptree = drop_fields(
+            ptree = [drop_fields(
                 ptree, 
                 ['fat', 'son', 'score_fat', 'score_son', 'nprog', 'ndesc', 'first', 'last', 'first_rev', 'last_rev'], 
-                usemask=False)
+                usemask=False)]
         else:
             ptree = []
 
