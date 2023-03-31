@@ -581,12 +581,10 @@ class PhantomTree:
         fname = os.path.join(dirpath, ptree_file)
         if(os.path.isfile(fname)):
             ptree = load(fname, msg=True)
-            print(ptree.dtype)
             ptree = [drop_fields(
                 ptree, 
                 ['fat', 'son', 'score_fat', 'score_son', 'nprog', 'ndesc', 'first', 'last', 'first_rev', 'last_rev'], 
                 usemask=False)]
-            print(type(ptree))
         else:
             ptree = []
 
@@ -604,7 +602,10 @@ class PhantomTree:
                     break
             if(not os.path.isfile(fname)):
                 tree = load(path, msg=True)
-                print(tree.dtype)
+                try:
+                    tree = drop_fields(tree, 'mcontam', usemask=False)
+                except:
+                    pass
                 ptree.append(tree)
                 add += 1
             iout -= 1
@@ -612,7 +613,6 @@ class PhantomTree:
             raise FileNotFoundError('No ptree file found in %s' % dirpath)
 
         if add>0:
-            print(type(ptree))
             ptree = np.concatenate(ptree)
             ptree = PhantomTree.set_pairing_id(ptree, dtype_id=dtype_id)
             dump(ptree, fname)
