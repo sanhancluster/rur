@@ -447,9 +447,9 @@ class PhantomTree:
             halo, part_ids = HaloMaker.load(snap, path_in_repo=path_in_repo_halomaker,full_path=full_path_halomaker, load_parts=True, **kwargs)
             max_part_size = int(np.max(part_ids) * part_array_buffer)
 
-        part_pool = np.full((lookup, max_part_size), -1, dtype='i4')
-        sizes = np.zeros(lookup, dtype='i4')
-        halo_ids = []
+        part_pool = np.full((lookup, max_part_size), -1, dtype='i4') #
+        sizes = np.zeros(lookup, dtype='i4') # 
+        halo_ids = [] #
         buffer = 0
 
         iterator = tqdm(snap_iouts, unit='snapshot')
@@ -486,6 +486,21 @@ class PhantomTree:
             part_pool[0, part_ids] = halo_idx
             sizes[0] = halo.size
 
+            halo_ids = [halo['id']] + halo_ids
+            if(len(halo_ids)>lookup-1):
+                halo_ids = halo_ids[:lookup-1]
+            
+            if full_path_ptree is None:
+                path = os.path.join(snap.repo, path_in_repo, ptree_file_format % iout)
+            else:
+                path = os.path.join(full_path_ptree, ptree_file_format % iout)
+            if(start_on_middle and sizes[-1]==0):
+                print("Skipping output of iout = %d..." % iout)
+                continue
+            if(start_on_middle and os.path.isfile(path)):
+                print("Skipping output of iout = %d..." % iout)
+                continue
+
             desc_ids = np.empty(shape=((lookup-1)*rankup, halo.size), dtype='i4')
             npass = np.empty(shape=((lookup-1)*rankup, halo.size), dtype='i4')
 
@@ -504,13 +519,8 @@ class PhantomTree:
                     npass[rank_range] = 0
             buffer += 1
 
-            halo_ids = [halo['id']] + halo_ids
-            if(len(halo_ids)>lookup-1):
-                halo_ids = halo_ids[:lookup-1]
+            
 
-            if(start_on_middle and sizes[-1]==0):
-                print("Skipping output of iout = %d..." % iout)
-                continue
 
             tree_dtype = np.dtype([('desc', 'i4', (lookup-1, rankup)), ('npass', 'i4', (lookup-1, rankup))])
             tree_data = np.full(halo.size, fill_value=-2, dtype=tree_dtype)
@@ -527,10 +537,6 @@ class PhantomTree:
             # merge generated tree data
             halo = merge_arrays([halo, tree_data], fill_value=-2, flatten=True, usemask=False)
 
-            if full_path_ptree is None:
-                path = os.path.join(snap.repo, path_in_repo, ptree_file_format % iout)
-            else:
-                path = os.path.join(full_path_ptree, ptree_file_format % iout)
             dump(halo, path, msg=False)
         uri.timer.verbose = 1
 
@@ -562,8 +568,17 @@ class PhantomTree:
     def merge_ptree(repo, iout_max, full_path=None, path_in_repo=path_in_repo, ptree_file=ptree_file, ptree_file_format=ptree_file_format, skip_jumps=False, dtype_id='i8'):
         dirpath = os.path.join(repo, path_in_repo) if full_path is None else full_path
         iout = iout_max
-        ptree = []
+        fname = os.path.join(dirpath, ptree_file)
+        if(os.path.isfile(fname)):
+            ptree = load(fname, msg=True)
+            ptree = drop_fields(
+                ptree, 
+                ['fat', 'son', 'score_fat', 'score_son', 'nprog', 'ndesc', 'first', 'last', 'first_rev', 'last_rev'], 
+                usemask=False)
+        else:
+            ptree = []
 
+        add = 0
         while(True):
             path = os.path.join(dirpath, ptree_file_format % iout)
             if(not os.path.exists(path)):
@@ -575,16 +590,18 @@ class PhantomTree:
                         continue
                 else:
                     break
-            tree = load(path, msg=True)
-            ptree.append(tree)
+            if(not os.path.isfile(fname)):
+                tree = load(path, msg=True)
+                ptree.append(tree)
+                add += 1
             iout -= 1
         if(len(ptree) == 0):
             raise FileNotFoundError('No ptree file found in %s' % dirpath)
 
-        ptree = np.concatenate(ptree)
-        ptree = PhantomTree.set_pairing_id(ptree, dtype_id=dtype_id)
-
-        dump(ptree, os.path.join(dirpath, ptree_file))
+        if add>0:
+            ptree = np.concatenate(ptree)
+            ptree = PhantomTree.set_pairing_id(ptree, dtype_id=dtype_id)
+            dump(ptree, fname)
 
     @staticmethod
     def set_pairing_id(ptree, save_hmid=True, dtype_id='i8'):
