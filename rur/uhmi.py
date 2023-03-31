@@ -459,8 +459,7 @@ class PhantomTree:
                 pfiles = os.listdir(full_path_ptree)
             pfiles = [pf for pf in pfiles if pf.startswith("ptree_0")]
             nout = [int(pf[6:11]) for pf in pfiles]
-            nout = np.sort(nout)[::-1]
-            snap_iouts = nout[nout <= np.min(nout)+lookup]
+            snap_iouts = snap_iouts[snap_iouts <= np.min(nout) + 2*lookup + 1]
             
 
         iterator = tqdm(snap_iouts, unit='snapshot')
