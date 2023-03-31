@@ -452,6 +452,17 @@ class PhantomTree:
         halo_ids = [] #
         buffer = 0
 
+        if(start_on_middle):
+            if full_path_ptree is None:
+                pfiles = os.listdir(f"{snap.repo}/{path_in_repo}")
+            else:
+                pfiles = os.listdir(full_path_ptree)
+            pfiles = [pf for pf in pfiles if pf.startswith("ptree_0")]
+            nout = [int(pf[6:11]) for pf in pfiles]
+            nout = np.sort(nout)[::-1]
+            snap_iouts = nout[nout <= np.min(nout)+lookup]
+            
+
         iterator = tqdm(snap_iouts, unit='snapshot')
         for iout in iterator:
             try:
@@ -476,7 +487,7 @@ class PhantomTree:
             if(halo.size == 0):
                 iterator.close()
                 break
-
+            
             halo_idx = np.repeat(np.arange(halo.size), halo['nparts'])
 
             part_pool[1:lookup] = part_pool[0:lookup-1]
@@ -495,10 +506,10 @@ class PhantomTree:
             else:
                 path = os.path.join(full_path_ptree, ptree_file_format % iout)
             if(start_on_middle and sizes[-1]==0):
-                print("Skipping output of iout = %d..." % iout)
+                print("Skipping output of iout = %d... (zero size)" % iout)
                 continue
             if(start_on_middle and os.path.isfile(path)):
-                print("Skipping output of iout = %d..." % iout)
+                print("Skipping output of iout = %d... (already)" % iout)
                 continue
 
             desc_ids = np.empty(shape=((lookup-1)*rankup, halo.size), dtype='i4')
