@@ -1,6 +1,6 @@
 MODULE js_getpt
 
-      REAL(KIND=8), DIMENSION(:), ALLOCATABLE :: pot
+      REAL(KIND=8), DIMENSION(:), ALLOCATABLE :: pot, force
 
       !!----- Tree related
       TYPE nodetype
@@ -9,6 +9,7 @@ MODULE js_getpt
         REAL(KIND=8) :: bnd(6,2), cen(6), mass, splitval
         INTEGER(KIND=4) :: numnode, level
         INTEGER(KIND=4) :: parent, sibling, left, right
+        REAL(KIND=8) :: dmax
       END TYPE nodetype
 
       TYPE dat
@@ -16,8 +17,23 @@ MODULE js_getpt
       END TYPE dat
 
       TYPE infotype
-        INTEGER(KIND=4) :: bsize, ndim, npart
-        INTEGER(KIND=4) :: dtype, vtype
+        INTEGER(KIND=4) :: bsize, ndim, npart, n_thread
+        INTEGER(KIND=4) :: dtype
+                ! Axis division type
+                ! 0 - Maxrange
+                ! others - not implemented 
+        INTEGER(KIND=4) :: vtype
+                ! Split Value type
+                ! 0 - Balanced (Median cutting)
+                ! others - not implemented
+        INTEGER(KIND=4) :: omp_tag
+                ! not used yet
+        INTEGER(KIND=4) :: np_dmax_tag, np_mass_tag
+                ! 2 - compute at all nodes
+                ! 1 - compute at leaf nodes
+                ! <0 - do not compute
+                !       dmax - np_dmax_tag
+                !       mass - np_mass_tag
       END TYPE infotype
       !!-----
 CONTAINS
@@ -48,9 +64,11 @@ CONTAINS
       INTEGER(KIND=4), DIMENSION(:), ALLOCATABLE :: orgind
       INTEGER(KIND=4), DIMENSION(:), ALLOCATABLE :: recind
       REAL(KIND=8) Gconst, dummy, dx, time(10)
-      REAL(KIND=8) dummy_v(8), bnd(8,3)
+      REAL(KIND=8) dummy_v(8), dummy_vf(8), bnd(8,3)
       INTEGER(KIND=4) bs, be, e_type, tonoff
       TYPE(nodetype), DIMENSION(:), ALLOCATABLE :: lf
+      TYPE(dat), DIMENSION(:), ALLOCATABLE :: part
+      TYPE(infotype) :: tree_set
 
       n_ptcl    = larr(1)
       n_dim     = larr(2)
@@ -67,8 +85,11 @@ CONTAINS
       CALL OMP_SET_NUM_THREADS(n_thread)
 
       IF(ALLOCATED(pot)) DEALLOCATE(pot)
+      IF(ALLOCATED(force)) DEALLOCATE(force)
       ALLOCATE(pot(1:n_ptcl))
+      ALLOCATE(force(1:n_ptcl))
       pot = 0.
+      force     = 0.
       !!-----
       !! GET TREE
       !!-----
@@ -84,7 +105,24 @@ CONTAINS
       time(1)   = omp_get_wtime()
 
       IF(ALLOCATED(root)) DEALLOCATE(root)
-      root = js_kdtree_mktree(pos, mm, orgind, bsize, d_type, v_type)
+
+      IF(ALLOCATED(part)) DEALLOCATE(part)
+      ALLOCATE(part(1:n_ptcl))
+      DO i=1, n_dim
+        part%pos(i) = pos(:,i)
+      ENDDO
+      part%mm = mm(:)
+
+      tree_set%bsize = bsize
+      tree_set%dtype = d_type
+      tree_set%vtype = v_type
+      tree_set%ndim = n_dim
+      tree_set%n_thread = n_thread
+      tree_set%np_dmax_tag = -1
+      tree_set%np_mass_tag = 1
+      root = js_kdtree_mktree(part, orgind, tree_set)
+
+      root = js_kdtree_mktree(part, orgind, tree_set)
 
       time(2)   = omp_get_wtime()
       !!-----
@@ -96,37 +134,15 @@ CONTAINS
 
       CALL js_kdtree_getleaf(root, lf)
 
-      !!-----
-      !! COMPUTE POTENTIAL
-      !!-----
-
-      !!----- FOR DS TEST
-      !!$OMP PARALLEL DO default(shared) &
-      !!$OMP & private(j, dx, k) schedule(static)
-      !DO i=1, 10000
-      !  PRINT *, i
-      !  DO j=1, n_ptcl
-      !    IF(i .EQ. j)CYCLE
-      !    dx = 0.
-      !    DO k=1, n_dim
-      !      dx = dx + ( pos(i,k) - pos(j,k) )**2
-      !    ENDDO
-      !    dx = dx**0.5
-
-      !    pot(i) = pot(i) + (-Gconst) * mm(j) / dx
-      !  ENDDO
-      !ENDDO
-      !!$OMP END PARALLEL DO
-      !RETURN
-
-
       !!----- Considering Particle position
-      IF(e_type .EQ. 1) THEN
+      IF(e_type .EQ. 1) THEN 
+      !!----- Considering Particle position
         !$OMP PARALLEL DO default(shared) &
         !$OMP & private(bs, be, dx, j, k, l) &
         !$OMP & schedule(static)
         DO i=1, n_ptcl
           pot(i) = 0.
+          force(i) = 0.
 
           IF(p_type .EQ. 0) THEN !! mesh to mesh only
 
@@ -136,14 +152,16 @@ CONTAINS
 
               dx = 0.
               DO k=1, n_dim
-                dx = dx + ( lf(j)%cen(k) - pos(i,k) )**2
+                dx = dx + ( lf(j)%cen(k) - part(i)%pos(k) )**2
               ENDDO
               dx = dx**0.5
 
               IF(i .GE. bs .AND. i .LE. be) THEN
-                pot(i) = pot(i) + (-Gconst) * (lf(j)%mass - mm(i))/dx
+                pot(i) = pot(i) + (-Gconst) * (lf(j)%mass - part(i)%mm)/dx
+                force(i) = force(i) + (-Gconst) * (lf(j)%mass - part(i)%mm)/dx**2
               ELSE
                 pot(i) = pot(i) + (-Gconst) * lf(j)%mass/dx
+                force(i) = force(i) + (-Gconst) * lf(j)%mass/dx**2
               ENDIF
             ENDDO
 
@@ -160,20 +178,22 @@ CONTAINS
 
                   dx = 0.
                   DO l=1, n_dim
-                    dx = dx + ( pos(i,l) - pos(k,l) )**2
+                    dx = dx + ( part(i)%pos(l) - part(k)%pos(l) )**2
                   ENDDO
                   dx = dx**0.5
 
-                  pot(i) = pot(i) + (-Gconst) * mm(k)/dx
+                  pot(i) = pot(i) + (-Gconst) * part(k)%mm/dx
+                  force(i) = force(i) + (-Gconst) * part(k)%mm/dx**2
                 ENDDO
               ELSE
                 dx = 0.
                 DO k=1, n_dim
-                  dx = dx + ( pos(i,k) - lf(j)%cen(k) )**2
+                  dx = dx + ( part(i)%pos(k) - lf(j)%cen(k) )**2
                 ENDDO
                 dx = dx**0.5
 
                 pot(i) = pot(i) + (-Gconst) * lf(j)%mass/dx
+                force(i) = force(i) + (-Gconst) * lf(j)%mass/dx**2
               ENDIF
             ENDDO
           ENDIF
@@ -186,12 +206,13 @@ CONTAINS
         !        node - cost efficient
         !j, dummy, dx, bs, be, k
         !$OMP PARALLEL DO default(shared) &
-        !$OMP & private(dummy, dummy_v, bnd, j, k, l, bs, be, dx) &
+        !$OMP & private(dummy, dummy_v, dummy_vf, bnd, j, k, l, bs, be, dx) &
         !$OMP & schedule(static)
         DO i=1, n_leaf
 
           ! Monopole term
           dummy_v = 0.
+          dummy_vf = 0.
           bnd   = js_getpt_ft_getbnd(lf(i))
 
           DO j=1, n_leaf
@@ -200,7 +221,8 @@ CONTAINS
             DO k=1, 8
               dx = js_getpt_ft_dist(lf(j)%cen(1:3),bnd(k,:))
               IF(dx .EQ. 0) CYCLE
-                dummy_v(k) = dummy_v(k) + (-Gconst) * lf(j)%mass / dx
+              dummy_v(k) = dummy_v(k) + (-Gconst) * lf(j)%mass / dx
+              dummy_vf(k) = dummy_vf(k) + (-Gconst) * lf(j)%mass / dx**2
             ENDDO
           ENDDO
 
@@ -209,18 +231,22 @@ CONTAINS
           be      = lf(i)%bend
 
           DO j=bs, be
-            dummy = js_getpt_ft_interpole(bnd, pos(j,1:3), dummy_v)
+            dummy  = js_getpt_ft_interpole(bnd, part(j)%pos(1:3), dummy_v)
             pot(j) = pot(j) + dummy
+
+
+            dummy  = js_getpt_ft_interpole(bnd, part(j)%pos(1:3), dummy_vf)
+            force(j) = force(j) + dummy
 
             IF(p_type .EQ. 0) THEN !! mesh to mesh only
               dx = 0.
               DO k=1, n_dim
-                dx = dx + ( lf(i)%cen(k) - pos(j,k) )**2
+                dx = dx + ( lf(i)%cen(k) - part(j)%pos(k) )**2
               ENDDO
               dx = dx**0.5
               IF(dx .EQ. 0) CYCLE
-              pot(j) = pot(j) + (-Gconst) * (lf(i)%mass - mm(j)) / dx
-
+              pot(j) = pot(j) + (-Gconst) * (lf(i)%mass - part(j)%mm) / dx
+              force(j) = force(j) + (-Gconst) * (lf(i)%mass - part(j)%mm) / dx**2
             ENDIF
 
             IF(p_type .EQ. 1) THEN !! particle to mesh
@@ -229,11 +255,12 @@ CONTAINS
 
                 dx = 0.
                 DO l=1, n_dim
-                  dx = dx + ( pos(j,l) - pos(k,l) )**2
+                  dx = dx + ( part(j)%pos(l) - part(k)%pos(l) )**2
                 ENDDO
                 dx = dx**0.5
                 IF(dx .EQ. 0) CYCLE
-                pot(j) = pot(j) + (-Gconst) * mm(k) / dx
+                pot(j) = pot(j) + (-Gconst) * part(k)%mm / dx
+                force(j) = force(j) + (-Gconst) * part(k)%mm / dx**2
               ENDDO
             ENDIF
           ENDDO
@@ -248,12 +275,12 @@ CONTAINS
       !!-----
       CALL QUICKSORT(orgind, recind, SIZE(orgind), 1, SIZE(orgind))
 
-      DO i=1, n_dim
-        pos(:,i) = pos(recind,i)
-      ENDDO
-      mm = mm(recind)
+      !DO i=1, n_dim
+      !  pos(:,i) = pos(recind,i)
+      !ENDDO
+      !mm = mm(recind)
       pot = pot(recind)
-
+      force = force(recind)
       IF(tonoff .EQ. 1) THEN
         PRINT *, '%123123---------------'
         PRINT *, '        Wall-clock time Report'
@@ -264,6 +291,7 @@ CONTAINS
       DEALLOCATE(orgind, recind)
       DEALLOCATE(lf)
       DEALLOCATE(root)
+      DEALLOCATE(part)
       RETURN
 CONTAINS
 !!--------------------------------------------------
@@ -343,76 +371,183 @@ CONTAINS
 !! Main Routine for KD Tree
 !!--------------------------------------------------
 !!----- Tree Main routine
-        FUNCTION js_kdtree_mktree(pos, mm, orgind, &
-           bsize, dtype, vtype) RESULT(root)
+        FUNCTION js_kdtree_mktree(part, orgind, info) RESULT(root)
+           !bsize, dtype, vtype, ndim, n_thread, lp_max) RESULT(root)
 
+        USE omp_lib
         IMPLICIT NONE
-        REAL(KIND=8), DIMENSION(:,:) :: pos
-        REAL(KIND=8), DIMENSION(:) :: mm
+        !REAL(KIND=8), DIMENSION(:,:) :: pos
+        !REAL(KIND=8), DIMENSION(:) :: mm
         INTEGER(KIND=4), DIMENSION(:) :: orgind
-        INTEGER(KIND=4), INTENT(IN) :: bsize, dtype, vtype
-
-        INTEGER(KIND=4) :: ndim, npart, i
+        INTEGER(KIND=4) :: act_thread, bsize_p, n_thread
+        INTEGER(KIND=4) :: npart, i, k, ndim
         INTEGER(KIND=4) :: numnode, level, bstart, bend
-        TYPE(nodetype), DIMENSION(:), ALLOCATABLE :: root, root_dum
-        TYPE(dat), DIMENSION(:), ALLOCATABLE :: part
-        TYPE(infotype) info
-        npart   = SIZE(pos(:,1))
-        ndim    = SIZE(pos(1,:))
-
-        info%bsize      = bsize
-        info%ndim       = ndim
-        info%npart      = npart
-        info%dtype      = dtype
-        info%vtype      = vtype
-
-        !!----- ALLOCATE
-        ALLOCATE(part(1:npart))
-
-        DO i=1, ndim
-          part%pos(i) = pos(:,i)
+        TYPE(nodetype), DIMENSION(:), ALLOCATABLE :: root, root_dum, root_p, root_pl
+        TYPE(nodetype), DIMENSION(:,:), ALLOCATABLE :: root_2d
+        TYPE(dat), DIMENSION(:), INTENT(inout) :: part
+        TYPE(infotype), INTENT(IN) ::info
+        TYPE(infotype) :: info2
+        INTEGER(KIND=4) :: bs, be, bs0, be0, n_ini, n_aft
+        TYPE(dat), DIMENSION(:), ALLOCATABLE :: partdum
+        INTEGER(KIND=4), DIMENSION(:), ALLOCATABLE :: inddum, nums
+        INTEGER(KIND=4) idoffset, ind0, ind1, lind, rind, indoffset
+        !! Initialize
+        npart   = SIZE(part)
+        n_thread = info%n_thread
+        ndim    = info%ndim
+        !! Set Threads
+        k = 0.
+        DO
+          IF(2.**k .LT. n_thread+0.1) THEN
+            k = k+1
+          ELSE
+            act_thread = 2.**(k-1)
+            EXIT
+          ENDIF
         ENDDO
-        part%mm = mm(:)
 
+        !! Make initial nodes for parallelization
+        IF(ALLOCATED(root)) DEALLOCATE(root)
         ALLOCATE(root(1:npart))
-        ALLOCATE(root_dum(1:npart))
 
-        !!----- ROOT NODE INFORMATION
+        info2 = info
+        info2%bsize = MAX(INT(npart / act_thread + 1.), info%bsize)
+        info2%dtype = 0
+        info2%vtype = 0
+        info2%omp_tag = 1
+
         DO i=1, ndim
           root(1)%bnd(i,1) = js_kdtree_min(part%pos(i))
           root(1)%bnd(i,2) = js_kdtree_max(part%pos(i))
         ENDDO
 
-        !!----- Build NODE
         numnode = 0
-        level   = 1
-        bstart  = 1
-        bend    = npart
+        level = 1
+        bstart = 1
+        bend = npart
 
-        CALL js_kdtree_buildnode(root, part, orgind, info, &
+        CALL js_kdtree_buildnode(root, part, orgind, info2, &
                 numnode, bstart, bend, level)
 
-        !!----- NEW INDEX
-        DO i=1, ndim
-          pos(:,i) = part%pos(i)
-        ENDDO
-        mm(:)   = part%mm
-
-        DEALLOCATE(part)
-
-        !!----- DEALLOCATE
-        root_dum        = root
+        IF(ALLOCATED(root_p)) DEALLOCATE(root_p)
+        ALLOCATE(root_p(1:numnode))
+        root_p = root(1:numnode)
         DEALLOCATE(root)
-        ALLOCATE(root(1:numnode))
-        root    = root_dum(1:numnode)
-        DEALLOCATE(root_dum)
-        root(1)%numnode = numnode
+
+        IF(info2%bsize .EQ. info%bsize) THEN !NO need to make subnodes
+          ALLOCATE(root(1:numnode))
+          root = root_p
+          DEALLOCATE(root_p)
+          root(1)%numnode = numnode
+          RETURN
+        ENDIF
+
+        !! Leaf for seed
+        IF(ALLOCATED(root_pl)) DEALLOCATE(root_pl)
+        ALLOCATE(root_pl(1:act_thread))
+
+        k = 1
+        DO i=1, numnode
+          IF(root_p(i)%leaf .EQ. 1) THEN
+            root_pl(k) = root_p(i)
+            k = k+1
+          ENDIF
+        ENDDO
+        n_ini      = numnode
+
+        !!----- Build Node
+        ! bs, be, partdum, inddum, numnode, level
+        ! bs0, be0
+        ! n_aft
+        ALLOCATE(root_2d(1:npart/act_thread, 1:act_thread))
+        ALLOCATE(nums(1:act_thread))
+        nums = 0
+        n_aft = 0
+
+        !$OMP PARALLEL DO default(shared) &
+        !$OMP & private(bs, be, partdum, inddum, numnode) &
+        !$OMP & private(level, bs0, be0) &
+        !$OMP & reduction(+:n_aft)
+        DO i=1, act_thread
+          bs = root_pl(i)%bstart
+          be = root_pl(i)%bend
+
+          ALLOCATE(partdum(1:be-bs+1))
+          ALLOCATE(inddum(1:be-bs+1))
+
+          partdum = part(bs:be)
+          inddum = orgind(bs:be)
+
+          !DO k=1, ndim
+          !  root_2d(1,i)%bnd(k,1) = !js_kdtree_min(partdum%pos(k))
+          !  root_2d(1,i)%bnd(k,2) = !js_kdtree_max(partdum%pos(k))
+          !ENDDO
+          root_2d(1,i)%bnd = root_pl(i)%bnd
+
+          numnode = 0
+          level = 1
+
+          bs0 = 1
+          be0 = be-bs+1
+          CALL js_kdtree_buildnode(root_2d(:,i), partdum, inddum, info, &
+            numnode, bs0, be0, level)
+          nums(i) = numnode
+          n_aft = n_aft + nums(i) - 1
+          part(bs:be) = partdum
+          orgind(bs:be) = inddum
+          DEALLOCATE(partdum, inddum)
+        ENDDO
+        !$OMP END PARALLEL DO
+
+        !!--Merge
+        ALLOCATE(root(1:n_ini+n_aft))
+
+        !!!!----- Initial node
+        root(1:n_ini) = root_p
+        idoffset = root(n_ini)%id - 1
+        indoffset = 0
+        ind0    = n_ini+1
+
+        DO i=1, act_thread
+          ind1 = ind0 + nums(i) - 2
+
+          lind  = root_2d(1,i)%left
+          rind  = root_2d(1,i)%right
+
+          root_2d(1:nums(i),i)%id = root_2d(1:nums(i),i)%id + idoffset
+          root_2d(1:nums(i),i)%numnode = root_2d(1:nums(i),i)%numnode + idoffset
+          root_2d(1:nums(i),i)%parent = root_2d(1:nums(i),i)%parent + idoffset
+          root_2d(1:nums(i),i)%left = root_2d(1:nums(i),i)%left + idoffset
+          root_2d(1:nums(i),i)%right = root_2d(1:nums(i),i)%right + idoffset
+          root_2d(1:nums(i),i)%sibling = root_2d(1:nums(i),i)%sibling + idoffset
+          root_2d(1:nums(i),i)%bstart = root_2d(1:nums(i),i)%bstart + indoffset
+          root_2d(1:nums(i),i)%bend = root_2d(1:nums(i),i)%bend + indoffset
+
+          root_2d(lind,i)%parent = root_pl(i)%id
+          root_2d(rind,i)%parent = root_pl(i)%id
+
+          root(root_pl(i)%id)%left = root_2d(lind,i)%id
+          root(root_pl(i)%id)%right = root_2d(rind,i)%id
+          root(root_pl(i)%id)%leaf = -1
+
+          root(ind0:ind1) = root_2d(2:nums(i),i)
+
+          ind0  = ind1 + 1
+          idoffset = idoffset + nums(i)-1
+          indoffset = root_2d(nums(i),i)%bend
+
+        ENDDO
+
+        DEALLOCATE(root_p, root_pl, root_2d, nums)
+        root(1)%numnode = n_ini + n_aft
       END FUNCTION js_kdtree_mktree
 
 !!----- Build Node
-      RECURSIVE SUBROUTINE js_kdtree_buildnode(node, part, orgind, info, &
+     RECURSIVE SUBROUTINE js_kdtree_buildnode(node, part, orgind, info, &
                       numnode, bstart, bend, level)
+        USE omp_lib
         IMPLICIT NONE
+        
         TYPE(nodetype), DIMENSION(:) :: node
         TYPE(dat), DIMENSION(:) :: part
         TYPE(infotype), INTENT(IN) :: info
@@ -430,48 +565,70 @@ CONTAINS
         node(numnode)%level   = level
         node(numnode)%leaf    = -1
 
-        !!----- IS LEAF
-        IF(node(numnode)%ncount .LE. info%bsize) THEN
-          node(numnode)%mass  = js_kdtree_total(part(bstart:bend)%mm)
+        ! for cen
+        DO i=1, info%ndim
+          node(numnode)%cen(i) = js_kdtree_total( &
+                  part(bstart:bend)%pos(i) * part(bstart:bend)%mm ) / &
+                  js_kdtree_total( part(bstart:bend)%mm )
+        ENDDO
 
-          DO i=1, info%ndim
-            node(numnode)%cen(i) = js_kdtree_total( &
-                    part(bstart:bend)%pos(i) * part(bstart:bend)%mm ) / &
-                    js_kdtree_total( part(bstart:bend)%mm )
-          ENDDO
+        ! for dmax
+        IF(info%np_dmax_tag .EQ. 2) node(numnode)%dmax = js_kdtree_dmax(part(bstart:bend), node(numnode)%cen, info%ndim)
+
+        ! for mass
+        IF(info%np_mass_tag .EQ. 2) node(numnode)%mass = js_kdtree_total(part(bstart:bend)%mm)
+
+        !!----- IS LEAF (some props are only calculated for leafs)
+        IF(node(numnode)%ncount .LE. info%bsize) THEN
+
+          ! for dmax
+          IF(info%np_dmax_tag .EQ. 1) node(numnode)%dmax = js_kdtree_dmax(part(bstart:bend), node(numnode)%cen, info%ndim)
+
+          ! for mass
+          IF(info%np_mass_tag .EQ. 1) node(numnode)%mass  = js_kdtree_total(part(bstart:bend)%mm)
 
           node(numnode)%leaf = 1
+          !node(numnode)%dmax = js_kdtree_dmax(part(bstart:bend), node(numnode)%cen, info%ndim)
           RETURN
         ENDIF
 
         !!----- DETERMINE SPLITDIM
         node(numnode)%splitdim = js_kdtree_sdim(part, bstart, bend, info)
 
+        
         !!----- DETERMIN SPLITVALUE
         CALL js_kdtree_sval(node(numnode), part, bstart, bend, orgind, info)
-
+        
         !!----- BUILD Sons
-        level_up        = level + 1
+
         nid     = numnode
+
+        level_up = level + 1
         node(numnode)%left      = numnode + 1
         node(numnode+1)%parent  = nid
         node(node(nid)%left)%bnd        = node(nid)%bnd
         node(node(nid)%left)%bnd( (node(nid)%splitdim), 2) = node(nid)%splitval
-        bs      = node(nid)%bstart
-        be      = node(nid)%splitind - 1
+
+        bs  = node(nid)%bstart
+        be  = node(nid)%splitind - 1
+        
         CALL js_kdtree_buildnode(node, part, orgind, info, &
                 numnode, bs, be, level_up)
 
-        level_up        = level + 1
+        level_up = level+1
         node(nid)%right = numnode + 1
         node(numnode+1)%parent = nid
         node(node(nid)%right)%bnd       = node(nid)%bnd
         node(node(nid)%right)%bnd( (node(nid)%splitdim), 1) = node(nid)%splitval
 
-        bs      = node(nid)%splitind
-        be      = node(nid)%bend
+        bs    = node(nid)%splitind
+        be    = node(nid)%bend
+        
         CALL js_kdtree_buildnode(node, part, orgind, info, &
                 numnode, bs, be, level_up)
+
+        node(node(nid)%left)%sibling = node(nid)%right
+        node(node(nid)%right)%sibling = node(nid)%left
 
         !!----- Set SONs
         !node%left       => left
@@ -680,6 +837,27 @@ CONTAINS
         sind = k
       END SUBROUTINE js_kdtree_mediansort
 
+      !Compute metric
+      REAL(KIND=8) FUNCTION js_kdtree_dmax (part, yy, ndim)
+        IMPLICIT NONE
+        TYPE(dat), DIMENSION(:), INTENT(IN) :: part
+        REAL(KIND=8), DIMENSION(:), INTENT(IN) :: yy
+        INTEGER(KIND=4) ndim, npart, i
+        REAL(KIND=8), DIMENSION(:), ALLOCATABLE :: ddum
+
+        npart = SIZE(part)
+        ALLOCATE(ddum(1:npart))
+
+        ddum = 0.
+
+        DO i=1, ndim
+          ddum = ddum + (part%pos(i) - yy(i))**2
+        ENDDO
+        ddum = SQRT(ddum)
+
+        js_kdtree_dmax = js_kdtree_max(ddum)
+        DEALLOCATE(ddum)
+      END FUNCTION js_kdtree_dmax
 !!----- TREE CALL FTNs
        ! get number of leaf nodes
       RECURSIVE SUBROUTINE js_kdtree_getleafnum_wktree(node, nn, nid)
@@ -786,4 +964,9 @@ CONTAINS
         return
       end subroutine quicksort
       END SUBROUTINE js_getpt_ft
+      SUBROUTINE js_getpt_ft_free()
+              IF(ALLOCATED(pot)) DEALLOCATE(pot)
+              IF(ALLOCATED(force)) DEALLOCATE(force)
+      END SUBROUTINE
+
 END MODULE

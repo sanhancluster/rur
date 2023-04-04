@@ -407,5 +407,5 @@ def f_getpot(pos, mm, num_thread=None, timereport=None, mesh_type=None, pole_typ
 
     js_getpt.js_getpt_ft(larr, darr, pos, mm)
     pot = js_getpt.pot
-
+    #js_getpt.js_getpt_ft_free()
     return pot

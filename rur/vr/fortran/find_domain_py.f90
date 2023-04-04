@@ -362,4 +362,8 @@ contains
          end do
       end do
       end subroutine find_hilbert
+
+      subroutine find_domain_free()
+              IF(ALLOCATED(dom_list)) DEALLOCATE(dom_list)
+      end subroutine
 end module find_domain_py
