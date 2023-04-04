@@ -1,6 +1,6 @@
 MODULE js_getpt
 
-      REAL(KIND=8), DIMENSION(:), ALLOCATABLE :: pot
+      REAL(KIND=8), DIMENSION(:), ALLOCATABLE :: pot, force
 
       !!----- Tree related
       TYPE nodetype
@@ -64,7 +64,7 @@ CONTAINS
       INTEGER(KIND=4), DIMENSION(:), ALLOCATABLE :: orgind
       INTEGER(KIND=4), DIMENSION(:), ALLOCATABLE :: recind
       REAL(KIND=8) Gconst, dummy, dx, time(10)
-      REAL(KIND=8) dummy_v(8), bnd(8,3)
+      REAL(KIND=8) dummy_v(8), dummy_vf(8), bnd(8,3)
       INTEGER(KIND=4) bs, be, e_type, tonoff
       TYPE(nodetype), DIMENSION(:), ALLOCATABLE :: lf
       TYPE(dat), DIMENSION(:), ALLOCATABLE :: part
@@ -85,8 +85,11 @@ CONTAINS
       CALL OMP_SET_NUM_THREADS(n_thread)
 
       IF(ALLOCATED(pot)) DEALLOCATE(pot)
+      IF(ALLOCATED(force)) DEALLOCATE(force)
       ALLOCATE(pot(1:n_ptcl))
+      ALLOCATE(force(1:n_ptcl))
       pot = 0.
+      force     = 0.
       !!-----
       !! GET TREE
       !!-----
@@ -277,7 +280,7 @@ CONTAINS
       !ENDDO
       !mm = mm(recind)
       pot = pot(recind)
-
+      force = force(recind)
       IF(tonoff .EQ. 1) THEN
         PRINT *, '%123123---------------'
         PRINT *, '        Wall-clock time Report'
@@ -963,6 +966,7 @@ CONTAINS
       END SUBROUTINE js_getpt_ft
       SUBROUTINE js_getpt_ft_free()
               IF(ALLOCATED(pot)) DEALLOCATE(pot)
+              IF(ALLOCATED(force)) DEALLOCATE(force)
       END SUBROUTINE
 
 END MODULE
