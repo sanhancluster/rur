@@ -521,7 +521,7 @@ class PhantomTree:
                 if(ilook<=buffer):
                     desc_idx, npass_arr = PhantomTree.find_desc(
                         part_pool[np.array([0, ilook])], prog_n=sizes[0], next_n=sizes[ilook], rankup=rankup)
-                    desc_ids[rank_range] = halo_ids[ilook-1][desc_idx]
+                    desc_ids[rank_range] = halo_ids[ilook][desc_idx]
                     desc_ids[rank_range][desc_idx==-1] = -1
                     npass[rank_range] = npass_arr
                 else:
