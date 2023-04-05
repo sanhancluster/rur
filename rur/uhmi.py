@@ -438,18 +438,18 @@ class PhantomTree:
                        part_array_buffer=1.1, skip_jumps=False, start_on_middle=False, 
                        path_in_repo_halomaker=default_path_in_repo['GalaxyMaker'], full_path_ptree=None,
                        full_path_halomaker=None,**kwargs):
-        print('Building PhantomTree from HaloMaker data in %s' % snap.repo)
         max_iout = snap.iout
-        uri.timer.verbose = 0
+        # uri.timer.verbose = 0
         snap_iouts = np.arange(snap.iout, 0, -1)
+        print(f'Building PhantomTree from HaloMaker data ({len(snap_iouts)} snapshots) in `{snap.repo}`')
 
         if (max_part_size is None):
             halo, part_ids = HaloMaker.load(snap, path_in_repo=path_in_repo_halomaker,full_path=full_path_halomaker, load_parts=True, **kwargs)
             max_part_size = int(np.max(part_ids) * part_array_buffer)
 
-        part_pool = np.full((lookup, max_part_size), -1, dtype='i4') #
-        sizes = np.zeros(lookup, dtype='i4') # 
-        halo_ids = [] #
+        part_pool = np.full((lookup, max_part_size), -1, dtype='i4')
+        sizes = np.zeros(lookup, dtype='i4')
+        halo_ids = []
         buffer = 0
 
         if(start_on_middle):
@@ -461,8 +461,7 @@ class PhantomTree:
             nout = [int(pf[6:11]) for pf in pfiles]
             snap_iouts = snap_iouts[snap_iouts <= np.min(nout) + 2*lookup + 1]
             
-
-        iterator = tqdm(snap_iouts, unit='snapshot')
+        iterator = tqdm(snap_iouts, unit='snapshot') if uri.timer.verbose>0 else snap_iouts
         for iout in iterator:
             try:
                 snap = snap.switch_iout(iout)
@@ -476,17 +475,20 @@ class PhantomTree:
             halo, part_ids = HaloMaker.load(snap, load_parts=True, path_in_repo=path_in_repo_halomaker, full_path=full_path_halomaker,**kwargs)
             if(halo.size == 0):
                 if(skip_jumps):
+                    if(uri.timer.verbose>0): f"Skip jump due to zero-size halo at {iout}"
                     continue
                 else:
+                    if(uri.timer.verbose>0): f"Stop iteration due to zero-size halo at {iout}"
                     iterator.close()
                     break
             if(nparts_min is not None):
                 mask = halo['nparts'] >= nparts_min
                 halo, part_ids = HaloMaker.cut_table(halo, part_ids, mask)
             if(halo.size == 0):
+                if(uri.timer.verbose>0): f"Stop iteration due to zero-size cut_halo at {iout}"
                 iterator.close()
                 break
-            
+
             halo_idx = np.repeat(np.arange(halo.size), halo['nparts'])
 
             part_pool[1:lookup] = part_pool[0:lookup-1]
@@ -497,8 +499,8 @@ class PhantomTree:
             sizes[0] = halo.size
 
             halo_ids = [halo['id']] + halo_ids
-            if(len(halo_ids)>lookup-1):
-                halo_ids = halo_ids[:lookup-1]
+            if(len(halo_ids)>lookup):
+                halo_ids = halo_ids[:lookup]
             
             if full_path_ptree is None:
                 path = os.path.join(snap.repo, path_in_repo, ptree_file_format % iout)
@@ -508,7 +510,7 @@ class PhantomTree:
                 print("Skipping output of iout = %d... (zero size)" % iout)
                 continue
             if(start_on_middle and os.path.isfile(path)):
-                print("Skipping output of iout = %d... (already)" % iout)
+                print("Skipping output of iout = %d... (already existed)" % iout)
                 continue
 
             desc_ids = np.empty(shape=((lookup-1)*rankup, halo.size), dtype='i4')
@@ -529,8 +531,6 @@ class PhantomTree:
                     npass[rank_range] = 0
             buffer += 1
 
-            
-
 
             tree_dtype = np.dtype([('desc', 'i4', (lookup-1, rankup)), ('npass', 'i4', (lookup-1, rankup))])
             tree_data = np.full(halo.size, fill_value=-2, dtype=tree_dtype)
@@ -548,7 +548,7 @@ class PhantomTree:
             halo = merge_arrays([halo, tree_data], fill_value=-2, flatten=True, usemask=False)
 
             dump(halo, path, msg=False)
-        uri.timer.verbose = 1
+        # uri.timer.verbose = 1
 
 
     @staticmethod
