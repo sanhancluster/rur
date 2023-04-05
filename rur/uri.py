@@ -18,6 +18,7 @@ import numpy as np
 import warnings
 import glob
 import re
+from copy import deepcopy
 
 class TimeSeries(object):
     """
@@ -766,7 +767,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                     cursor += nsize
         return part[:cursor]
 
-    def read_part(self, target_fields=None, cpulist=None, pname=None, nthread=4):
+    def read_part(self, target_fields=None, cpulist=None, pname=None, nthread=4, return_raw=False):
         """Reads particle data from current box.
 
         Parameters
@@ -784,9 +785,10 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         if(cpulist is None):
             cpulist = self.get_involved_cpu()
         if (self.part is not None):
-            if pname == self.part.ptype:
-                if(timer.verbose>=1): print('Searching for extra files...')
-                cpulist = cpulist[np.isin(cpulist, self.cpulist_part, assume_unique=True, invert=True)]
+            if not isinstance(self.part, tuple):
+                if pname == self.part.ptype:
+                    if(timer.verbose>=1): print('Searching for extra files...')
+                    cpulist = cpulist[np.isin(cpulist, self.cpulist_part, assume_unique=True, invert=True)]
 
         if (cpulist.size > 0):
             filesize = 0
@@ -814,14 +816,16 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                         target_idx = np.where(np.isin(np.dtype(dtype).names, target_fields))[0]
                         arr = [arr[idx] for idx in target_idx]
                         dtype = [dtype[idx] for idx in target_idx]
-                    part = fromarrays(arr, dtype=dtype)
+                    part = fromarrays(arr, dtype=dtype) if not return_raw else arr
                 else:
                     if(self.longint):
                         arrs = [readr.real_table.T, readr.long_table.T, readr.integer_table.T, readr.byte_table.T]
                     else:
                         arrs = [readr.real_table.T, readr.integer_table.T, readr.byte_table.T]
-                    part = fromndarrays(arrs, dtype)
-
+                    part = fromndarrays(arrs, dtype) if not return_raw else arrs
+                if(return_raw):
+                    self.part = (part, dtype)
+                    return None
                 readr.close()
             bound = compute_boundary(part['cpu'], cpulist)
             if (self.part_data is None):
@@ -837,7 +841,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if (timer.verbose >= 1):
                 print('CPU list already satisfied.')
 
-    def read_cell(self, target_fields=None, read_grav=False, cpulist=None):
+    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, return_raw=False):
         """Reads amr data from current box.
 
         Parameters
@@ -894,12 +898,16 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 formats = [formats[idx] for idx in target_idx]
                 names = [names[idx] for idx in target_idx]
 
-                cell = fromarrays(arr, formats=formats, names=names)
+                cell = fromarrays(arr, formats=formats, names=names) if not return_raw else arr
             else:
                 dtype = np.format_parser(formats=formats, names=names, titles=None).dtype
                 arrs = [readr.real_table.T, readr.integer_table.T]
-                cell = fromndarrays(arrs, dtype)
+                cell = fromndarrays(arrs, dtype) if not return_raw else arrs
+            if(return_raw):
+                self.cell = (cell, dtype)
+                return None
             readr.close()
+            
 
             bound = compute_boundary(cell['cpu'], cpulist)
             if (self.cell_data is None):
@@ -1192,6 +1200,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.box_cell = None
             self.cpulist_cell = np.array([], dtype='i4')
             self.bound_cell = np.array([0], dtype='i4')
+        readr.close()
 
     def _read_nstar(self):
         part_file = FortranFile(self.get_path('part', 1))
@@ -1259,7 +1268,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.ref = np.concatenate(amr_refs)
         self.cpu = np.concatenate(amr_cpus)
 
-    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False):
+    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False, return_raw=False):
+        if(return_raw): print("`return_raw` is experimental!")
         if(box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -1282,7 +1292,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 domain_slicing=False
                 exact_box=False
             if(not ripses):
-                self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist)
+                self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist, return_raw=return_raw)
+                if(return_raw):
+                    if(target_fields is None): print("\nsnap.cell=\ntuple( \n    list[real_array, \n\t integer_array, \n\t byte_array \n\t], \n    dtype(nfield,)\n     )\n")
+                    else: print("\nsnap.cell=\ntuple( \n    list[\n\t array_1(npart,), \n\t array_2(npart,), \n\t ...\n\t array_nfield(npart,) \n\t], \n    dtype(nfield,)\n     )\n")
+                    print("Fortran memory should be deallocated via `snap.clear()`!")
+                    return self.cell
             else:
                 self.read_ripses(target_fields=target_fields, cpulist=cpulist)
             if(domain_slicing):
@@ -1301,7 +1316,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.cell = cell
         return self.cell
 
-    def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None, nthread=4):
+    def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None, nthread=4, return_raw=False):
+        if(return_raw): print("`return_raw` is experimental!")
         if(box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -1318,21 +1334,27 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             exact_box = False
         do=False
         if self.part is not None:
-            if pname != self.part.ptype:
-                print(f"\nYou loaded part only `{self.part.ptype}` but now you want `{pname}`!\nIt forces to remove `{self.part.ptype}` data and retry get_part (so it's inefficient!)\n")
-                self.part_data=None
-                self.part=None
-                self.box_part = None
-                self.cpulist_part = np.array([], dtype='i4')
-                self.bound_part = np.array([0], dtype='i4')
-                do=True
+            if not isinstance(self.part, tuple):
+                if pname != self.part.ptype:
+                    print(f"\nYou loaded part only `{self.part.ptype}` but now you want `{pname}`!\nIt forces to remove `{self.part.ptype}` data and retry get_part (so it's inefficient!)\n")
+                    self.part_data=None
+                    self.part=None
+                    self.box_part = None
+                    self.cpulist_part = np.array([], dtype='i4')
+                    self.bound_part = np.array([0], dtype='i4')
+                    do=True
         if(self.box is None or not np.array_equal(self.box, self.box_part) or cpulist is not None or do):
             if(cpulist is None):
                 cpulist = self.get_involved_cpu()
             else:
                 domain_slicing = True
                 exact_box = False
-            self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread)
+            self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, return_raw=return_raw)
+            if(return_raw):
+                if(target_fields is None): print("\nsnap.part=\ntuple( \n    list[\n\t real_array(npart, nfield), \n\t integer_array(npart, nfield), \n\t byte_array(npart, nfield) \n\t], \n    dtype(nfield,)\n     )\n")
+                else: print("\nsnap.part=\ntuple( \n    list[\n\t array_1(npart,), \n\t array_2(npart,), \n\t ...\n\t array_nfield(npart,) \n\t], \n    dtype(nfield,)\n     )\n")
+                print("Fortran memory should be deallocated via `snap.clear()`!")
+                return self.part
             if(domain_slicing):
                 part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
             else:
