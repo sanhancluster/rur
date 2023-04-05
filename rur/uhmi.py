@@ -147,12 +147,12 @@ class HaloMaker:
         start = snap.iout
         end = start+1
         if(double_precision is None):
-            if(snap.mode=='nh' and galaxy):
-                # NewHorizon galaxies uses dp, while halo data uses sp
+            if(galaxy):
+                # galaxies uses dp, while halo data uses sp
                 double_precision=True
             else:
                 double_precision=False
-            if(snap.mode=='yzics'):
+            if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2'):
                 double_precision=True
         if (galaxy):
             if(path_in_repo is None):
@@ -438,10 +438,10 @@ class PhantomTree:
                        part_array_buffer=1.1, skip_jumps=False, start_on_middle=False, 
                        path_in_repo_halomaker=default_path_in_repo['GalaxyMaker'], full_path_ptree=None,
                        full_path_halomaker=None,**kwargs):
-        print('Building PhantomTree from HaloMaker data in %s' % snap.repo)
         max_iout = snap.iout
-        uri.timer.verbose = 0
+        # uri.timer.verbose = 0
         snap_iouts = np.arange(snap.iout, 0, -1)
+        print(f'Building PhantomTree from HaloMaker data ({len(snap_iouts)} snapshots) in `{snap.repo}`')
 
         if (max_part_size is None):
             halo, part_ids = HaloMaker.load(snap, path_in_repo=path_in_repo_halomaker,full_path=full_path_halomaker, load_parts=True, **kwargs)
@@ -452,7 +452,16 @@ class PhantomTree:
         halo_ids = []
         buffer = 0
 
-        iterator = tqdm(snap_iouts, unit='snapshot')
+        if(start_on_middle):
+            if full_path_ptree is None:
+                pfiles = os.listdir(f"{snap.repo}/{path_in_repo}")
+            else:
+                pfiles = os.listdir(full_path_ptree)
+            pfiles = [pf for pf in pfiles if pf.startswith("ptree_0")]
+            nout = [int(pf[6:11]) for pf in pfiles]
+            snap_iouts = snap_iouts[snap_iouts <= np.min(nout) + 2*lookup + 1]
+            
+        iterator = tqdm(snap_iouts, unit='snapshot') if uri.timer.verbose>0 else snap_iouts
         for iout in iterator:
             try:
                 snap = snap.switch_iout(iout)
@@ -466,14 +475,17 @@ class PhantomTree:
             halo, part_ids = HaloMaker.load(snap, load_parts=True, path_in_repo=path_in_repo_halomaker, full_path=full_path_halomaker,**kwargs)
             if(halo.size == 0):
                 if(skip_jumps):
+                    if(uri.timer.verbose>0): f"Skip jump due to zero-size halo at {iout}"
                     continue
                 else:
+                    if(uri.timer.verbose>0): f"Stop iteration due to zero-size halo at {iout}"
                     iterator.close()
                     break
             if(nparts_min is not None):
                 mask = halo['nparts'] >= nparts_min
                 halo, part_ids = HaloMaker.cut_table(halo, part_ids, mask)
             if(halo.size == 0):
+                if(uri.timer.verbose>0): f"Stop iteration due to zero-size cut_halo at {iout}"
                 iterator.close()
                 break
 
@@ -486,6 +498,21 @@ class PhantomTree:
             part_pool[0, part_ids] = halo_idx
             sizes[0] = halo.size
 
+            halo_ids = [halo['id']] + halo_ids
+            if(len(halo_ids)>lookup):
+                halo_ids = halo_ids[:lookup]
+            
+            if full_path_ptree is None:
+                path = os.path.join(snap.repo, path_in_repo, ptree_file_format % iout)
+            else:
+                path = os.path.join(full_path_ptree, ptree_file_format % iout)
+            if(start_on_middle and sizes[-1]==0):
+                print("Skipping output of iout = %d... (zero size)" % iout)
+                continue
+            if(start_on_middle and os.path.isfile(path)):
+                print("Skipping output of iout = %d... (already existed)" % iout)
+                continue
+
             desc_ids = np.empty(shape=((lookup-1)*rankup, halo.size), dtype='i4')
             npass = np.empty(shape=((lookup-1)*rankup, halo.size), dtype='i4')
 
@@ -496,7 +523,7 @@ class PhantomTree:
                 if(ilook<=buffer):
                     desc_idx, npass_arr = PhantomTree.find_desc(
                         part_pool[np.array([0, ilook])], prog_n=sizes[0], next_n=sizes[ilook], rankup=rankup)
-                    desc_ids[rank_range] = halo_ids[ilook-1][desc_idx]
+                    desc_ids[rank_range] = halo_ids[ilook][desc_idx]
                     desc_ids[rank_range][desc_idx==-1] = -1
                     npass[rank_range] = npass_arr
                 else:
@@ -504,13 +531,6 @@ class PhantomTree:
                     npass[rank_range] = 0
             buffer += 1
 
-            halo_ids = [halo['id']] + halo_ids
-            if(len(halo_ids)>lookup-1):
-                halo_ids = halo_ids[:lookup-1]
-
-            if(start_on_middle and sizes[-1]==0):
-                print("Skipping output of iout = %d..." % iout)
-                continue
 
             tree_dtype = np.dtype([('desc', 'i4', (lookup-1, rankup)), ('npass', 'i4', (lookup-1, rankup))])
             tree_data = np.full(halo.size, fill_value=-2, dtype=tree_dtype)
@@ -527,12 +547,8 @@ class PhantomTree:
             # merge generated tree data
             halo = merge_arrays([halo, tree_data], fill_value=-2, flatten=True, usemask=False)
 
-            if full_path_ptree is None:
-                path = os.path.join(snap.repo, path_in_repo, ptree_file_format % iout)
-            else:
-                path = os.path.join(full_path_ptree, ptree_file_format % iout)
             dump(halo, path, msg=False)
-        uri.timer.verbose = 1
+        # uri.timer.verbose = 1
 
 
     @staticmethod
@@ -562,8 +578,17 @@ class PhantomTree:
     def merge_ptree(repo, iout_max, full_path=None, path_in_repo=path_in_repo, ptree_file=ptree_file, ptree_file_format=ptree_file_format, skip_jumps=False, dtype_id='i8'):
         dirpath = os.path.join(repo, path_in_repo) if full_path is None else full_path
         iout = iout_max
-        ptree = []
+        fname = os.path.join(dirpath, ptree_file)
+        if(os.path.isfile(fname)):
+            ptree = load(fname, msg=True)
+            ptree = [drop_fields(
+                ptree, 
+                ['fat', 'son', 'score_fat', 'score_son', 'nprog', 'ndesc', 'first', 'last', 'first_rev', 'last_rev'], 
+                usemask=False)]
+        else:
+            ptree = []
 
+        add = 0
         while(True):
             path = os.path.join(dirpath, ptree_file_format % iout)
             if(not os.path.exists(path)):
@@ -575,16 +600,22 @@ class PhantomTree:
                         continue
                 else:
                     break
-            tree = load(path, msg=True)
-            ptree.append(tree)
+            if(not os.path.isfile(fname)):
+                tree = load(path, msg=True)
+                try:
+                    tree = drop_fields(tree, 'mcontam', usemask=False)
+                except:
+                    pass
+                ptree.append(tree)
+                add += 1
             iout -= 1
         if(len(ptree) == 0):
             raise FileNotFoundError('No ptree file found in %s' % dirpath)
 
-        ptree = np.concatenate(ptree)
-        ptree = PhantomTree.set_pairing_id(ptree, dtype_id=dtype_id)
-
-        dump(ptree, os.path.join(dirpath, ptree_file))
+        if add>0:
+            ptree = np.concatenate(ptree)
+            ptree = PhantomTree.set_pairing_id(ptree, dtype_id=dtype_id)
+            dump(ptree, fname)
 
     @staticmethod
     def set_pairing_id(ptree, save_hmid=True, dtype_id='i8'):
@@ -1225,6 +1256,20 @@ class TreeMaker:
         ('mfat1', 'f4'), ('mfat2', 'f4'), ('mfat3', 'f4'), ('mfat4', 'f4'), ('mfat5', 'f4'),
         ('rvir', 'f4'), ('mvir', 'f4'), ('tvir', 'f4'), ('cvel', 'f4'),
         ('rho0', 'f4'), ('rc', 'f4')]
+    
+    dtype_dp = [
+        ('id', 'i4'), ('timestep', 'i4'), ('level', 'i4'),
+        ('host', 'i4'), ('hostsub', 'i4'), ('nbsub', 'i4'), ('nextsub', 'i4'),
+        ('nfat', 'i4'), ('fat1', 'i4'), ('fat2', 'i4'), ('fat3', 'i4'), ('fat4', 'i4'), ('fat5', 'i4'),
+        ('nson', 'i4'), ('son1', 'i4'), ('son2', 'i4'), ('son3', 'i4'), ('son4', 'i4'), ('son5', 'i4'),
+        ('aexp', 'f4'), ('age_univ', 'f4'), ('m', 'f8'), ('macc', 'f8'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'),
+        ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'),
+        ('Lx', 'f8'), ('Ly', 'f8'), ('Lz', 'f8'),
+        ('r', 'f8'), ('a', 'f8'), ('b', 'f8'), ('c', 'f8'),
+        ('ek', 'f8'), ('ep', 'f8'), ('et', 'f8'), ('spin', 'f8'),
+        ('mfat1', 'f8'), ('mfat2', 'f8'), ('mfat3', 'f8'), ('mfat4', 'f8'), ('mfat5', 'f8'),
+        ('rvir', 'f8'), ('mvir', 'f8'), ('tvir', 'f8'), ('cvel', 'f8'),
+        ('rho0', 'f8'), ('rc', 'f8')]
 
     @staticmethod
     def unit_conversion(array, snap):
@@ -1247,27 +1292,28 @@ class TreeMaker:
 
     @staticmethod
     # boxsize: comoving length of the box in Mpc
-    def load(snap, path_in_repo=None, galaxy=False, dp_ini=False):
+    def load(snap, path_in_repo=None, galaxy=False, double_precision=None):
         repo = snap.repo
-        if(snap.mode=='yzics'):
-            dp_ini=False
-        elif(snap.mode=='nh'):
-            dp_ini=True
+        if(double_precision is None):
+            if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2'):
+                double_precision=True
+            else:
+                double_precision=False
         if (galaxy):
             if(path_in_repo is None):
-                path_in_repo = 'GalaxyMaker/gal/tree.dat'
-            path = os.path.join(repo, path_in_repo)
+                path_in_repo = default_path_in_repo['GalaxyMaker']
+            path = os.path.join(repo, path_in_repo, "tree.dat")
         else:
             if(path_in_repo is None):
-                path_in_repo = 'halo/DM/tree.dat'
-            path = os.path.join(repo, path_in_repo)
-        dtype = TreeMaker.dtype
+                path_in_repo = default_path_in_repo['HaloMaker']
+            path = os.path.join(repo, path_in_repo, "tree.dat")
+        dtype = TreeMaker.dtype if double_precision else TreeMaker.dtype_dp
         if(not os.path.exists(path)):
             raise FileNotFoundError('Error: Tree file not found in path: %s' % path)
 
         print('Reading %s... ' % path)
         timer.start()
-        readh.read_single_tree(path, galaxy, dp_ini=dp_ini)
+        readh.read_single_tree(path, galaxy, dp_ini=double_precision)
         print('Took %.3fs' % timer.time())
 
         print('Building table for %d nodes... ' % readh.integer_table.shape[-1] , end='')

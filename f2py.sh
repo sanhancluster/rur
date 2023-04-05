@@ -3,7 +3,7 @@
 FILES='readr.f90 readhtm.f90 hilbert3d.f90 io_ramses.f90'
 #FILES='readr.f90'
 F2PY=f2py
-FORT=ifort
+FORT=gfortran
 BASEDIR=$(dirname "$0")
 
 cd $BASEDIR/rur
