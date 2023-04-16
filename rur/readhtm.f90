@@ -315,6 +315,7 @@ contains
 
       integer(kind=4), dimension(:), allocatable :: nb_of_halos, nb_of_subhalos
       real(kind=4),    dimension(:), allocatable :: aexp, omega_t, age_univ
+      real(kind=8),    dimension(:), allocatable :: aexp_dp, omega_t_dp, age_univ_dp
 
       character(len=128),intent(in) :: treefile
       logical,intent(in) :: galaxy_ini, dp_ini
@@ -333,10 +334,16 @@ contains
 
          allocate(nb_of_halos(1:nsteps))
          allocate(nb_of_subhalos(1:nsteps))
-
-         allocate(aexp(1:nsteps))
-         allocate(omega_t(1:nsteps))
-         allocate(age_univ(1:nsteps))
+         
+         if(dp) then
+            allocate(aexp_dp(1:nsteps))
+            allocate(omega_t_dp(1:nsteps))
+            allocate(age_univ_dp(1:nsteps))
+         else
+            allocate(aexp(1:nsteps))
+            allocate(omega_t(1:nsteps))
+            allocate(age_univ(1:nsteps))
+         end if
 
          read(unitfile) nb_of_halos, nb_of_subhalos
 
@@ -347,10 +354,16 @@ contains
 
          write(*,*)'Total number of halos:', nhalo
          call allocate_table(nhalo, 19, 32, dp)
-
-         read(unitfile) aexp
-         read(unitfile) omega_t
-         read(unitfile) age_univ
+         
+         if(dp) then
+            read(unitfile) aexp_dp
+            read(unitfile) omega_t_dp
+            read(unitfile) age_univ_dp
+         else
+            read(unitfile) aexp
+            read(unitfile) omega_t
+            read(unitfile) age_univ
+         end if
 
          write(6, '(a)', advance='no') 'Progress: '
 
@@ -358,7 +371,7 @@ contains
             call progress_bar(st, nsteps)
             do j = 1, nb_of_halos(st)+nb_of_subhalos(st)
                if(dp) then
-                  call read_halo_dp(unitfile, st, aexp(st), age_univ(st))
+                  call read_halo_dp(unitfile, st, aexp_dp(st), age_univ_dp(st))
                else
                   call read_halo(unitfile, st, aexp(st), age_univ(st))
                end if
@@ -394,8 +407,8 @@ contains
             integer_table(ihalo, 6),integer_table(ihalo, 7)
       ! level, hosthalo, hostsub, nbsub, nextsub
 
-      real_table(ihalo,1) = aexp ! aexp
-      real_table(ihalo,2) = age_univ ! aexp
+      real_table(ihalo,1) = real(aexp,4) ! aexp
+      real_table(ihalo,2) = real(age_univ,4) ! aexp
       read(unitfile) real_table(ihalo, 3) ! m
       read(unitfile) macc ! macc (why f8?!)
       real_table(ihalo, 4) = real(macc, 4)
@@ -454,8 +467,6 @@ contains
       end if
       read(unitfile) real_table(ihalo,27:30) ! rvir, mvir, tvir, cvel
       read(unitfile) real_table(ihalo,31:32) ! rho0, rc
-      read(unitfile) ! ncont
-      read(unitfile) ! mcont
    end subroutine read_halo
 
 !#########################################################
@@ -464,10 +475,10 @@ contains
       implicit none
       integer(kind=4) :: st, nb_fathers, nb_sons, temp_space, i, max_ind
       integer(kind=4) :: unitfile
-      real(kind=4)    :: aexp, age_univ
+      real(kind=8)    :: aexp, age_univ
       real(kind=8)    :: macc
       integer(kind=4), dimension(:), allocatable :: integer_temp
-      real(kind=4),    dimension(:), allocatable :: real_temp
+      real(kind=8),    dimension(:), allocatable :: real_temp
 
       read(unitfile) integer_table(ihalo, 1) ! my_number
       read(unitfile) integer_table(ihalo, 2)                       ! BushID
@@ -479,11 +490,11 @@ contains
             integer_table(ihalo, 6),integer_table(ihalo, 7)
       ! level, hosthalo, hostsub, nbsub, nextsub
 
-      real_table_dp(ihalo,1) = aexp ! aexp
-      real_table_dp(ihalo,2) = age_univ ! aexp
+      real_table_dp(ihalo,1) = dble(aexp) ! aexp
+      real_table_dp(ihalo,2) = dble(age_univ) ! aexp
       read(unitfile) real_table_dp(ihalo, 3) ! m
       read(unitfile) macc ! macc (why f8?!)
-      real_table_dp(ihalo, 4) = real(macc, 4)
+      real_table_dp(ihalo, 4) = dble(macc)
       read(unitfile) real_table_dp(ihalo, 5:7) ! x
       read(unitfile) real_table_dp(ihalo, 8:10) ! v
       read(unitfile) real_table_dp(ihalo, 11:13) ! L
