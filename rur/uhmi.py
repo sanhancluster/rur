@@ -1318,7 +1318,10 @@ class TreeMaker:
 
         print('Building table for %d nodes... ' % readh.integer_table.shape[-1] , end='')
         timer.start()
-        array = fromarrays([*readh.integer_table.T, *readh.real_table.T], dtype=dtype)
+        if(double_precision):
+            array = fromarrays([*readh.integer_table.T, *readh.real_table_dp.T], dtype=dtype)
+        else:
+            array = fromarrays([*readh.integer_table.T, *readh.real_table.T], dtype=dtype)
         print('Took %.3fs' % timer.time())
 
         return TreeMaker.unit_conversion(array, snap)

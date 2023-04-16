@@ -14,7 +14,7 @@ module io_ramses
    integer :: headf, tailf, numbf, used_mem, used_mem_tot
    character(len=128) :: ordering
 
-   integer(kind=16), dimension(:), allocatable :: bound_keyl
+   integer(kind=selected_int_kind(16)), dimension(:), allocatable :: bound_keyl
    integer(kind=8), dimension(:), allocatable :: bound_key
 
    ! Header data (Added from Hydro)

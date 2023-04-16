@@ -357,7 +357,11 @@ contains
          do st = 1, nsteps
             call progress_bar(st, nsteps)
             do j = 1, nb_of_halos(st)+nb_of_subhalos(st)
-               call read_halo(unitfile, st, aexp(st), age_univ(st), dp_ini)
+               if(dp) then
+                  call read_halo_dp(unitfile, st, aexp(st), age_univ(st))
+               else
+                  call read_halo(unitfile, st, aexp(st), age_univ(st))
+               end if
                ihalo = ihalo + 1
             end do
          end do
@@ -370,7 +374,7 @@ contains
 
 
 !#########################################################
-   subroutine read_halo(unitfile, st, aexp, age_univ, dp_ini)
+   subroutine read_halo(unitfile, st, aexp, age_univ)
 !#########################################################
       implicit none
       integer(kind=4) :: st, nb_fathers, nb_sons, temp_space, i, max_ind
@@ -379,7 +383,6 @@ contains
       real(kind=8)    :: macc
       integer(kind=4), dimension(:), allocatable :: integer_temp
       real(kind=4),    dimension(:), allocatable :: real_temp
-      logical,intent(in) :: dp_ini
 
       read(unitfile) integer_table(ihalo, 1) ! my_number
       read(unitfile) integer_table(ihalo, 2)                       ! BushID
@@ -454,6 +457,91 @@ contains
       read(unitfile) ! ncont
       read(unitfile) ! mcont
    end subroutine read_halo
+
+!#########################################################
+   subroutine read_halo_dp(unitfile, st, aexp, age_univ)
+!#########################################################
+      implicit none
+      integer(kind=4) :: st, nb_fathers, nb_sons, temp_space, i, max_ind
+      integer(kind=4) :: unitfile
+      real(kind=4)    :: aexp, age_univ
+      real(kind=8)    :: macc
+      integer(kind=4), dimension(:), allocatable :: integer_temp
+      real(kind=4),    dimension(:), allocatable :: real_temp
+
+      read(unitfile) integer_table(ihalo, 1) ! my_number
+      read(unitfile) integer_table(ihalo, 2)                       ! BushID
+      read(unitfile) integer_table(ihalo, 2) ! my_timestep
+      ! change the time step number to match the number of branching (time resolution)
+      ! you decided your tree is going to have
+      !integer_table(ihalo,3) = 0 ! meaningless in this program (TK)
+      read(unitfile) integer_table(ihalo, 3),integer_table(ihalo, 4),integer_table(ihalo, 5),&
+            integer_table(ihalo, 6),integer_table(ihalo, 7)
+      ! level, hosthalo, hostsub, nbsub, nextsub
+
+      real_table_dp(ihalo,1) = aexp ! aexp
+      real_table_dp(ihalo,2) = age_univ ! aexp
+      read(unitfile) real_table_dp(ihalo, 3) ! m
+      read(unitfile) macc ! macc (why f8?!)
+      real_table_dp(ihalo, 4) = real(macc, 4)
+      read(unitfile) real_table_dp(ihalo, 5:7) ! x
+      read(unitfile) real_table_dp(ihalo, 8:10) ! v
+      read(unitfile) real_table_dp(ihalo, 11:13) ! L
+      read(unitfile) real_table_dp(ihalo, 14:17) ! r, a, b, c
+      read(unitfile) real_table_dp(ihalo, 18:20) ! ek, ep, et
+      read(unitfile) real_table_dp(ihalo, 21) ! spin
+
+      read(unitfile) nb_fathers
+      integer_table(ihalo, 8) = nb_fathers
+      integer_table(ihalo, 9:13) = -1
+      real_table_dp(ihalo, 22:26) = 0
+
+      if(nb_fathers > 0) then
+         temp_space = MAX(5, nb_fathers) ! maximum up to 5
+
+         allocate(integer_temp(1:temp_space))
+         allocate(real_temp(1:temp_space))
+         integer_temp = -1
+         real_temp = 0
+
+         read(unitfile) integer_temp(1:nb_fathers) ! list_fathers
+         read(unitfile) real_temp(1:nb_fathers) ! mass_fathers
+
+         do i = 1, MIN(5, nb_fathers)
+            ! father with higher contribution first
+            max_ind = MAXLOC(real_temp, 1)
+            integer_table(ihalo, 8+i) = integer_temp(max_ind)
+            real_table_dp(ihalo, 21+i) = real_temp(max_ind)
+            real_temp(max_ind) = 0
+         end do
+
+!         integer_table(ihalo, 9:13) = integer_temp(1:5)
+!         real_table_dp(ihalo, 22:26) = real_temp(1:5)
+
+         deallocate(integer_temp)
+         deallocate(real_temp)
+      end if
+
+      read(unitfile) nb_sons
+      integer_table(ihalo, 14) = nb_sons
+      if(nb_sons > 0) then
+         temp_space = MAX(5, nb_sons) ! maximum up to 5
+
+         allocate(integer_temp(1:temp_space))
+         integer_temp = -1
+
+         read(unitfile) integer_temp(1:nb_sons) ! list_sons
+
+         integer_table(ihalo, 15:19) = integer_temp(1:5)
+         deallocate(integer_temp)
+      else
+         integer_table(ihalo, 15:19) = -1
+      end if
+      read(unitfile) real_table_dp(ihalo,27:30) ! rvir, mvir, tvir, cvel
+      read(unitfile) real_table_dp(ihalo,31:32) ! rho0, rc
+      read(unitfile) ! ncont
+      read(unitfile) ! mcont
+   end subroutine read_halo_dp
 
 
 !#####################################################################
