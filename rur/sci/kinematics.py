@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 
 from rur.vr.fortran.js_getpt_ft import js_getpt
+from rur.vr.fortran.js_getsfe_ft import js_getsfe
+import rur.vrload as vl
 
 # This module contains useful functions related to galaxy kinematics.
 
@@ -388,3 +390,87 @@ def f_getpot(pos, mm, num_thread=None, timereport=None, mesh_type=None, pole_typ
     pot = js_getpt.pot
     #js_getpt.js_getpt_ft_free()
     return pot
+
+def f_getsfe(snum, x, y, z, vx, vy, vz, dx, den, temp, num_thread=None, simtype=None):
+    """ SFE Calculation by cell by cell
+
+    This routine gives you the mass-weighted SFE-related values with given cell information
+    NH SF prescription is default
+
+    Parameters
+    ----------
+    snum : integer for snapshot number
+    x, y, z, vx, vy, vz : numpy 1D array for position and velocity (in simulation unit)
+    dx : numpy 1D array for cell size (dx) in simulation unit
+    den : density of cell in simulation unit
+    temp : P/rho of cell in simulation unit ( hydrovar[*,4] / hydrovar[*,0] )
+
+    Attributes
+    ----------
+
+    Examples
+    ----------
+    >>> from rur.sci.kinematics import sk
+    >>> from numpy as np
+
+    """
+
+    ##----- Settings
+    if(num_thread==None): num_thread      = 10
+    if(simtype==None): simtype = 'NH' # Not implemented yet for other SF recipe
+
+    if(simtype=='NH'):
+        dcrit = 10.
+        vr = vl.vr_load('NH')
+        vrf= vl.vr_getftns(vr)
+
+        info= vrf.g_info(snum)
+
+    x = np.double(x)
+    y = np.double(y)
+    z = np.double(z)
+    vx = np.double(vx)
+    vy = np.double(vy)
+    vz = np.double(vz)
+    dx = np.double(dx)
+    den = np.double(den)
+    temp= np.double(temp)
+   
+    mass = den * (dx**3)
+    ##-----
+    cs2 = (5./3. - 1.) * (1.3806200e-16) * (1e-10) / 1.6600000e-24 * temp * info['unit_T2'] / info['kms']**2
+
+    ##-----
+    larr    = np.zeros(20, dtype=np.int32)
+    darr    = np.zeros(20, dtype='<f8')
+
+    larr[0] = len(x)
+    larr[1] = num_thread
+
+    darr[0] = 10.0 / info['nH'] 
+    darr[1] = 3.0/8.0 / np.pi * info['oM'] * info['aexp']
+    darr[2] = np.pi
+    darr[3] = info['unit_t'] / 86400. / 365. / 1e9
+    darr[4] = info['unit_d']
+    darr[5] = info['unit_l']
+
+    js_getsfe.js_getsfe_ft(larr, darr, x, y, z, vx, vy, vz, dx, den, cs2)
+
+    sfe = js_getsfe.sfe
+    mach2 = js_getsfe.mach2
+    alpha = js_getsfe.alpha
+    t_ff = js_getsfe.t_ff
+    dm_sf = js_getsfe.dum_sf
+    sig_c = js_getsfe.sig_c
+    sig_s = js_getsfe.sig_s
+    #pot = js_getpt.pot
+
+    ind = (sfe > 0.)
+    sfe_avg = np.sum(sfe[ind] * mass[ind]) / np.sum(mass[ind])
+    mach_avg = np.sum(mach2[ind]**0.5 * mass[ind]) / np.sum(mass[ind])
+    alpha_avg = np.sum(alpha[ind] * mass[ind]) / np.sum(mass[ind])
+
+    js_getsfe.js_getsfe_free()
+
+    return sfe_avg, mach_avg, alpha_avg
+    #return darr
