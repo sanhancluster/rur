@@ -777,7 +777,7 @@ class vr_load:
             for i in ind:
                 gal[i]  = self.f_rdgal(snlist[i], idlist[i], horg=horg)
         else:
-            prun = self.f_getevol_p(galdata, idlist, snlist, horg)
+            prun = self.f_getevol_p(gal, idlist, snlist, horg)
 
             dind = np.int32(n_link / self.num_thread)
             ps = []
