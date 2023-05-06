@@ -33,7 +33,7 @@ rm *.o *.mod
 
 #For VR part
 cd ..
-FILES='find_domain_py.f90  get_flux_py.f90  get_ptcl_py.f90  jsamr2cell_py.f90  jsamr2cell_totnum_py.f90  js_gasmap_py.f90  js_getpt_ft.f90  jsrd_part_totnum_py.f90  jsrd_part_py.f90'
+FILES='find_domain_py.f90  get_flux_py.f90  get_ptcl_py.f90  jsamr2cell_py.f90  jsamr2cell_totnum_py.f90  js_gasmap_py.f90  js_getpt_ft.f90  jsrd_part_totnum_py.f90  jsrd_part_py.f90 js_getsfe_ft.f90'
 
 FORT=gfortran
 cd $BASEDIR/rur/vr/fortran
