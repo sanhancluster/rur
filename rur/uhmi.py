@@ -152,8 +152,10 @@ class HaloMaker:
                 double_precision=True
             else:
                 double_precision=False
-            if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2'):
+            if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2')or(snap.mode=='fornax'):
                 double_precision=True
+            else:
+                double_precision=False
         if (galaxy):
             if(path_in_repo is None):
                 path_in_repo = default_path_in_repo['GalaxyMaker']
@@ -1295,7 +1297,7 @@ class TreeMaker:
     def load(snap, path_in_repo=None, galaxy=False, double_precision=None):
         repo = snap.repo
         if(double_precision is None):
-            if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2'):
+            if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2')or(snap.mode=='fornax'):
                 double_precision=True
             else:
                 double_precision=False
