@@ -193,7 +193,8 @@ contains
         !$OMP PARALLEL DO &
         !$OMP SHARED(integer_table, real_table, twotondim, nhvar,grav,iout,mode,repo) &
         !$OMP PRIVATE(integer_table_temp, real_table_temp) &
-        !$OMP PRIVATE(i,icpu,amr_n,hydro_n,grav_n,ngridfile,ngridmax,son,xg,hvar,gvar,ilevel,ngrid_a,jcpu,idim,igrid,leaf,ihvar,jcell,jdim) &
+        !$OMP PRIVATE(i,icpu,amr_n,hydro_n,grav_n,ngridfile,ngridmax,son,xg,hvar,gvar) &
+        !$OMP PRIVATE(ilevel,ngrid_a,jcpu,idim,igrid,leaf,ihvar,jcell,jdim) &
         !$OMP NUM_THREADS(nthread)
         do i = 1, SIZE(cpu_list)
             ! !$OMP CRITICAL
@@ -316,9 +317,11 @@ contains
                 end do
             end do
             if(grav) then
-                real_table(1:ndim+nhvar+1, cursors(i):cursors(i)+cursors_temp(i)-1) = real_table_temp(1:ndim+nhvar+1,1:cursors_temp(i))
+                real_table(1:ndim+nhvar+1, cursors(i):cursors(i)+cursors_temp(i)-1) = &
+                        real_table_temp(1:ndim+nhvar+1,1:cursors_temp(i))
             else
-                real_table(1:ndim+nhvar, cursors(i):cursors(i)+cursors_temp(i)-1) = real_table_temp(1:ndim+nhvar,1:cursors_temp(i))
+                real_table(1:ndim+nhvar, cursors(i):cursors(i)+cursors_temp(i)-1) = &
+                        real_table_temp(1:ndim+nhvar,1:cursors_temp(i))
             endif
             integer_table(1:2, cursors(i):cursors(i)+cursors_temp(i)-1) = integer_table_temp(1:2,1:cursors_temp(i))
             close(amr_n)
