@@ -4,6 +4,7 @@ import numpy as np
 from rur.utool import Timer, get_vector, dump, load, pairing, get_distance, rss, ss,\
     set_vector, discrete_hist2d, weighted_quantile, expand_shape
 from rur.readhtm import readhtm as readh
+from rur.fortranfile import FortranFile
 from rur import uri
 from rur.config import Table, tqdm, default_path_in_repo
 from scipy.stats import mode
@@ -244,37 +245,41 @@ class HaloMaker:
         star = snap.part['star']
     
     @staticmethod
-    def read_one(snap, path, galaxy, hmid, nchem):
-        from rur.fortranfile import FortranFile
+    def read_one(snap, path, galaxy, hmid, nchem, simple):
         dtype = [('id', 'i4'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
-        boxsize_physical = snap['boxsize_physical']
         if(galaxy):
             nomfich = os.path.join(path, f"gal_stars_{hmid:07d}")
-            dtype = dtype+[('epoch', 'f8'), ('metal', 'f8')]
-            if nchem>0:
-                raise ValueError("Currently non-zero `nchem` is not supported!")
+            if(not simple):
+                dtype = dtype+[('epoch', 'f8'), ('metal', 'f8')]
+                if nchem>0:
+                    raise ValueError("Currently non-zero `nchem` is not supported!")
         else:
             nomfich = os.path.join(path, f"halo_dms_{hmid:07d}")
 
         with FortranFile(nomfich, 'r') as f:
             f.skip_records(6)
-            nparts, = f.read_ints()
-            array = np.empty(nparts, dtype=dtype)
-            array['x'] = f.read_reals() / boxsize_physical + 0.5
-            array['y'] = f.read_reals() / boxsize_physical + 0.5
-            array['z'] = f.read_reals() / boxsize_physical + 0.5
-            array['vx'] = f.read_reals()
-            array['vy'] = f.read_reals()
-            array['vz'] = f.read_reals()
-            array['m'] = f.read_reals()*1e11
-            array['id'] = f.read_ints()
-            if(galaxy):
-                array['epoch'] = f.read_reals()
-                array['metal'] = f.read_reals()
+            if(simple):
+                f.skip_records(8)
+                return f.read_ints()
+            else:
+                boxsize_physical = snap['boxsize_physical']
+                nparts, = f.read_ints()
+                array = np.empty(nparts, dtype=dtype)
+                array['x'] = f.read_reals() / boxsize_physical + 0.5
+                array['y'] = f.read_reals() / boxsize_physical + 0.5
+                array['z'] = f.read_reals() / boxsize_physical + 0.5
+                array['vx'] = f.read_reals()
+                array['vy'] = f.read_reals()
+                array['vz'] = f.read_reals()
+                array['m'] = f.read_reals()*1e11
+                array['id'] = f.read_ints()
+                if(galaxy):
+                    array['epoch'] = f.read_reals()
+                    array['metal'] = f.read_reals()
         return array
 
     @staticmethod
-    def read_member_part(snap, hmid, nchem=0, galaxy=False, path_in_repo=None, full_path=None, usefortran=False):
+    def read_member_part(snap, hmid, nchem=0, galaxy=False, path_in_repo=None, full_path=None, usefortran=False, simple=False):
         # usefortran=False is faster
         if(full_path is None):
             if(path_in_repo is None):
@@ -294,8 +299,11 @@ class HaloMaker:
                     temp = "HAL"
                 path = os.path.join(path, f"{temp}_{snap.iout:05d}")
         if(usefortran):
-            readh.read_one(path, galaxy, hmid, nchem)
-
+            readh.read_one(path, galaxy, hmid, nchem, simple=simple)
+            if(simple):
+                array = np.array(readh.integer_table, dtype='i4') 
+                readh.close()
+                return array
             dtype = [('id', 'i4'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
             if(galaxy):
                 dtype = dtype+[('epoch', 'f8'), ('metal', 'f8')]
@@ -309,7 +317,9 @@ class HaloMaker:
             array['z'] = array['z'] / boxsize_physical + 0.5
             readh.close()
         else:
-            array = HaloMaker.read_one(snap, path, galaxy, hmid, nchem)
+            array = HaloMaker.read_one(snap, path, galaxy, hmid, nchem, simple=simple)
+            if(simple):
+                return array
         # Convert to codeunit
         array['m'] *= snap.unit['Msol']
         array['vx'] *= snap.unit['km/s']

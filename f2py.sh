@@ -1,9 +1,9 @@
 #!/bin/bash
 
 FILES='readr.f90 readhtm.f90 hilbert3d.f90 io_ramses.f90'
-#FILES='readr.f90'
+FILES='readhtm.f90'
 F2PY=f2py
-FORT=gfortran # or "ifort"
+FORT=ifort # or "ifort"
 MACHINE="gc" # or "tardis"
 BASEDIR=$(dirname "$0")
 
@@ -35,16 +35,17 @@ do
 done
 rm *.o *.mod
 
+exit 0
 
 #For VR part
-cd ..
-FILES='find_domain_py.f90  get_flux_py.f90  get_ptcl_py.f90  jsamr2cell_py.f90  jsamr2cell_totnum_py.f90  js_gasmap_py.f90  js_getpt_ft.f90  jsrd_part_totnum_py.f90  jsrd_part_py.f90 js_getsfe_ft.f90'
+#cd ..
+#FILES='find_domain_py.f90  get_flux_py.f90  get_ptcl_py.f90  jsamr2cell_py.f90  jsamr2cell_totnum_py.f90  js_gasmap_py.f90  js_getpt_ft.f90  jsrd_part_totnum_py.f90  jsrd_part_py.f90 js_getsfe_ft.f90'
 
-FORT=gfortran
-cd $BASEDIR/rur/vr/fortran
-for f in $FILES
-do
-   bn=$(basename "$f" .f90)
-   echo -e "\n\n\nCompiling $bn\n\n\n"
-   $F2PY -m $bn --fcompiler=$FORT --f90flags='-fopenmp' -lgomp -c $f
-done
+#FORT=gfortran
+#cd $BASEDIR/rur/vr/fortran
+#for f in $FILES
+#do
+#   bn=$(basename "$f" .f90)
+#   echo -e "\n\n\nCompiling $bn\n\n\n"
+#   $F2PY -m $bn --fcompiler=$FORT --f90flags='-fopenmp' -lgomp -c $f
+#done
