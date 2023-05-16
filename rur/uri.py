@@ -19,6 +19,7 @@ import warnings
 import glob
 import re
 from copy import deepcopy
+from multiprocessing import Pool
 
 class TimeSeries(object):
     """
@@ -209,6 +210,346 @@ class Cell(Table):
     def __getitem__(self, item, return_code_unit=False):
         return super().__getitem__(item, return_code_unit)
 
+
+# For multiprocessing, sub functions
+def readorskip_real(f:FortranFile, dtype:type, key:str, search:Iterable, add=None):
+    if key in search:
+        if(add is not None):
+            return f.read_reals(dtype)+add
+        return f.read_reals(dtype)
+    else:
+        f.skip_records(nowarn=True)
+def readorskip_int(f:FortranFile, dtype:type, key:str, search:Iterable, add=None):
+    if key in search:
+        if(add is not None):
+            return f.read_ints(dtype)+add
+        return f.read_ints(dtype)
+    else:
+        f.skip_records(nowarn=True)
+
+def _read_part(fname, target_fields, dtype, kwargs, part=None, cursor=None):
+    pname = kwargs["pname"]
+    isfamily = kwargs["isfamily"]
+    isstar = kwargs["isstar"]
+    chem = kwargs["chem"]
+    mode = kwargs["mode"]
+    sequential = True if(part is not None) else False
+    icpu = int( fname[-5:] )
+    with FortranFile(f"{fname}", mode='r') as f:
+        # Read data
+        f.skip_records(8,nowarn=True) # ncpu, ndim, npart, localseed(+tracer_seed), nstar, mstar_tot, mstar_lost, nsink
+        x = readorskip_real(f, np.float64, 'x', target_fields)
+        y = readorskip_real(f, np.float64, 'y', target_fields)
+        z = readorskip_real(f, np.float64, 'z', target_fields)
+        vx = readorskip_real(f, np.float64, 'vx', target_fields)
+        vy = readorskip_real(f, np.float64, 'vy', target_fields)
+        vz = readorskip_real(f, np.float64, 'vz', target_fields)
+        m = f.read_reals(np.float64)
+        ids = f.read_ints(np.int32) # id
+        level = readorskip_int(f, np.int32, 'level', target_fields)
+        if(isfamily):
+            family = f.read_ints(np.int8) # family
+            tag = readorskip_int(f, np.int8, 'tag', target_fields) # tag
+        if(isstar):
+            epoch = f.read_reals(np.float64) # epoch
+            metal = readorskip_real(f, np.float64, 'metal', target_fields)
+        
+        # Masking
+        if(pname is None):
+            mask = ...
+            nsize = len(x)
+        else:
+            if(isfamily):
+                # Do a family-based classification
+                mask = np.isin(family, part_family[pname])
+            elif(isstar):
+                # Do a parameter-based classification
+                tracers = ["tracer","cloud_tracer","star_tracer","gas_tracer"]
+                if(pname == 'dm'):
+                    mask = (epoch == 0) & (ids > 0)
+                elif(pname == 'star'):
+                    mask = ((epoch < 0) & (ids > 0))\
+                            | ((epoch != 0) & (ids < 0))
+                elif(pname == 'sink' or pname == 'cloud'):
+                    mask = (ids < 0) & (m > 0) & (epoch == 0)
+                elif(pname in tracers):
+                    mask = (ids < 0) & (m == 0)
+                else:
+                    mask = False
+            else:
+                # DM-only simulation
+                tracers = ["tracer","cloud_tracer","star_tracer","gas_tracer"]
+                if(pname == 'dm'):
+                    mask =  ids > 0
+                elif(pname in tracers):
+                    mask = (ids < 0) & (m == 0)
+                else:
+                    mask = False
+            nsize = np.count_nonzero(mask)
+        
+        # Allocating
+        if(part is None): part = np.empty(nsize, dtype=dtype)
+        pointer = part[cursor:cursor+nsize].view() if(sequential) else part
+        if('x' in target_fields):pointer['x'] = x[mask]
+        if('y' in target_fields):pointer['y'] = y[mask]
+        if('z' in target_fields):pointer['z'] = z[mask]
+        if('vx' in target_fields):pointer['vx'] = vx[mask]
+        if('vy' in target_fields):pointer['vy'] = vy[mask]
+        if('vz' in target_fields):pointer['vz'] = vz[mask]
+        if('m' in target_fields):pointer['m'] = m[mask]
+        if('epoch' in target_fields):pointer['epoch'] = epoch[mask]
+        if('metal' in target_fields):pointer['metal'] = metal[mask]
+        if('id' in target_fields):pointer['id'] = ids[mask]
+        if('level' in target_fields):pointer['level'] = level[mask]
+        if('family' in target_fields):pointer['family'] = family[mask]
+        if('tag' in target_fields):pointer['tag'] = tag[mask]
+        newtypes = ["m0", "rho0", "partp"] + chem
+        if True in np.isin(newtypes, target_fields):
+            if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='nh2'):
+                if('m0' in target_fields): pointer['m0'] = f.read_reals(np.float64)[mask]
+                else: f.read_reals(np.float64)
+            if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='hagn') or (mode=='nh2'):
+                if len(chem)>0:
+                    for ichem in chem:
+                        if(ichem in target_fields): pointer[ichem] = f.read_reals(np.float64)[mask]
+                        else: f.read_reals(np.float64)
+            if(mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='nh2'):
+                if('rho0' in target_fields): pointer['rho0'] = f.read_reals(np.float64)[mask]
+                else: f.read_reals(np.float64)
+            if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='nh2'):
+                if('partp' in target_fields): pointer['partp'] = f.read_ints(np.int32)[mask]
+                else: f.read_ints(np.int32)
+        pointer['cpu'] = icpu
+        
+    if(sequential):
+        cursor += nsize
+        return cursor
+    return part
+
+def _calc_ncell(fname, kwargs):
+    ncpu = kwargs['ncpu']
+    nboundary = kwargs['nboundary']
+    nlevelmax = kwargs['nlevelmax']
+    ndim = kwargs['ndim']
+    
+    twondim=2*ndim; twotondim=2**ndim
+    skip_amr = 3 * (2**ndim + ndim) + 1
+    icpu = int(fname[-5:])
+    ncell = 0
+    with FortranFile(fname, mode='r') as f:
+        f.skip_records(21, nowarn=True)
+        numbl                   = f.read_ints()
+        ngridfile = np.empty((ncpu+nboundary, nlevelmax), dtype='i4')
+        for ilevel in range(nlevelmax):
+            ngridfile[:,ilevel]=numbl[ncpu*ilevel : ncpu*(ilevel+1)]
+        f.skip_records(7, nowarn=True)
+        if nboundary>0: f.skip_records(3, nowarn=True)
+        levels, cpus = np.where(ngridfile.T>0)
+        for ilevel, jcpu in zip(levels, cpus+1):
+            f.skip_records(3, nowarn=True)
+            if jcpu==icpu:
+                f.skip_records(3*ndim+1, nowarn=True)
+                for _ in range(twotondim):
+                    son = f.read_ints()
+                    if 0 in son:
+                        ncell += len(son.flatten())-np.count_nonzero(son)
+                f.skip_records(2*twotondim, nowarn=True)
+            else:
+                f.skip_records(skip_amr, nowarn=True)
+    return ncell
+
+def _read_cell(icpu, dtype, target_fields, snapkwargs, kwargs, read_grav, legacy, cell=None, cursor=None):
+    # # 0) From snapshot
+    oct_offset = np.array([
+        -0.5,  0.5, -0.5,  0.5, -0.5,  0.5, -0.5,  0.5,
+        -0.5, -0.5,  0.5,  0.5, -0.5, -0.5,  0.5,  0.5,
+        -0.5, -0.5, -0.5, -0.5,  0.5,  0.5,  0.5,  0.5 
+        ]).reshape(3,8).T
+    nhvar = snapkwargs['nhvar']
+    hydro_names = snapkwargs['hydro_names']
+    repo = snapkwargs['repo']
+    iout = snapkwargs['iout']
+    ncpu = kwargs['ncpu']
+    nboundary = kwargs['nboundary']
+    nlevelmax = kwargs['nlevelmax']
+    ndim = kwargs['ndim']
+
+    twondim=2*ndim; twotondim=2**ndim
+    skip_amr = 3 * (2**ndim + ndim) + 1
+    skip_hydro = nhvar * 2**ndim
+    # 1) Read headers
+    hydro_fname = f"{repo}/output_{iout:05d}/hydro_{iout:05d}.out{icpu:05d}"
+    f_hydro = FortranFile(hydro_fname, mode='r')
+    f_hydro.skip_records(6, nowarn=True)
+    
+    if(read_grav):
+        grav_fname = f"{repo}/output_{iout:05d}/grav_{iout:05d}.out{icpu:05d}"
+        f_grav = FortranFile(grav_fname, mode='r')
+        f_grav.skip_records(1, nowarn=True)
+        ndim1, = f_grav.read_ints()
+        output_particle_density = ndim1==ndim+2
+        f_grav.skip_records(2, nowarn=True)
+    
+    amr_fname = f"{repo}/output_{iout:05d}/amr_{iout:05d}.out{icpu:05d}"
+    sequential=True
+    if(cell is None): sequential=False
+    if(cell is None): ncell = _calc_ncell(amr_fname, kwargs)
+    f_amr = FortranFile(amr_fname, mode='r')
+    f_amr.skip_records(21, nowarn=True)
+    numbl = f_amr.read_ints()
+    if(not legacy):
+        ngridfile = numbl.reshape(nlevelmax, ncpu+nboundary).T
+    else:
+        ngridfile = np.empty((ncpu+nboundary, nlevelmax), dtype='i4')
+        for ilevel in range(nlevelmax):
+            ngridfile[:,ilevel]=numbl[ncpu*ilevel : ncpu*(ilevel+1)]
+    f_amr.skip_records(7, nowarn=True)
+    if nboundary>0: f_amr.skip_records(3, nowarn=True)
+    if(cell is None): cell = np.empty(ncell, dtype=dtype)
+    
+    # 2) Level by Level
+    if(cursor is None): cursor = 0
+    # Loop over levels
+    nskip_hydro = 0
+    nskip_amr = 0
+    for ilevel in range(nlevelmax):
+        if(not legacy):
+            ncpu_befo = icpu-1
+            ncpu_afte = ncpu-icpu
+            ncache_befo = np.count_nonzero(ngridfile[:ncpu_befo, ilevel])
+            ncache = ngridfile[icpu-1, ilevel]
+            ncache_afte = np.count_nonzero(ngridfile[icpu:, ilevel])
+            
+            # Skip jcpu<icpu
+            f_hydro.skip_records(2*ncpu_befo + skip_hydro*ncache_befo, nowarn=True); nskip_hydro += 2*ncpu_befo + skip_hydro*ncache_befo
+            f_amr.skip_records((3+skip_amr)*ncache_befo, nowarn=True); nskip_amr += (3+skip_amr)*ncache_befo
+            # Now jcpu==icpu
+            f_hydro.skip_records(2, nowarn=True); nskip_hydro+=2
+            if(ncache>0):
+                f_amr.skip_records(3, nowarn=True); nskip_amr+=3
+                x = readorskip_real(f_amr, np.float64, 'x', target_fields, add=oct_offset[:, 0].reshape(twotondim, 1) * 0.5**(ilevel+1)); nskip_amr+=1
+                y = readorskip_real(f_amr, np.float64, 'y', target_fields, add=oct_offset[:, 1].reshape(twotondim, 1) * 0.5**(ilevel+1)); nskip_amr+=1
+                z = readorskip_real(f_amr, np.float64, 'z', target_fields, add=oct_offset[:, 2].reshape(twotondim, 1) * 0.5**(ilevel+1)); nskip_amr+=1
+                f_amr.skip_records(2*ndim + 1, nowarn=True); nskip_amr+=2*ndim+1 # Skip father index & nbor index
+                # Read son index to check refinement
+                if(legacy):
+                    ileaf = f_amr.read_arrays(twotondim) == 0; nskip_amr+=twotondim
+                else:
+                    ileaf = np.empty((twotondim, ncache), dtype=bool)
+                    for j in range(twotondim):
+                        son = f_amr.read_ints(); nskip_amr+=1
+                        ileaf[j] = son==0
+                f_amr.skip_records(2*twotondim, nowarn=True); nskip_amr+=2*twotondim # Skip cpu, refinement map
+                icell = np.count_nonzero(ileaf)
+
+                # Allocate hydro variables
+                hydro_vars = [None] * nhvar
+                for ivar in range(nhvar):
+                    if(hydro_names[ivar] in target_fields):
+                        hydro_vars[ivar] = np.empty((twotondim, ncache), dtype='f8')
+                if(read_grav): grav_vars = np.empty((twotondim, ncache), dtype='f8')
+
+                # Read hydro variables
+                for j in range(twotondim):
+                    for ivar in range(nhvar):
+                        if(hydro_names[ivar] in target_fields):
+                            hydro_vars[ivar][j] = f_hydro.read_reals(); nskip_hydro += 1
+                        else:
+                            f_hydro.skip_records(1, nowarn=True); nskip_hydro += 1
+                    if(read_grav):
+                        if output_particle_density: f_grav.skip_records(1, nowarn=True)
+                        grav_vars[j]  = f_grav.read_reals()
+                        f_grav.skip_records(ndim, nowarn=True)
+
+                # Merge amr & hydro data
+                if True in ileaf:
+                    if('x' in target_fields): cell[cursor : cursor+icell]['x']       = x[ileaf]
+                    if('y' in target_fields): cell[cursor : cursor+icell]['y']       = y[ileaf]
+                    if('z' in target_fields): cell[cursor : cursor+icell]['z']       = z[ileaf]
+                    for ivar in range(nhvar):
+                        key = hydro_names[ivar]
+                        if(key in target_fields): cell[cursor : cursor+icell][key]       = hydro_vars[ivar][ileaf]
+                    if(read_grav): cell[cursor : cursor+icell]['pot']     = grav_vars[ileaf]
+                    cell[cursor : cursor+icell]['level']   = ilevel+1
+                    cell[cursor : cursor+icell]['cpu']     = icpu
+
+                    cursor += icell
+            # Skip jcpu>icpu
+            f_hydro.skip_records(2*ncpu_afte + skip_hydro*ncache_afte, nowarn=True); nskip_hydro += 2*ncpu_afte + skip_hydro*ncache_afte
+            f_amr.skip_records((3+skip_amr)*ncache_afte, nowarn=True); nskip_amr += (3+skip_amr)*ncache_afte
+                
+        else:        
+            # Loop over domains
+            for jcpu in range(1, nboundary+ncpu+1):
+                ncache = ngridfile[jcpu-1, ilevel]
+                f_hydro.skip_records(2, nowarn=True); nskip_hydro+=2
+                if(read_grav):f_grav.skip_records(2, nowarn=True)
+                # Read AMR data
+                if(ncache>0):
+                    f_amr.skip_records(3, nowarn=True); nskip_amr+=3
+                    # Read grid center
+                    if icpu == jcpu:
+                        x = readorskip_real(f_amr, np.float64, 'x', target_fields, add=oct_offset[:, 0].reshape(twotondim, 1) * 0.5**(ilevel+1)); nskip_amr+=1
+                        y = readorskip_real(f_amr, np.float64, 'y', target_fields, add=oct_offset[:, 1].reshape(twotondim, 1) * 0.5**(ilevel+1)); nskip_amr+=1
+                        z = readorskip_real(f_amr, np.float64, 'z', target_fields, add=oct_offset[:, 2].reshape(twotondim, 1) * 0.5**(ilevel+1)); nskip_amr+=1
+                        f_amr.skip_records(2*ndim + 1, nowarn=True); nskip_amr +=2*ndim+1 # Skip father index & nbor index
+                        # Read son index to check refinement
+                        if(not legacy):
+                            ileaf = f_amr.read_arrays(twotondim) == 0; nskip_amr+=twotondim
+                        else:
+                            ileaf = np.empty((twotondim, ncache), dtype=bool)
+                            for j in range(twotondim):
+                                son = f_amr.read_ints(); nskip_amr+=1
+                                ileaf[j] = son==0
+                        f_amr.skip_records(2*twotondim, nowarn=True); nskip_amr+=2*twotondim # Skip cpu, refinement map
+                        icell = np.count_nonzero(ileaf)
+
+                        # Allocate hydro variables
+                        hydro_vars = [None] * nhvar
+                        for ivar in range(nhvar):
+                            if(hydro_names[ivar] in target_fields):
+                                hydro_vars[ivar] = np.empty((twotondim, ncache), dtype='f8')
+                        if(read_grav): grav_vars = np.empty((twotondim, ncache), dtype='f8')
+                        
+                        # Read hydro variables
+                        for j in range(twotondim):
+                            for ivar in range(nhvar):
+                                if(hydro_names[ivar] in target_fields):
+                                    hydro_vars[ivar][j] = f_hydro.read_reals(); nskip_hydro+=1
+                                else:
+                                    f_hydro.skip_records(1, nowarn=True); nskip_hydro+=1
+                            if(read_grav):
+                                if output_particle_density: f_grav.skip_records(1, nowarn=True)
+                                grav_vars[j]  = f_grav.read_reals()
+                                f_grav.skip_records(ndim, nowarn=True)
+                        
+                        # Merge amr & hydro data
+                        if True in ileaf:
+                            if('x' in target_fields): cell[cursor : cursor+icell]['x']       = x[ileaf]
+                            if('y' in target_fields): cell[cursor : cursor+icell]['y']       = y[ileaf]
+                            if('z' in target_fields): cell[cursor : cursor+icell]['z']       = z[ileaf]
+                            for ivar in range(nhvar):
+                                key = hydro_names[ivar]
+                                if(key in target_fields): cell[cursor : cursor+icell][key]       = hydro_vars[ivar][ileaf]
+                            if(read_grav): cell[cursor : cursor+icell]['pot']     = grav_vars[ileaf]
+                            cell[cursor : cursor+icell]['level']   = ilevel+1
+                            cell[cursor : cursor+icell]['cpu']     = jcpu
+
+                            cursor += icell
+                    else:
+                        f_amr.skip_records(skip_amr, nowarn=True); nskip_amr+=skip_amr
+                        f_hydro.skip_records(skip_hydro, nowarn=True); nskip_hydro+=skip_hydro
+                        if(read_grav):
+                            f_grav.skip_records(twotondim*(2+ndim), nowarn=True) if output_particle_density else f_grav.skip_records(twotondim*(1+ndim), nowarn=True)
+    f_amr.close()
+    f_hydro.close()
+    if(read_grav): f_grav.close()
+    if(sequential):
+        return cursor
+    return cell[:cursor]
+    
+    
+    
 class RamsesSnapshot(object):
     """A handy object to store RAMSES AMR/Particle snapshot data.
 
@@ -556,7 +897,6 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             involved_cpu = np.arange(self.params['ncpu']) + 1
         return involved_cpu
 
-
     def read_sink_table(self):
         if(self.mode=='nh'):
             table = np.genfromtxt(self.path+'/sink_%05d.csv' % self.iout, dtype=sink_table_dtype, delimiter=',')
@@ -564,25 +904,13 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             raise ValueError('This function works only for NH-version RAMSES')
         return table
 
-    def read_specific(self, pname:str, cpulist:Iterable, mode:str, target_fields=None):
-        # 0) Mode check
+    def read_part_py(self, pname:str, cpulist:Iterable, mode:str, target_fields=None, nthread=1):
+        # 1) Mode check
         import os
         modes = ['hagn', 'yzics', 'nh', 'fornax', 'y2', 'y3', 'y4', 'nc', 'nh2', 'dm_only']
         if mode not in modes:
             raise ValueError(f"{mode} is not supported! \n(currently only {modes} are available)")
-        
-        # 1) Read or skip functions
-        def readorskip_real(f:FortranFile, dtype:type, key:str, search:Iterable):
-            if key in search:
-                return f.read_reals(dtype)
-            else:
-                f.skip_records()
-        def readorskip_int(f:FortranFile, dtype:type, key:str, search:Iterable):
-            if key in search:
-                return f.read_ints(dtype)
-            else:
-                f.skip_records()
-        
+                
         # 2) Chemical elements list
         chems = {
             'hagn':['H','O','Fe', 'C', 'N', 'Mg', 'Si'], 
@@ -594,180 +922,105 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         chem = chems[mode]
 
         # 3) Check numbers of particles from txt (or from output file)
-        files = glob.glob(f"{self.snap_path}/output_{self.iout:05d}/part*out*")
+        allfiles = glob.glob(f"{self.snap_path}/output_{self.iout:05d}/part*out*")
+        files = [fname for fname in allfiles if int(fname[-5:]) in cpulist]
         header = f"{self.snap_path}/output_{self.iout:05d}/header_{self.iout:05d}.txt"
         sinkinfo = f"{self.snap_path}/output_{self.iout:05d}/sink_{self.iout:05d}.info"
 
+        isstar = self.star[0]
         isfamily = False
         if os.path.isfile(header): # (NH, NH2, Fornax, NC)
             with open(header, "rt") as f:
                 temp = f.readline()
                 if "Family" in temp: # (Fornax, NH2, NC)
                     isfamily = True
-                    ntracer_tot = int( f.readline()[14:] ) # other_tracer
-                    for _ in range(5):
-                        # tracers of debris, cloud, star, other, gas
-                        ntracer_tot += int( f.readline()[14:] ) # debris_tracer
-                    ndm_tot = int( f.readline()[14:] )
-                    nstar_tot = int( f.readline()[14:] )
-                    ncloud_tot = int( f.readline()[14:] )
-                    npart_tot = ntracer_tot + ndm_tot + nstar_tot + ncloud_tot
-                    for _ in range(3):
-                        # debris, other, undefined
-                        npart_tot += int( f.readline()[14:] ) # debris
-                    
-                    if os.path.isfile(sinkinfo): # (NH2, NC)
-                        with open(sinkinfo, 'rt') as f:
-                            nsink_tot = int(f.readline().split()[-1])
-                    else: # (Fornax)
-                        with FortranFile(f"{files[0]}", mode='r') as f:
-                            f.skip_records(7)
-                            nsink_tot = f.read_ints(np.int32)[0]
+                    if(nthread==1):
+                        ntracer_tot = int( f.readline()[14:] ) # other_tracer
+                        for _ in range(5):
+                            # tracers of debris, cloud, star, other, gas
+                            ntracer_tot += int( f.readline()[14:] ) # debris_tracer
+                        ndm_tot = int( f.readline()[14:] )
+                        nstar_tot = int( f.readline()[14:] )
+                        ncloud_tot = int( f.readline()[14:] )
+                        npart_tot = ntracer_tot + ndm_tot + nstar_tot + ncloud_tot
+                        for _ in range(3):
+                            # debris, other, undefined
+                            npart_tot += int( f.readline()[14:] ) # debris
+                        
+                        if os.path.isfile(sinkinfo): # (NH2, NC)
+                            with open(sinkinfo, 'rt') as f:
+                                nsink_tot = int(f.readline().split()[-1])
+                        else: # (Fornax)
+                            with FortranFile(f"{allfiles[0]}", mode='r') as f:
+                                f.skip_records(7, nowarn=True)
+                                nsink_tot = f.read_ints(np.int32)[0]
                 else: # (NH)
-                    npart_tot = int(f.readline()); f.readline()
-                    ndm_tot = int(f.readline()); f.readline()
-                    nstar_tot = int(f.readline()); f.readline()
-                    nsink_tot = int(f.readline()); f.readline()
-                    ncloud_tot = nsink_tot * 2109
-                    ntracer_tot = 0
+                    if(nthread==1):
+                        npart_tot = int(f.readline()); f.readline()
+                        ndm_tot = int(f.readline()); f.readline()
+                        nstar_tot = int(f.readline()); f.readline()
+                        nsink_tot = int(f.readline()); f.readline()
+                        ncloud_tot = nsink_tot * 2109
+                        ntracer_tot = 0
         else: # (hagn, yzics)
-            with FortranFile(f"{files[0]}", mode='r') as f:
-                f.skip_records(4) # ncpu, ndim, npart, localseed(+tracer_seed)
-                nstar_tot = f.read_ints(np.int32)[0] # nstar
-                f.skip_records(2) # mstar_tot, mstar_lost
-                nsink_tot = f.read_ints(np.int32)[0] # nsink
-                ncloud_tot = 2109 * nsink_tot
-            ndm_tot = 0
-            ntracer_tot = 0
-            if(pname == 'dm'):
-                npart_tot = 0
-                for file in files:
-                    with FortranFile(f"{file}", mode='r') as f:
-                        f.skip_records(2)
-                        npart_tot += f.read_ints(np.int32)[0]
-                ndm_tot = npart_tot - nstar_tot - ncloud_tot
+            if(nthread==1):
+                with FortranFile(f"{allfiles[0]}", mode='r') as f:
+                    f.skip_records(4, nowarn=True) # ncpu, ndim, npart, localseed(+tracer_seed)
+                    nstar_tot = f.read_ints(np.int32)[0] # nstar
+                    f.skip_records(2, nowarn=True) # mstar_tot, mstar_lost
+                    nsink_tot = f.read_ints(np.int32)[0] # nsink
+                    ncloud_tot = 2109 * nsink_tot
+                ndm_tot = 0
+                ntracer_tot = 0
+                if(pname == 'dm')or(pname is None):
+                    npart_tot = 0
+                    for fname in allfiles:
+                        if(pname is None)and(not int(fname[-5:]) in cpulist):
+                            continue
+                        with FortranFile(f"{fname}", mode='r') as f:
+                            f.skip_records(2, nowarn=True)
+                            npart_tot += f.read_ints(np.int32)[0]
+                    ndm_tot = npart_tot - nstar_tot - ncloud_tot
 
         # 4) Allocate base array
-        part_dtype = self.part_dtype
+        dtype = self.part_dtype
         if target_fields is not None:
             if 'cpu' not in target_fields:
                 target_fields = np.append(target_fields, 'cpu')
-            part_dtype = [idtype for idtype in part_dtype if idtype[0] in target_fields]
+            dtype = [idtype for idtype in dtype if idtype[0] in target_fields]
         else:
-            target_fields = [idtype[0] for idtype in part_dtype]
-        tracers = ["tracer","cloud_tracer","star_tracer","gas_tracer"]
-        if(pname == 'star'):
-            size = nstar_tot
-        elif(pname == 'dm')or(pname == 'DM'):
-            size = ndm_tot
-        elif(pname == 'sink'):
-            size = ncloud_tot
-        elif(pname in tracers):
-            size = ntracer_tot
-        else:
-            raise ValueError(f"{pname} is currently not supported!")
-        part = np.empty(size, dtype=part_dtype)
+            target_fields = [idtype[0] for idtype in dtype]
+        
+        if(nthread==1):
+            tracers = ["tracer","cloud_tracer","star_tracer","gas_tracer"]
+            if(pname == 'star'):
+                size = nstar_tot
+            elif(pname == 'dm')or(pname == 'DM'):
+                size = ndm_tot
+            elif(pname == 'sink'):
+                size = ncloud_tot
+            elif(pname in tracers):
+                size = ntracer_tot
+            elif(pname is None):
+                size = npart_tot
+            else:
+                raise ValueError(f"{pname} is currently not supported!")
+            part = np.empty(size, dtype=dtype)
 
         # 5) Read output part files
-        cursor = 0
-        for fname in files:
-            icpu = int( fname[-5:] )
-            if icpu in cpulist:
-                with FortranFile(f"{fname}", mode='r') as f:
-                    # Read fortran file
-                    #   (read) header
-                    f.skip_records(8) # ncpu, ndim, npart, localseed(+tracer_seed), nstar, mstar_tot, mstar_lost, nsink
-                    #   (read) pos, vel, m
-                    x = readorskip_real(f, np.float64, 'x', target_fields)
-                    y = readorskip_real(f, np.float64, 'y', target_fields)
-                    z = readorskip_real(f, np.float64, 'z', target_fields)
-                    vx = readorskip_real(f, np.float64, 'vx', target_fields)
-                    vy = readorskip_real(f, np.float64, 'vy', target_fields)
-                    vz = readorskip_real(f, np.float64, 'vz', target_fields)
-                    m = f.read_reals(np.float64)
-                    #   (read) id, level
-                    id = f.read_ints(np.int32) # id
-                    level = readorskip_int(f, np.int32, 'level', target_fields)
-                    #   (read) family, tag
-                    if isfamily:
-                        family = f.read_ints(np.int8) # family
-                        tag = readorskip_int(f, np.int8, 'tag', target_fields) # tag
-                    else: pass                    
-                    #   (read) epoch, metal
-                    if nstar_tot>0:
-                        epoch = f.read_reals(np.float64) # epoch
-                        metal = readorskip_real(f, np.float64, 'metal', target_fields)
-                    #############################################
-                    ###     Mask stars (From `classify_part`)
-                    #############################################
-                    if(isfamily):
-                        # Do a family-based classification
-                        mask = np.isin(family, part_family[pname])
-                    elif(nstar_tot>0):
-                        # Do a parameter-based classification
-                        if(pname == 'dm'):
-                            mask = (epoch == 0) & (id > 0)
-                        elif(pname == 'star'):
-                            mask = ((epoch < 0) & (id > 0))\
-                                   | ((epoch != 0) & (id < 0))
-                        elif(pname == 'sink' or pname == 'cloud'):
-                            mask = (id < 0) & (m > 0) & (epoch == 0)
-                        elif(pname in tracers):
-                            mask = (id < 0) & (m == 0)
-                        else:
-                            mask = False
-                    else:
-                        # DM-only simulation
-                        if(pname == 'dm'):
-                            mask =  id > 0
-                        elif(pname in tracers):
-                            mask = (id < 0) & (m == 0)
-                        else:
-                            mask = False
-                    #############################################
-                    
-                    # Write masked data only for requested columns
-                    nsize = len(mask[mask])
-                    if('x' in target_fields):part['x'][cursor:cursor+nsize] = x[mask]
-                    if('y' in target_fields):part['y'][cursor:cursor+nsize] = y[mask]
-                    if('z' in target_fields):part['z'][cursor:cursor+nsize] = z[mask]
-                    if('vx' in target_fields):part['vx'][cursor:cursor+nsize] = vx[mask]
-                    if('vy' in target_fields):part['vy'][cursor:cursor+nsize] = vy[mask]
-                    if('vz' in target_fields):part['vz'][cursor:cursor+nsize] = vz[mask]
-                    if('m' in target_fields):part['m'][cursor:cursor+nsize] = m[mask]
-                    if('epoch' in target_fields):part['epoch'][cursor:cursor+nsize] = epoch[mask]
-                    if('metal' in target_fields):part['metal'][cursor:cursor+nsize] = metal[mask]
-                    if('id' in target_fields):part['id'][cursor:cursor+nsize] = id[mask]
-                    if('level' in target_fields):part['level'][cursor:cursor+nsize] = level[mask]
-                    if('family' in target_fields):part['family'][cursor:cursor+nsize] = family[mask]
-                    if('tag' in target_fields):part['tag'][cursor:cursor+nsize] = tag[mask]
-                    newtypes = ["m0", "rho0", "partp"] + chem
-                    if True in np.isin(newtypes, target_fields):
-                        # (read & write) initial mass
-                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='nh2'):
-                            if('m0' in target_fields): part['m0'][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
-                            else: f.read_reals(np.float64)
-                        # (read & write) chemical elements
-                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='hagn') or (mode=='nh2'):
-                            if len(chem)>0:
-                                for ichem in chem:
-                                    if(ichem in target_fields): part[ichem][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
-                                    else: f.read_reals(np.float64)
-                        # (read & write) stellar density at formation
-                        if(mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='nh2'):
-                            if('rho0' in target_fields): part['rho0'][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
-                            else: f.read_reals(np.float64)
-                        # (read & write) parent indices
-                        if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='nh2'):
-                            if('partp' in target_fields): part['partp'][cursor:cursor+nsize] = f.read_ints(np.int32)[mask]
-                            else: f.read_ints(np.int32)
-                    # Write cpu info
-                    part['cpu'][cursor:cursor+nsize] = icpu
+        kwargs = {"pname":pname, "isfamily":isfamily, "isstar":isstar, "chem":chem, "mode":mode}
+        if(nthread>1):
+            with Pool(processes=nthread) as pool:
+                result_list = pool.starmap(_read_part, [(filename, target_fields, dtype, kwargs) for filename in files])
+            part = np.concatenate(result_list)
+        else:
+            cursor = 0
+            for fname in files:
+                cursor = _read_part(fname, target_fields, dtype, kwargs, part=part, cursor=cursor)
+            part = part[:cursor]
+        return part
 
-                    cursor += nsize
-        return part[:cursor]
-
-    def read_part(self, target_fields=None, cpulist=None, pname=None, nthread=1, return_raw=False):
+    def read_part(self, target_fields=None, cpulist=None, pname=None, nthread=1, python=False):#, return_raw=False):
         """Reads particle data from current box.
 
         Parameters
@@ -795,8 +1048,11 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             for icpu in cpulist:
                 filesize += getsize(self.get_path('part', icpu))
             timer.start('Reading %d part files (%s) in %s... ' % (cpulist.size, utool.format_bytes(filesize), self.path), 1)
-            if pname is not None:
-                part = self.read_specific(pname, cpulist, self.mode, target_fields=target_fields)
+            if(python):
+                # if(nthread>1):
+                #     part = self.read_part_py_mp(pname, cpulist, self.mode, target_fields=target_fields, nthread=nthread)
+                # else:
+                part = self.read_part_py(pname, cpulist, self.mode, target_fields=target_fields, nthread=nthread)
             else:
                 progress_bar = cpulist.size > progress_bar_limit and timer.verbose >= 1
                 mode = self.mode
@@ -813,19 +1069,114 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                     else:
                         arr = [*readr.real_table, *readr.integer_table, *readr.byte_table]
 
-                        target_idx = np.where(np.isin(np.dtype(dtype).names, target_fields))[0]
-                        arr = [arr[idx] for idx in target_idx]
-                        dtype = [dtype[idx] for idx in target_idx]
-                    part = fromarrays(arr, dtype=dtype) if not return_raw else arr
+                    target_idx = np.where(np.isin(np.dtype(dtype).names, target_fields))[0]
+                    arr = [arr[idx] for idx in target_idx]
+                    dtype = [dtype[idx] for idx in target_idx]
+                    if(pname is not None):
+                        if('family' in np.dtype(dtype).names):
+                            if not ('family' in target_fields):
+                                raise KeyError(f'`family` must be included in `target_fields` to classify {pname} particles!')
+                            idx = np.where(np.array(target_fields) == 'family')[0][0]
+                            mask = np.isin(arr[idx], part_family[pname])
+                        elif(self.star[0]>0):
+                            names = {'epoch':None, 'id':None, 'm':None}
+                            if(pname=='dm')or(pname=='star'): del names['m']
+                            for key in names.keys():
+                                if not (key in target_fields):
+                                    raise KeyError(f'`{key}` must be included in `target_fields` to classify  {pname} particles!')
+                                idx = np.where(np.array(target_fields) == key)[0][0]
+                                names[key] = arr[idx]
+                            if(pname == 'dm'):
+                                mask = (names['epoch'] == 0) & (names['id'] > 0)
+                            elif(pname == 'star'):
+                                mask = ((names['epoch'] < 0) & (names['id'] > 0))\
+                                    | ((names['epoch'] != 0) & (names['id'] < 0))
+                            elif(pname == 'sink' or pname == 'cloud'):
+                                mask = (names['id'] < 0) & (names['m'] > 0) & (names['epoch'] == 0)
+                            elif(pname in tracers):
+                                mask = (names['id'] < 0) & (names['m'] == 0)
+                            else:
+                                mask = False
+                        else:
+                            names = {'id':None, 'm':None}
+                            if(pname=='dm'): del names['m']
+                            for key in names.keys():
+                                if not (key in target_fields):
+                                    raise KeyError(f'`{key}` must be included in `target_fields` to classify  {pname} particles!')
+                                idx = np.where(np.array(target_fields) == key)[0][0]
+                                names[key] = arr[idx]
+                            if(pname == 'dm'):
+                                mask =  ids > 0
+                            elif(pname in tracers):
+                                mask = (ids < 0) & (m == 0)
+                            else:
+                                mask = False
+                        arr = [iarr[mask] for iarr in arr]
+                    part = fromarrays(arr, dtype=dtype)# if not return_raw else arr
                 else:
                     if(self.longint):
                         arrs = [readr.real_table.T, readr.long_table.T, readr.integer_table.T, readr.byte_table.T]
                     else:
                         arrs = [readr.real_table.T, readr.integer_table.T, readr.byte_table.T]
-                    part = fromndarrays(arrs, dtype) if not return_raw else arrs
-                if(return_raw):
-                    self.part = (part, dtype)
-                    return None
+                    if(pname is not None):
+                        if('family' in np.dtype(dtype).names):
+                            mask = np.isin(arrs[-1][0], part_family[pname])
+                        elif(self.star[0]>0):
+                            names = {'epoch':None, 'id':None, 'm':None}
+                            if(pname=='dm')or(pname=='star'): del names['m']
+                            for key in list(names.keys()):
+                                idx = np.where(np.array(np.dtype(dtype).names) == key)[0][0]
+                                # Real table
+                                i=0
+                                # Long/Int table
+                                if(idx+1 > arrs[0].shape[1]):
+                                    idx -= arrs[0].shape[1]; i+=1
+                                    # Int/byte
+                                    if(idx+1 > arrs[1].shape[1]):
+                                        idx -= arrs[1].shape[1]; i+=1
+                                        # byte
+                                        if(idx+1 > arrs[2].shape[1]):
+                                            idx -= arrs[2].shape[1]; i+=1
+                                names[key] = arrs[i][:,idx]
+                            if(pname == 'dm'):
+                                mask = (names['epoch'] == 0) & (names['id'] > 0)
+                            elif(pname == 'star'):
+                                mask = ((names['epoch'] < 0) & (names['id'] > 0))\
+                                    | ((names['epoch'] != 0) & (names['id'] < 0))
+                            elif(pname == 'sink' or pname == 'cloud'):
+                                mask = (names['id'] < 0) & (names['m'] > 0) & (names['epoch'] == 0)
+                            elif(pname in tracers):
+                                mask = (names['id'] < 0) & (names['m'] == 0)
+                            else:
+                                mask = False
+                        else:
+                            names = {'id':None, 'm':None}
+                            if(pname=='dm'): del names['m']
+                            for key in names.keys():
+                                idx = np.where(np.array(np.dtype(dtype).names) == key)[0][0]
+                                # Real table
+                                i=0
+                                # Long/Int table
+                                if(idx+1 > arrs[0].shape[1]):
+                                    idx -= arrs[0].shape[1]; i+=1
+                                    # Int/byte
+                                    if(idx+1 > arrs[1].shape[1]):
+                                        idx -= arrs[1].shape[1]; i+=1
+                                        # byte
+                                        if(idx+1 > arrs[2].shape[1]):
+                                            idx -= arrs[2].shape[1]; i+=1
+                                names[key] = arrs[i][:,idx]
+                            if(pname == 'dm'):
+                                mask =  ids > 0
+                            elif(pname in tracers):
+                                mask = (ids < 0) & (m == 0)
+                            else:
+                                mask = False
+                        arrs = [arr[mask] for arr in arrs]
+                    part = fromndarrays(arrs, dtype)# if not return_raw else arrs
+                # if(return_raw):
+                #     self.part = (part, dtype)
+                #     return None
                 readr.close()
             bound = compute_boundary(part['cpu'], cpulist)
             if (self.part_data is None):
@@ -841,7 +1192,65 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if (timer.verbose >= 1):
                 print('CPU list already satisfied.')
 
-    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, return_raw=False, nthread=1):
+    def read_cell_py(self, cpulist, read_grav=False, target_fields=None, nthread=1, legacy=False):       
+        # 1) Read AMR params
+        fname = f"{self.snap_path}/output_{self.iout:05d}/amr_{self.iout:05d}.out00001"
+        with FortranFile(fname, mode='r') as f:
+            ncpu,                   = f.read_ints()
+            ndim,                   = f.read_ints()
+            f.skip_records(1, nowarn=True)
+            nlevelmax,              = f.read_ints()
+            f.skip_records(1, nowarn=True)
+            nboundary,              = f.read_ints()
+        kwargs = {'nboundary':nboundary, 'nlevelmax':nlevelmax, 'ndim':ndim, 'ncpu':ncpu}
+        ngridfile = np.empty((ncpu+nboundary, nlevelmax), dtype='i4')
+        twondim=2*ndim; twotondim=2**ndim
+        skip_amr = 3 * (2**ndim + ndim) + 1
+        
+        # 2) Read Hydro params
+        fname = f"{self.snap_path}/output_{self.iout:05d}/hydro_{self.iout:05d}.out00001"
+        with FortranFile(fname, mode='r') as f:
+            f.skip_records(1, nowarn=True)
+            nhvar,                  = f.read_ints()
+        
+        # 3) Calculate total number of cells
+        if(nthread==1):
+            ncell_tot = 0
+            for icpu in cpulist:
+                fname = f"{self.snap_path}/output_{self.iout:05d}/amr_{self.iout:05d}.out{icpu:05d}"
+                ncell_tot += _calc_ncell(fname, kwargs)
+        else:
+            ncell_tot=None; cell=None
+        
+        # 4) Set dtype
+        self.params['nhvar'] = nhvar
+        formats = ['f8'] * self.params['ndim'] + ['f8'] * self.params['nhvar'] + ['i4'] * 2
+        names = list(dim_keys[:self.params['ndim']]) + self.hydro_names + ['level', 'cpu']
+        if(read_grav):
+            formats.insert(-2, "f8")
+            names.insert(-2, "pot")
+        if target_fields is not None:
+            target_idx = np.where(np.isin(names, target_fields))[0]
+            formats = [formats[idx] for idx in target_idx]
+            names = [names[idx] for idx in target_idx]
+            dtype = [(nm, fmt) for nm, fmt in zip(names, formats)]
+        else:
+            dtype = np.format_parser(formats=formats, names=names, titles=None).dtype
+        
+        snapkwargs = {'nhvar':nhvar, 'hydro_names':self.hydro_names, 'repo':self.snap_path, 'iout':self.iout}
+        # 5) Read data
+        if(nthread==1):
+            cell = np.empty(ncell_tot, dtype=dtype)
+            cursor = 0
+            for icpu in cpulist:
+                cursor = _read_cell(icpu, dtype, names, snapkwargs, kwargs, read_grav, legacy, cell=cell, cursor=cursor)
+        else:
+            with Pool(processes=nthread) as pool:
+                result_list = list(pool.starmap(_read_cell, [(icpu, dtype, names, snapkwargs, kwargs, read_grav, legacy) for icpu in cpulist]))
+            cell = np.concatenate(result_list)
+        return cell
+
+    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, python=False, nthread=1, legacy=False):#, return_raw=False):
         """Reads amr data from current box.
 
         Parameters
@@ -872,41 +1281,44 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 filesize += getsize(self.get_path('hydro', icpu))
             timer.start('Reading %d AMR & hydro files (%s) in %s... ' % (cpulist.size, utool.format_bytes(filesize), self.path), 1)
 
-            progress_bar = cpulist.size > progress_bar_limit and timer.verbose >= 1
-            readr.read_cell(self.snap_path, self.iout, cpulist, self.mode, read_grav, progress_bar, nthread)
-            self.params['nhvar'] = int(readr.nhvar)
-            timer.record()
-
-            formats = ['f8'] * self.params['ndim'] + ['f8'] * self.params['nhvar'] + ['i4'] * 2
-            names = list(dim_keys[:self.params['ndim']]) + self.hydro_names + ['level', 'cpu']
-            if(read_grav):
-                formats.insert(-2, "f8")
-                names.insert(-2, "pot")
-
-            arr = [*readr.real_table, *readr.integer_table]
-
-            if(len(arr) != len(names)):
-                raise ValueError(
-                    "Number of fields and size of the hydro array does not match\n"
-                    "Consider changing the content of RamsesSnapshot.hydro_names\n"
-                    "Recieved: %d, Desired: %d" % (len(names), len(arr)))
-
-            timer.start('Building table for %d cells... ' % (arr[0].size), 1)
-            if target_fields is not None:
-                target_idx = np.where(np.isin(names, target_fields))[0]
-                arr = [arr[idx] for idx in target_idx]
-                formats = [formats[idx] for idx in target_idx]
-                names = [names[idx] for idx in target_idx]
-                dtype = [(nm, fmt) for nm, fmt in zip(names, formats)]
-                cell = fromarrays(arr, formats=formats, names=names) if not return_raw else arr
+            if(python):
+                cell = self.read_cell_py(cpulist, read_grav=read_grav, nthread=nthread, target_fields=target_fields, legacy=legacy)
             else:
-                dtype = np.format_parser(formats=formats, names=names, titles=None).dtype
-                arrs = [readr.real_table.T, readr.integer_table.T]
-                cell = fromndarrays(arrs, dtype) if not return_raw else arrs
-            if(return_raw):
-                self.cell = (cell, dtype)
-                return None
-            readr.close()
+                progress_bar = cpulist.size > progress_bar_limit and timer.verbose >= 1
+                readr.read_cell(self.snap_path, self.iout, cpulist, self.mode, read_grav, progress_bar, nthread)
+                self.params['nhvar'] = int(readr.nhvar)
+                timer.record()
+
+                formats = ['f8'] * self.params['ndim'] + ['f8'] * self.params['nhvar'] + ['i4'] * 2
+                names = list(dim_keys[:self.params['ndim']]) + self.hydro_names + ['level', 'cpu']
+                if(read_grav):
+                    formats.insert(-2, "f8")
+                    names.insert(-2, "pot")
+
+                arr = [*readr.real_table, *readr.integer_table]
+
+                if(len(arr) != len(names)):
+                    raise ValueError(
+                        "Number of fields and size of the hydro array does not match\n"
+                        "Consider changing the content of RamsesSnapshot.hydro_names\n"
+                        "Received: %d, Desired: %d" % (len(names), len(arr)))
+
+                timer.start('Building table for %d cells... ' % (arr[0].size), 1)
+                if target_fields is not None:
+                    target_idx = np.where(np.isin(names, target_fields))[0]
+                    arr = [arr[idx] for idx in target_idx]
+                    formats = [formats[idx] for idx in target_idx]
+                    names = [names[idx] for idx in target_idx]
+                    dtype = [(nm, fmt) for nm, fmt in zip(names, formats)]
+                    cell = fromarrays(arr, formats=formats, names=names)# if not return_raw else arr
+                else:
+                    dtype = np.format_parser(formats=formats, names=names, titles=None).dtype
+                    arrs = [readr.real_table.T, readr.integer_table.T]
+                    cell = fromndarrays(arrs, dtype)# if not return_raw else arrs
+                # if(return_raw):
+                #     self.cell = (cell, dtype)
+                #     return None
+                readr.close()
             
 
             bound = compute_boundary(cell['cpu'], cpulist)
@@ -1268,9 +1680,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.ref = np.concatenate(amr_refs)
         self.cpu = np.concatenate(amr_cpus)
 
-    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False, return_raw=False, nthread=1):
-        if(return_raw):
-            if(timer.verbose>0): print("`return_raw` is experimental!")
+    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False, python=False, nthread=1, legacy=False):#, return_raw=False):
+        # if(return_raw):
+        #     if(timer.verbose>0): print("`return_raw` is experimental!")
         if(isinstance(self.part, tuple)):
             if(timer.verbose>0): print("`snap.part` already occupy fortran arrays! --> Remove")
             self.part=None
@@ -1297,39 +1709,39 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 domain_slicing=False
                 exact_box=False
             if(not ripses):
-                self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist, return_raw=return_raw, nthread=nthread)
-                if(return_raw):
-                    if(exact_box):
-                        print("`exact_box=True` makes the code slower when `return_raw` is True!")
-                        cell, dtype = self.cell
-                        if(isinstance(dtype, list)):
-                            if not (dtype[0][0]=='x')&(dtype[1][0]=='y')&(dtype[2][0]=='z'):
-                                raise AssertionError("dtype should have `x`, `y`, `z` for box cut!")
-                            if not ('level' in [d[0] for d in dtype]):
-                                raise AssertionError("dtype should have `level` for box cut!")
-                        else:
-                            if not (dtype.names[0]=='x')&(dtype.names[1]=='y')&(dtype.names[2]=='z'):
-                                raise AssertionError("dtype should have `x`, `y`, `z` for box cut!")
-                            if not ('level' in dtype.names):
-                                raise AssertionError("dtype should have `level` for box cut!")
-                        if(target_fields is None):
-                            coo = np.vstack(cell[0][:,:3])
-                            lvl = cell[1][:,0]
-                        else:
-                            coo = np.vstack(cell[:3]).T
-                            arg = dtype.names.index('level') if(hasattr(dtype, 'names')) else [i for i in range(len(dtype)) if dtype[i][0]=='level'][0]
-                            lvl = cell[arg]
-                        dx = 0.5 ** lvl
-                        mask = box_mask(coo, self.box, size=dx)
-                        timer.start('Masking cells... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask)/mask.size), 1)
-                        cell = [p[mask] for p in cell]
-                        timer.record()
-                        self.cell = (cell, dtype)
-                    if(timer.verbose>0): 
-                        if(target_fields is None): print("\nsnap.cell=\ntuple( \n    list[real_array, \n\t integer_array, \n\t byte_array \n\t], \n    dtype(nfield,)\n     )\n")
-                        else: print("\nsnap.cell=\ntuple( \n    list[\n\t array_1(npart,), \n\t array_2(npart,), \n\t ...\n\t array_nfield(npart,) \n\t], \n    dtype(nfield,)\n     )\n")
-                        print("Fortran memory should be deallocated via `snap.clear()`!")
-                    return self.cell
+                self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist, python=python, nthread=nthread, legacy=legacy)#, return_raw=return_raw)
+                # if(return_raw):
+                #     if(exact_box):
+                #         print("`exact_box=True` makes the code slower when `return_raw` is True!")
+                #         cell, dtype = self.cell
+                #         if(isinstance(dtype, list)):
+                #             if not (dtype[0][0]=='x')&(dtype[1][0]=='y')&(dtype[2][0]=='z'):
+                #                 raise AssertionError("dtype should have `x`, `y`, `z` for box cut!")
+                #             if not ('level' in [d[0] for d in dtype]):
+                #                 raise AssertionError("dtype should have `level` for box cut!")
+                #         else:
+                #             if not (dtype.names[0]=='x')&(dtype.names[1]=='y')&(dtype.names[2]=='z'):
+                #                 raise AssertionError("dtype should have `x`, `y`, `z` for box cut!")
+                #             if not ('level' in dtype.names):
+                #                 raise AssertionError("dtype should have `level` for box cut!")
+                #         if(target_fields is None):
+                #             coo = np.vstack(cell[0][:,:3])
+                #             lvl = cell[1][:,0]
+                #         else:
+                #             coo = np.vstack(cell[:3]).T
+                #             arg = dtype.names.index('level') if(hasattr(dtype, 'names')) else [i for i in range(len(dtype)) if dtype[i][0]=='level'][0]
+                #             lvl = cell[arg]
+                #         dx = 0.5 ** lvl
+                #         mask = box_mask(coo, self.box, size=dx)
+                #         timer.start('Masking cells... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask)/mask.size), 1)
+                #         cell = [p[mask] for p in cell]
+                #         timer.record()
+                #         self.cell = (cell, dtype)
+                #     if(timer.verbose>0): 
+                #         if(target_fields is None): print("\nsnap.cell=\ntuple( \n    list[real_array, \n\t integer_array, \n\t byte_array \n\t], \n    dtype(nfield,)\n     )\n")
+                #         else: print("\nsnap.cell=\ntuple( \n    list[\n\t array_1(npart,), \n\t array_2(npart,), \n\t ...\n\t array_nfield(npart,) \n\t], \n    dtype(nfield,)\n     )\n")
+                #         print("Fortran memory should be deallocated via `snap.clear()`!")
+                #     return self.cell
             else:
                 self.read_ripses(target_fields=target_fields, cpulist=cpulist)
             if(domain_slicing):
@@ -1348,9 +1760,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.cell = cell
         return self.cell
 
-    def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None, nthread=1, return_raw=False):
-        if(return_raw):
-            if(timer.verbose>0): print("`return_raw` is experimental!")
+    def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None, python=False, nthread=1):#, return_raw=False):
+        # if(return_raw):
+        #     if(timer.verbose>0): print("`return_raw` is experimental!")
         if(isinstance(self.cell, tuple)):
             if(timer.verbose>0): print("`snap.cell` already occupy fortran arrays! --> Remove")
             self.cell=None
@@ -1386,28 +1798,28 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             else:
                 domain_slicing = True
                 exact_box = False
-            self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, return_raw=return_raw)
-            if(return_raw):
-                if(exact_box):
-                    print("`exact_box=True` makes the code slower when `return_raw` is True!")
-                    part, dtype = self.part
-                    if(isinstance(dtype, list)):
-                        if not (dtype[0][0]=='x')&(dtype[1][0]=='y')&(dtype[2][0]=='z'):
-                            raise AssertionError("dtype should have `x`, `y`, `z` for box cut!")
-                    else:
-                        if not (dtype.names[0]=='x')&(dtype.names[1]=='y')&(dtype.names[2]=='z'):
-                            raise AssertionError("dtype should have `x`, `y`, `z` for box cut!")
-                    coo = np.vstack(part[0][:,:3]) if(target_fields is None) else np.vstack(part[:3]).T
-                    mask = box_mask(coo, self.box)
-                    timer.start('Masking particles... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask)/mask.size), 1)
-                    part = [p[mask] for p in part]
-                    timer.record()
-                    self.part = (part, dtype)
-                if(timer.verbose>0): 
-                    if(target_fields is None): print("\nsnap.part=\ntuple( \n    list[\n\t real_array(npart, nfield), \n\t integer_array(npart, nfield), \n\t byte_array(npart, nfield) \n\t], \n    dtype(nfield,)\n     )\n")
-                    else: print("\nsnap.part=\ntuple( \n    list[\n\t array_1(npart,), \n\t array_2(npart,), \n\t ...\n\t array_nfield(npart,) \n\t], \n    dtype(nfield,)\n     )\n")
-                    print("Fortran memory should be deallocated via `snap.clear()`!")
-                return self.part
+            self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, python=python)#, return_raw=return_raw)
+            # if(return_raw):
+            #     if(exact_box):
+            #         print("`exact_box=True` makes the code slower when `return_raw` is True!")
+            #         part, dtype = self.part
+            #         if(isinstance(dtype, list)):
+            #             if not (dtype[0][0]=='x')&(dtype[1][0]=='y')&(dtype[2][0]=='z'):
+            #                 raise AssertionError("dtype should have `x`, `y`, `z` for box cut!")
+            #         else:
+            #             if not (dtype.names[0]=='x')&(dtype.names[1]=='y')&(dtype.names[2]=='z'):
+            #                 raise AssertionError("dtype should have `x`, `y`, `z` for box cut!")
+            #         coo = np.vstack(part[0][:,:3]) if(target_fields is None) else np.vstack(part[:3]).T
+            #         mask = box_mask(coo, self.box)
+            #         timer.start('Masking particles... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask)/mask.size), 1)
+            #         part = [p[mask] for p in part]
+            #         timer.record()
+            #         self.part = (part, dtype)
+            #     if(timer.verbose>0): 
+            #         if(target_fields is None): print("\nsnap.part=\ntuple( \n    list[\n\t real_array(npart, nfield), \n\t integer_array(npart, nfield), \n\t byte_array(npart, nfield) \n\t], \n    dtype(nfield,)\n     )\n")
+            #         else: print("\nsnap.part=\ntuple( \n    list[\n\t array_1(npart,), \n\t array_2(npart,), \n\t ...\n\t array_nfield(npart,) \n\t], \n    dtype(nfield,)\n     )\n")
+            #         print("Fortran memory should be deallocated via `snap.clear()`!")
+            #     return self.part
             if(domain_slicing):
                 part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
             else:
