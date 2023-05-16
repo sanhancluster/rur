@@ -218,14 +218,14 @@ def readorskip_real(f:FortranFile, dtype:type, key:str, search:Iterable, add=Non
             return f.read_reals(dtype)+add
         return f.read_reals(dtype)
     else:
-        f.skip_records()
+        f.skip_records(nowarn=True)
 def readorskip_int(f:FortranFile, dtype:type, key:str, search:Iterable, add=None):
     if key in search:
         if(add is not None):
             return f.read_ints(dtype)+add
         return f.read_ints(dtype)
     else:
-        f.skip_records()
+        f.skip_records(nowarn=True)
 
 def _read_part(fname, target_fields, dtype, kwargs, part=None, cursor=None):
     pname = kwargs["pname"]
@@ -237,7 +237,7 @@ def _read_part(fname, target_fields, dtype, kwargs, part=None, cursor=None):
     icpu = int( fname[-5:] )
     with FortranFile(f"{fname}", mode='r') as f:
         # Read data
-        f.skip_records(8) # ncpu, ndim, npart, localseed(+tracer_seed), nstar, mstar_tot, mstar_lost, nsink
+        f.skip_records(8,nowarn=True) # ncpu, ndim, npart, localseed(+tracer_seed), nstar, mstar_tot, mstar_lost, nsink
         x = readorskip_real(f, np.float64, 'x', target_fields)
         y = readorskip_real(f, np.float64, 'y', target_fields)
         z = readorskip_real(f, np.float64, 'z', target_fields)
@@ -337,28 +337,28 @@ def _calc_ncell(fname, kwargs):
     icpu = int(fname[-5:])
     ncell = 0
     with FortranFile(fname, mode='r') as f:
-        f.skip_records(21)
+        f.skip_records(21, nowarn=True)
         numbl                   = f.read_ints()
         ngridfile = np.empty((ncpu+nboundary, nlevelmax), dtype='i4')
         for ilevel in range(nlevelmax):
             ngridfile[:,ilevel]=numbl[ncpu*ilevel : ncpu*(ilevel+1)]
-        f.skip_records(7)
-        if nboundary>0: f.skip_records(3)
+        f.skip_records(7, nowarn=True)
+        if nboundary>0: f.skip_records(3, nowarn=True)
         levels, cpus = np.where(ngridfile.T>0)
         for ilevel, jcpu in zip(levels, cpus+1):
-            f.skip_records(3)
+            f.skip_records(3, nowarn=True)
             if jcpu==icpu:
-                f.skip_records(3*ndim+1)
+                f.skip_records(3*ndim+1, nowarn=True)
                 for _ in range(twotondim):
                     son = f.read_ints()
                     if 0 in son:
                         ncell += len(son.flatten())-np.count_nonzero(son)
-                f.skip_records(2*twotondim)
+                f.skip_records(2*twotondim, nowarn=True)
             else:
-                f.skip_records(skip_amr)
+                f.skip_records(skip_amr, nowarn=True)
     return ncell
 
-def _read_cell(icpu, dtype, target_fields, snapkwargs, kwargs, read_grav, cell=None, cursor=None):
+def _read_cell(icpu, dtype, target_fields, snapkwargs, kwargs, read_grav, legacy, cell=None, cursor=None):
     # # 0) From snapshot
     oct_offset = np.array([
         -0.5,  0.5, -0.5,  0.5, -0.5,  0.5, -0.5,  0.5,
@@ -380,96 +380,167 @@ def _read_cell(icpu, dtype, target_fields, snapkwargs, kwargs, read_grav, cell=N
     # 1) Read headers
     hydro_fname = f"{repo}/output_{iout:05d}/hydro_{iout:05d}.out{icpu:05d}"
     f_hydro = FortranFile(hydro_fname, mode='r')
-    f_hydro.skip_records(6)
+    f_hydro.skip_records(6, nowarn=True)
     
     if(read_grav):
         grav_fname = f"{repo}/output_{iout:05d}/grav_{iout:05d}.out{icpu:05d}"
         f_grav = FortranFile(grav_fname, mode='r')
-        f_grav.skip_records(1)
+        f_grav.skip_records(1, nowarn=True)
         ndim1, = f_grav.read_ints()
         output_particle_density = ndim1==ndim+2
-        f_grav.skip_records(2)
+        f_grav.skip_records(2, nowarn=True)
     
     amr_fname = f"{repo}/output_{iout:05d}/amr_{iout:05d}.out{icpu:05d}"
     sequential=True
     if(cell is None): sequential=False
     if(cell is None): ncell = _calc_ncell(amr_fname, kwargs)
     f_amr = FortranFile(amr_fname, mode='r')
-    f_amr.skip_records(21)
+    f_amr.skip_records(21, nowarn=True)
     numbl = f_amr.read_ints()
-    ngridfile = np.empty((ncpu+nboundary, nlevelmax), dtype='i4')
-    for ilevel in range(nlevelmax):
-        ngridfile[:,ilevel]=numbl[ncpu*ilevel : ncpu*(ilevel+1)]
-    f_amr.skip_records(7)
-    if nboundary>0: f_amr.skip_records(3)
+    if(not legacy):
+        ngridfile = numbl.reshape(nlevelmax, ncpu+nboundary).T
+    else:
+        ngridfile = np.empty((ncpu+nboundary, nlevelmax), dtype='i4')
+        for ilevel in range(nlevelmax):
+            ngridfile[:,ilevel]=numbl[ncpu*ilevel : ncpu*(ilevel+1)]
+    f_amr.skip_records(7, nowarn=True)
+    if nboundary>0: f_amr.skip_records(3, nowarn=True)
     if(cell is None): cell = np.empty(ncell, dtype=dtype)
     
     # 2) Level by Level
     if(cursor is None): cursor = 0
     # Loop over levels
+    nskip_hydro = 0
+    nskip_amr = 0
     for ilevel in range(nlevelmax):
-        # Loop over domains
-        for jcpu in range(1, nboundary+ncpu+1):
-            ncache = ngridfile[jcpu-1, ilevel]
-            f_hydro.skip_records(2)
-            if(read_grav):f_grav.skip_records(2)
-            # Read AMR data
+        if(not legacy):
+            ncpu_befo = icpu-1
+            ncpu_afte = ncpu-icpu
+            ncache_befo = np.count_nonzero(ngridfile[:ncpu_befo, ilevel])
+            ncache = ngridfile[icpu-1, ilevel]
+            ncache_afte = np.count_nonzero(ngridfile[icpu:, ilevel])
+            
+            # Skip jcpu<icpu
+            f_hydro.skip_records(2*ncpu_befo + skip_hydro*ncache_befo, nowarn=True); nskip_hydro += 2*ncpu_befo + skip_hydro*ncache_befo
+            f_amr.skip_records((3+skip_amr)*ncache_befo, nowarn=True); nskip_amr += (3+skip_amr)*ncache_befo
+            # Now jcpu==icpu
+            f_hydro.skip_records(2, nowarn=True); nskip_hydro+=2
             if(ncache>0):
-                f_amr.skip_records(3)
-                # Read grid center
-                if icpu == jcpu:
-                    amr_vars = [None] * ndim
-                    for idim in range(ndim):
-                        if(dim_keys[idim] in target_fields):
-                            amr_vars[idim] = f_amr.read_reals(np.float64)+oct_offset[:, idim].reshape(twotondim, 1) * 0.5**(ilevel+1)
-                        else:
-                            f_amr.skip_records(1)
-                    f_amr.skip_records(2*ndim + 1) # Skip father index & nbor index
-                    # Read son index to check refinement
+                f_amr.skip_records(3, nowarn=True); nskip_amr+=3
+                x = readorskip_real(f_amr, np.float64, 'x', target_fields, add=oct_offset[:, 0].reshape(twotondim, 1) * 0.5**(ilevel+1)); nskip_amr+=1
+                y = readorskip_real(f_amr, np.float64, 'y', target_fields, add=oct_offset[:, 1].reshape(twotondim, 1) * 0.5**(ilevel+1)); nskip_amr+=1
+                z = readorskip_real(f_amr, np.float64, 'z', target_fields, add=oct_offset[:, 2].reshape(twotondim, 1) * 0.5**(ilevel+1)); nskip_amr+=1
+                f_amr.skip_records(2*ndim + 1, nowarn=True); nskip_amr+=2*ndim+1 # Skip father index & nbor index
+                # Read son index to check refinement
+                if(legacy):
+                    ileaf = f_amr.read_arrays(twotondim) == 0; nskip_amr+=twotondim
+                else:
                     ileaf = np.empty((twotondim, ncache), dtype=bool)
                     for j in range(twotondim):
-                        son = f_amr.read_ints()
+                        son = f_amr.read_ints(); nskip_amr+=1
                         ileaf[j] = son==0
-                    f_amr.skip_records(2*twotondim) # Skip cpu, refinement map
-                    icell = len( ileaf[ileaf].flatten() )
+                f_amr.skip_records(2*twotondim, nowarn=True); nskip_amr+=2*twotondim # Skip cpu, refinement map
+                icell = np.count_nonzero(ileaf)
 
-                    # Allocate hydro variables
-                    hydro_vars = [None] * nhvar
+                # Allocate hydro variables
+                hydro_vars = [None] * nhvar
+                for ivar in range(nhvar):
+                    if(hydro_names[ivar] in target_fields):
+                        hydro_vars[ivar] = np.empty((twotondim, ncache), dtype='f8')
+                if(read_grav): grav_vars = np.empty((twotondim, ncache), dtype='f8')
+
+                # Read hydro variables
+                for j in range(twotondim):
                     for ivar in range(nhvar):
                         if(hydro_names[ivar] in target_fields):
-                            hydro_vars[ivar] = np.empty((twotondim, ncache), dtype='f8')
-                    if(read_grav): grav_vars = np.empty((twotondim, ncache), dtype='f8')
-                    
-                    # Read hydro variables
-                    for j in range(twotondim):
+                            hydro_vars[ivar][j] = f_hydro.read_reals(); nskip_hydro += 1
+                        else:
+                            f_hydro.skip_records(1, nowarn=True); nskip_hydro += 1
+                    if(read_grav):
+                        if output_particle_density: f_grav.skip_records(1, nowarn=True)
+                        grav_vars[j]  = f_grav.read_reals()
+                        f_grav.skip_records(ndim, nowarn=True)
+
+                # Merge amr & hydro data
+                if True in ileaf:
+                    if('x' in target_fields): cell[cursor : cursor+icell]['x']       = x[ileaf]
+                    if('y' in target_fields): cell[cursor : cursor+icell]['y']       = y[ileaf]
+                    if('z' in target_fields): cell[cursor : cursor+icell]['z']       = z[ileaf]
+                    for ivar in range(nhvar):
+                        key = hydro_names[ivar]
+                        if(key in target_fields): cell[cursor : cursor+icell][key]       = hydro_vars[ivar][ileaf]
+                    if(read_grav): cell[cursor : cursor+icell]['pot']     = grav_vars[ileaf]
+                    cell[cursor : cursor+icell]['level']   = ilevel+1
+                    cell[cursor : cursor+icell]['cpu']     = icpu
+
+                    cursor += icell
+            # Skip jcpu>icpu
+            f_hydro.skip_records(2*ncpu_afte + skip_hydro*ncache_afte, nowarn=True); nskip_hydro += 2*ncpu_afte + skip_hydro*ncache_afte
+            f_amr.skip_records((3+skip_amr)*ncache_afte, nowarn=True); nskip_amr += (3+skip_amr)*ncache_afte
+                
+        else:        
+            # Loop over domains
+            for jcpu in range(1, nboundary+ncpu+1):
+                ncache = ngridfile[jcpu-1, ilevel]
+                f_hydro.skip_records(2, nowarn=True); nskip_hydro+=2
+                if(read_grav):f_grav.skip_records(2, nowarn=True)
+                # Read AMR data
+                if(ncache>0):
+                    f_amr.skip_records(3, nowarn=True); nskip_amr+=3
+                    # Read grid center
+                    if icpu == jcpu:
+                        x = readorskip_real(f_amr, np.float64, 'x', target_fields, add=oct_offset[:, 0].reshape(twotondim, 1) * 0.5**(ilevel+1)); nskip_amr+=1
+                        y = readorskip_real(f_amr, np.float64, 'y', target_fields, add=oct_offset[:, 1].reshape(twotondim, 1) * 0.5**(ilevel+1)); nskip_amr+=1
+                        z = readorskip_real(f_amr, np.float64, 'z', target_fields, add=oct_offset[:, 2].reshape(twotondim, 1) * 0.5**(ilevel+1)); nskip_amr+=1
+                        f_amr.skip_records(2*ndim + 1, nowarn=True); nskip_amr +=2*ndim+1 # Skip father index & nbor index
+                        # Read son index to check refinement
+                        if(not legacy):
+                            ileaf = f_amr.read_arrays(twotondim) == 0; nskip_amr+=twotondim
+                        else:
+                            ileaf = np.empty((twotondim, ncache), dtype=bool)
+                            for j in range(twotondim):
+                                son = f_amr.read_ints(); nskip_amr+=1
+                                ileaf[j] = son==0
+                        f_amr.skip_records(2*twotondim, nowarn=True); nskip_amr+=2*twotondim # Skip cpu, refinement map
+                        icell = np.count_nonzero(ileaf)
+
+                        # Allocate hydro variables
+                        hydro_vars = [None] * nhvar
                         for ivar in range(nhvar):
                             if(hydro_names[ivar] in target_fields):
-                                hydro_vars[ivar][j] = f_hydro.read_reals()
-                            else:
-                                f_hydro.skip_records(1)
-                        if(read_grav):
-                            if output_particle_density: f_grav.skip_records(1)
-                            grav_vars[j]  = f_grav.read_reals()
-                            f_grav.skip_records(ndim)
-                    
-                    # Merge amr & hydro data
-                    if True in ileaf:
-                        for idim in range(ndim):
-                            key = dim_keys[idim]
-                            if(key in target_fields): cell[cursor : cursor+icell][key]       = amr_vars[idim][ileaf]
-                        for ivar in range(nhvar):
-                            key = hydro_names[ivar]
-                            if(key in target_fields): cell[cursor : cursor+icell][key]       = hydro_vars[ivar][ileaf]
-                        if(read_grav): cell[cursor : cursor+icell]['pot']     = grav_vars[ileaf]
-                        cell[cursor : cursor+icell]['level']   = ilevel+1
-                        cell[cursor : cursor+icell]['cpu']     = jcpu
+                                hydro_vars[ivar] = np.empty((twotondim, ncache), dtype='f8')
+                        if(read_grav): grav_vars = np.empty((twotondim, ncache), dtype='f8')
+                        
+                        # Read hydro variables
+                        for j in range(twotondim):
+                            for ivar in range(nhvar):
+                                if(hydro_names[ivar] in target_fields):
+                                    hydro_vars[ivar][j] = f_hydro.read_reals(); nskip_hydro+=1
+                                else:
+                                    f_hydro.skip_records(1, nowarn=True); nskip_hydro+=1
+                            if(read_grav):
+                                if output_particle_density: f_grav.skip_records(1, nowarn=True)
+                                grav_vars[j]  = f_grav.read_reals()
+                                f_grav.skip_records(ndim, nowarn=True)
+                        
+                        # Merge amr & hydro data
+                        if True in ileaf:
+                            if('x' in target_fields): cell[cursor : cursor+icell]['x']       = x[ileaf]
+                            if('y' in target_fields): cell[cursor : cursor+icell]['y']       = y[ileaf]
+                            if('z' in target_fields): cell[cursor : cursor+icell]['z']       = z[ileaf]
+                            for ivar in range(nhvar):
+                                key = hydro_names[ivar]
+                                if(key in target_fields): cell[cursor : cursor+icell][key]       = hydro_vars[ivar][ileaf]
+                            if(read_grav): cell[cursor : cursor+icell]['pot']     = grav_vars[ileaf]
+                            cell[cursor : cursor+icell]['level']   = ilevel+1
+                            cell[cursor : cursor+icell]['cpu']     = jcpu
 
-                        cursor += icell
-                else:
-                    f_amr.skip_records(skip_amr)
-                    f_hydro.skip_records(skip_hydro)
-                    if(read_grav):
-                        f_grav.skip_records(twotondim*(2+ndim)) if output_particle_density else f_grav.skip_records(twotondim*(1+ndim))
+                            cursor += icell
+                    else:
+                        f_amr.skip_records(skip_amr, nowarn=True); nskip_amr+=skip_amr
+                        f_hydro.skip_records(skip_hydro, nowarn=True); nskip_hydro+=skip_hydro
+                        if(read_grav):
+                            f_grav.skip_records(twotondim*(2+ndim), nowarn=True) if output_particle_density else f_grav.skip_records(twotondim*(1+ndim), nowarn=True)
     f_amr.close()
     f_hydro.close()
     if(read_grav): f_grav.close()
@@ -881,7 +952,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                                 nsink_tot = int(f.readline().split()[-1])
                         else: # (Fornax)
                             with FortranFile(f"{allfiles[0]}", mode='r') as f:
-                                f.skip_records(7)
+                                f.skip_records(7, nowarn=True)
                                 nsink_tot = f.read_ints(np.int32)[0]
                 else: # (NH)
                     if(nthread==1):
@@ -894,9 +965,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         else: # (hagn, yzics)
             if(nthread==1):
                 with FortranFile(f"{allfiles[0]}", mode='r') as f:
-                    f.skip_records(4) # ncpu, ndim, npart, localseed(+tracer_seed)
+                    f.skip_records(4, nowarn=True) # ncpu, ndim, npart, localseed(+tracer_seed)
                     nstar_tot = f.read_ints(np.int32)[0] # nstar
-                    f.skip_records(2) # mstar_tot, mstar_lost
+                    f.skip_records(2, nowarn=True) # mstar_tot, mstar_lost
                     nsink_tot = f.read_ints(np.int32)[0] # nsink
                     ncloud_tot = 2109 * nsink_tot
                 ndm_tot = 0
@@ -907,7 +978,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                         if(pname is None)and(not int(fname[-5:]) in cpulist):
                             continue
                         with FortranFile(f"{fname}", mode='r') as f:
-                            f.skip_records(2)
+                            f.skip_records(2, nowarn=True)
                             npart_tot += f.read_ints(np.int32)[0]
                     ndm_tot = npart_tot - nstar_tot - ncloud_tot
 
@@ -1121,15 +1192,15 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if (timer.verbose >= 1):
                 print('CPU list already satisfied.')
 
-    def read_cell_py(self, cpulist, read_grav=False, target_fields=None, nthread=1):       
+    def read_cell_py(self, cpulist, read_grav=False, target_fields=None, nthread=1, legacy=False):       
         # 1) Read AMR params
         fname = f"{self.snap_path}/output_{self.iout:05d}/amr_{self.iout:05d}.out00001"
         with FortranFile(fname, mode='r') as f:
             ncpu,                   = f.read_ints()
             ndim,                   = f.read_ints()
-            f.skip_records(1)
+            f.skip_records(1, nowarn=True)
             nlevelmax,              = f.read_ints()
-            f.skip_records(1)
+            f.skip_records(1, nowarn=True)
             nboundary,              = f.read_ints()
         kwargs = {'nboundary':nboundary, 'nlevelmax':nlevelmax, 'ndim':ndim, 'ncpu':ncpu}
         ngridfile = np.empty((ncpu+nboundary, nlevelmax), dtype='i4')
@@ -1139,7 +1210,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         # 2) Read Hydro params
         fname = f"{self.snap_path}/output_{self.iout:05d}/hydro_{self.iout:05d}.out00001"
         with FortranFile(fname, mode='r') as f:
-            f.skip_records(1)
+            f.skip_records(1, nowarn=True)
             nhvar,                  = f.read_ints()
         
         # 3) Calculate total number of cells
@@ -1172,14 +1243,14 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             cell = np.empty(ncell_tot, dtype=dtype)
             cursor = 0
             for icpu in cpulist:
-                cursor = _read_cell(icpu, dtype, names, snapkwargs, kwargs, read_grav, cell=cell, cursor=cursor)
+                cursor = _read_cell(icpu, dtype, names, snapkwargs, kwargs, read_grav, legacy, cell=cell, cursor=cursor)
         else:
             with Pool(processes=nthread) as pool:
-                result_list = list(pool.starmap(_read_cell, [(icpu, dtype, names, snapkwargs, kwargs, read_grav) for icpu in cpulist]))
+                result_list = list(pool.starmap(_read_cell, [(icpu, dtype, names, snapkwargs, kwargs, read_grav, legacy) for icpu in cpulist]))
             cell = np.concatenate(result_list)
         return cell
 
-    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, python=False, nthread=1):#, return_raw=False):
+    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, python=False, nthread=1, legacy=False):#, return_raw=False):
         """Reads amr data from current box.
 
         Parameters
@@ -1211,7 +1282,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             timer.start('Reading %d AMR & hydro files (%s) in %s... ' % (cpulist.size, utool.format_bytes(filesize), self.path), 1)
 
             if(python):
-                cell = self.read_cell_py(cpulist, read_grav=read_grav, nthread=nthread, target_fields=target_fields)
+                cell = self.read_cell_py(cpulist, read_grav=read_grav, nthread=nthread, target_fields=target_fields, legacy=legacy)
             else:
                 progress_bar = cpulist.size > progress_bar_limit and timer.verbose >= 1
                 readr.read_cell(self.snap_path, self.iout, cpulist, self.mode, read_grav, progress_bar, nthread)
@@ -1609,7 +1680,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.ref = np.concatenate(amr_refs)
         self.cpu = np.concatenate(amr_cpus)
 
-    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False, python=False, nthread=1):#, return_raw=False):
+    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False, python=False, nthread=1, legacy=False):#, return_raw=False):
         # if(return_raw):
         #     if(timer.verbose>0): print("`return_raw` is experimental!")
         if(isinstance(self.part, tuple)):
@@ -1638,7 +1709,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 domain_slicing=False
                 exact_box=False
             if(not ripses):
-                self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist, python=python, nthread=nthread)#, return_raw=return_raw)
+                self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist, python=python, nthread=nthread, legacy=legacy)#, return_raw=return_raw)
                 # if(return_raw):
                 #     if(exact_box):
                 #         print("`exact_box=True` makes the code slower when `return_raw` is True!")
