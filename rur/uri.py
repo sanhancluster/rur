@@ -266,16 +266,16 @@ def _calc_npart(fname, kwargs, sizeonly=False):
     mode = kwargs.get('mode', None)
     ids, epoch, m, family = None, None, None, None
     with FortranFile(f"{fname}", mode='r') as f:
-        f.skip_records(8,)
+        f.skip_records(8)
         if(isfamily):
-            f.skip_records(9)
+            f.skip_records(9) #pos vel m id lvl
             family = f.read_ints(np.int8)
         else:
-            f.skip_records(9)
+            f.skip_records(6) #pos vel
             m = f.read_reals(np.float64)
-            ids = f.read_ints(np.int32) # id
+            ids = f.read_ints(np.int32)
             if(isstar):
-                f.skip_records(1)
+                f.skip_records(1) #lvl
                 epoch = f.read_reals(np.float64)
         result = _classify(pname, ids, epoch, m, family, sizeonly=sizeonly)
     return result
@@ -293,7 +293,7 @@ def _read_part(fname, kwargs, legacy, part=None, mask=None, nsize=None, cursor=N
     icpu = int( fname[-5:] )
     with FortranFile(f"{fname}", mode='r') as f:
         # Read data
-        f.skip_records(8,) # ncpu, ndim, npart, localseed(+tracer_seed), nstar, mstar_tot, mstar_lost, nsink
+        f.skip_records(8) # ncpu, ndim, npart, localseed(+tracer_seed), nstar, mstar_tot, mstar_lost, nsink
         x = readorskip_real(f, np.float64, 'x', target_fields)
         y = readorskip_real(f, np.float64, 'y', target_fields)
         z = readorskip_real(f, np.float64, 'z', target_fields)
