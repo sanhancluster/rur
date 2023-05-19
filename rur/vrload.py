@@ -60,7 +60,7 @@ class vr_load:
                                                                 # Catalog output
             self.vr_galprop     = ['SFR', 'ABmag', 'ConFrac_n', 'ConFrac_M']              # Bulk properties computed in the post-processing
             self.vr_general     = ['SFR_R', 'SFR_T', 'MAG_R', 'CONF_R']
-            self.vr_galinfo     = ['isclump', 'rate', 'Aexp', 'Domain_List']
+            self.vr_galinfo     = ['isclump', 'rate', 'Aexp', 'Domain_List', 'snapnum']
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
                                                                 # flux zero points
@@ -83,7 +83,7 @@ class vr_load:
                                                                 # Catalog output
             self.vr_galprop     = ['SFR', 'ABmag', 'ConFrac_n', 'ConFrac_M']              # Bulk properties computed in the post-processing
             self.vr_general     = ['SFR_R', 'SFR_T', 'MAG_R', 'CONF_R']
-            self.vr_galinfo     = ['isclump', 'rate', 'Aexp', 'Domain_List']
+            self.vr_galinfo     = ['isclump', 'rate', 'Aexp', 'Domain_List', 'snapnum']
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
                                                                 # flux zero points
@@ -107,7 +107,7 @@ class vr_load:
                                                                 # Catalog output
             self.vr_galprop     = ['SFR', 'ABmag', 'ConFrac_n', 'ConFrac_M']              # Bulk properties computed in the post-processing
             self.vr_general     = ['SFR_R', 'SFR_T', 'MAG_R', 'CONF_R']
-            self.vr_galinfo     = ['isclump', 'rate', 'Aexp', 'Domain_List']
+            self.vr_galinfo     = ['isclump', 'rate', 'Aexp', 'Domain_List', 'snapnum']
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
                                                                 # flux zero points
@@ -137,7 +137,7 @@ class vr_load:
                                                                 # Catalog output
             self.vr_galprop     = ['SFR', 'ABmag', 'ConFrac_n', 'ConFrac_M']              # Bulk properties computed in the post-processing
             self.vr_general     = ['SFR_R', 'SFR_T', 'MAG_R', 'CONF_R']
-            self.vr_galinfo     = ['isclump', 'rate', 'Aexp', 'Domain_List']
+            self.vr_galinfo     = ['isclump', 'rate', 'Aexp', 'Domain_List', 'snapnum']
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
 
@@ -160,7 +160,7 @@ class vr_load:
                                                                 # Catalog output
             self.vr_galprop     = ['SFR', 'ABmag', 'ConFrac_n', 'ConFrac_M']              # Bulk properties computed in the post-processing
             self.vr_general     = ['SFR_R', 'SFR_T', 'MAG_R', 'CONF_R']
-            self.vr_galinfo     = ['isclump', 'rate', 'Aexp', 'Domain_List']
+            self.vr_galinfo     = ['isclump', 'rate', 'Aexp', 'Domain_List', 'snapnum']
             self.vr_fluxlist    = ['u', 'g', 'r', 'i', 'z']     # flux list of Abmag
             self.vr_fluxzp      = np.double(np.array([895.5*1e-11, 466.9*1e-11, 278.0*1e-11, 185.2*1e-11, 131.5*1e-11]))
                                                                 # flux zero points                                                                # flux zero points
@@ -229,8 +229,9 @@ class vr_load:
                     self.galdata[name][i] = np.array(xdata)
     
                 for name in self.vrobj.vr_galinfo:
-                    xdata = self.h5data.get(idstr + "/" + name)
-                    self.galdata[name][i] = np.array(xdata)
+                    if(name!='snapnum'):
+                        xdata = self.h5data.get(idstr + "/" + name)
+                        self.galdata[name][i] = np.array(xdata)
         
         def f_rdgal_input_p(self, start, end, q):
             for i in range(start, end):
@@ -249,8 +250,9 @@ class vr_load:
                     self.galdata[name][i] = np.array(xdata)
     
                 for name in self.vrobj.vr_galinfo:
-                    xdata = self.h5data.get(idstr + "/" + name)
-                    self.galdata[name][i] = np.array(xdata)
+                    if(name!='snapnum'):
+                        xdata = self.h5data.get(idstr + "/" + name)
+                        self.galdata[name][i] = np.array(xdata)
 
             q.put((start, end, self.galdata[start:end]))
 
@@ -304,11 +306,14 @@ class vr_load:
         for name in self.vr_galinfo:
             if(name=='Domain_List'):
                 dtype=dtype + [(name, 'object')]
+            elif(name=='snapnum'):
+                dtype=dtype + [(name, '<i4')]
             else:
                 dtype=dtype + [(name, '<f8')]
 
         galdata=np.zeros(n_gal, dtype=dtype)
 
+        galdata['snapnum'] = n_snap
         #with multiprocessing.Pool(self.num_thread) as pool:
         #    #tasks = [(self.f_rdgal_input, (i, gid, galdata, dat)) for i, gid in enumerate(idlist)]
         #    void = pool.starmap(self.f_rdgal_input, [(i, gid, galdata, dat) for i, gid in enumerate(idlist)])
@@ -745,7 +750,7 @@ class vr_load:
 
         def run(self, start, end, q):
             for i in range(start, end):
-                self.galdata[i] = self.f_rdgal(self.slist[i], self.idlist[i], horg=self.horg)
+                self.galdata[i] = self.vrobj.f_rdgal(self.slist[i], self.idlist[i], horg=self.horg)
 
             q.put((start, end, self.galdata[start:end]))
 
@@ -777,7 +782,8 @@ class vr_load:
             for i in ind:
                 gal[i]  = self.f_rdgal(snlist[i], idlist[i], horg=horg)
         else:
-            prun = self.f_getevol_p(galdata, idlist, snlist, horg)
+            prun = self.f_getevol_p(gal, idlist, snlist, horg)
+            prun.vrobj = self
 
             dind = np.int32(n_link / self.num_thread)
             ps = []
@@ -788,7 +794,8 @@ class vr_load:
                 i1 = (th+1)*dind
                 if(th==0): i0 = 0
                 if(th==self.num_thread-1): i1 = n_link
-                p.Process(target=prun.run, args=(i0, i1, q))
+                p = Process(target=prun.run, args=(i0, i1, q))
+                #p.Process(target=prun.run, args=(i0, i1, q))
                 ps.append(p)
 
                 p.start()

@@ -30,15 +30,15 @@ module readr
 
 contains
 !#####################################################################
-    subroutine read_cell(repo, iout, cpu_list, mode, grav, verbose)
+    subroutine read_cell(repo, iout, cpu_list, mode, grav, verbose, nthread)
 !#####################################################################
         implicit none
 
-        integer :: i, j, icpu, jcpu, ilevel, idim, jdim, igrid, icell, jcell, ihvar
+        integer :: i, icpu, jcpu, ilevel, idim, jdim, igrid, jcell, ihvar, ncursor
         integer :: ncell_tot, ncpu, ndim, nlevelmax, nboundary, ngrid_a, ndim1,ngridmax
 
         integer :: amr_n, hydro_n, grav_n, twotondim, skip_amr, skip_hydro, skip_grav
-        logical :: ok, is_leaf, output_particle_density
+        logical :: ok, output_particle_density
         real, dimension(1:8, 1:3) :: oct_offset
         character(LEN=10) :: ordering
         character(len=128) :: file_path
@@ -53,10 +53,14 @@ contains
 
         character(len=128),    intent(in) :: repo
         integer,               intent(in) :: iout
+        integer,               intent(in) :: nthread
         integer, dimension(:), intent(in) :: cpu_list
         character(len=10),     intent(in) :: mode
         logical,               intent(in) :: verbose
         logical,               intent(in) :: grav
+        integer(kind=4), dimension(:),     allocatable :: cursors_temp, cursors
+        real(kind=8),    dimension(:,:),   allocatable :: real_table_temp
+        integer(kind=4), dimension(:,:),   allocatable :: integer_table_temp
 
         amr_n = 10
         hydro_n = 20
@@ -112,9 +116,16 @@ contains
         ! Check total number of grids
         ncell_tot = 0
         ngridmax = 0
+        allocate(cursors(1:SIZE(cpu_list)))
+        allocate(cursors_temp(1:SIZE(cpu_list)))
+        cursors = 0
+        cursors_temp = 0
+        !!! $OMP PARALLEL DO SHARED(ncell_tot, cursors_temp) &
+        !!! $OMP PRIVATE(i,icpu,amr_n,igrid,ngrid_a,ngridmax,son,ngridfile,ilevel,jcpu,jdim) &
+        !!! $OMP NUM_THREADS(nthread)
         do i = 1, SIZE(cpu_list)
             icpu = cpu_list(i)
-            amr_n = 10 + omp_get_thread_num()
+            amr_n = 10!! + omp_get_thread_num()
 
             open(unit=amr_n, file=amr_filename(repo, iout, icpu, mode), status='old', form='unformatted')
             call skip_read(amr_n, 21)
@@ -142,7 +153,11 @@ contains
                             do jdim = 1, twotondim
                                 read(amr_n) son(1:ngrid_a)
                                 do igrid=1, ngrid_a
-                                    if(son(igrid) == 0) ncell_tot = ncell_tot+1
+                                    if(son(igrid) == 0) then
+                                        !!!$OMP ATOMIC
+                                        ncell_tot = ncell_tot+1
+                                        cursors_temp(i) = cursors_temp(i)+1
+                                    end if
                                 end do
                             end do
                             call skip_read(amr_n, 2*twotondim) ! Skip cpu, refinement map
@@ -155,6 +170,13 @@ contains
             deallocate(son)
             close(amr_n)
         end do
+        !!!$OMP END PARALLEL DO
+
+        ncursor = 1
+        do i = 1, SIZE(cpu_list)
+            cursors(i) = ncursor
+            ncursor = ncursor + cursors_temp(i)
+        end do
 
         call close()
         if(grav) then
@@ -164,15 +186,25 @@ contains
         endif
         allocate(integer_table(1:2, 1:ncell_tot))
 
-        icell = 1
+        ! icell = 1
 
         ! Step 3: Read the actual hydro/amr data
-        if(verbose)write(6, '(a)', advance='no') 'Progress: '
+        ! if(verbose)write(6, '(a)', advance='no') 'Progress: '
+        !$OMP PARALLEL DO &
+        !$OMP SHARED(integer_table, real_table, twotondim, nhvar,grav,iout,mode,repo) &
+        !$OMP PRIVATE(integer_table_temp, real_table_temp) &
+        !$OMP PRIVATE(i,icpu,amr_n,hydro_n,grav_n,ngridfile,ngridmax,son,xg,hvar,gvar) &
+        !$OMP PRIVATE(ilevel,ngrid_a,jcpu,idim,igrid,leaf,ihvar,jcell,jdim) &
+        !$OMP NUM_THREADS(nthread)
         do i = 1, SIZE(cpu_list)
-            if(verbose)call progress_bar(i, SIZE(cpu_list))
+            ! !$OMP CRITICAL
+            ! if(verbose)call progress_bar(i, SIZE(cpu_list))
+            ! !$OMP END CRITICAL
             icpu = cpu_list(i)
 
             ! Open amr file
+            amr_n = 10 + omp_get_thread_num()
+            hydro_n = amr_n + 1 + nthread
             open(unit=amr_n, file=amr_filename(repo, iout, icpu, mode), status='old', form='unformatted')
             call skip_read(amr_n, 21)
             ! Read grid numbers
@@ -199,11 +231,20 @@ contains
 
             if(grav) then
                 ! Open grav file
+                grav_n = hydro_n + 1 + nthread
                 open(unit=grav_n, file=grav_filename(repo, iout, icpu, mode), status='old', form='unformatted')
                 call skip_read(grav_n, 4)
             endif
+            
+            if(grav) then
+                allocate(real_table_temp(1:ndim+nhvar+1, 1:cursors_temp(i)))
+            else
+                allocate(real_table_temp(1:ndim+nhvar, 1:cursors_temp(i)))
+            endif
+            allocate(integer_table_temp(1:2, 1:cursors_temp(i)))
 
             ! Loop over levels
+            jcell = 1
             do ilevel = 1, nlevelmax
                 ngrid_a = ngridfile(icpu, ilevel)
 
@@ -246,26 +287,24 @@ contains
                             end do
 
                             ! Merge amr & hydro data
-                            jcell = 0
                             do igrid=1, ngrid_a
                                 do jdim = 1, twotondim
                                     if(leaf(igrid, jdim)) then
                                         do idim = 1, ndim
-                                            real_table(idim, icell + jcell) = xg(igrid, idim) &
+                                            real_table_temp(idim, jcell) = xg(igrid, idim) &
                                                     + oct_offset(jdim, idim) * 0.5**ilevel
                                         end do
                                         do ihvar = 1, nhvar
-                                            real_table(idim + ihvar-1, icell + jcell) = hvar(igrid, jdim, ihvar)
+                                            real_table_temp(idim + ihvar-1, jcell) = hvar(igrid, jdim, ihvar)
                                         end do
-                                        if(grav) real_table(idim + nhvar, icell + jcell) = gvar(igrid, jdim)
-
-                                        integer_table(1, icell + jcell) = ilevel
-                                        integer_table(2, icell + jcell) = icpu
+                                        if(grav) real_table_temp(idim + nhvar, jcell) = gvar(igrid, jdim)
+                                        integer_table_temp(1, jcell) = ilevel
+                                        integer_table_temp(2, jcell) = icpu
                                         jcell = jcell + 1
                                     end if
                                 end do
                             end do
-                            icell = icell + jcell
+                            ! icell = icell + jcell
 
                         else
                             call skip_read(amr_n, skip_amr)
@@ -277,6 +316,14 @@ contains
 
                 end do
             end do
+            if(grav) then
+                real_table(1:ndim+nhvar+1, cursors(i):cursors(i)+cursors_temp(i)-1) = &
+                        real_table_temp(1:ndim+nhvar+1,1:cursors_temp(i))
+            else
+                real_table(1:ndim+nhvar, cursors(i):cursors(i)+cursors_temp(i)-1) = &
+                        real_table_temp(1:ndim+nhvar,1:cursors_temp(i))
+            endif
+            integer_table(1:2, cursors(i):cursors(i)+cursors_temp(i)-1) = integer_table_temp(1:2,1:cursors_temp(i))
             close(amr_n)
             close(hydro_n)
             if(grav) close(grav_n)
@@ -284,9 +331,14 @@ contains
             deallocate(xg)
             deallocate(hvar)
             deallocate(leaf)
+            deallocate(integer_table_temp)
+            deallocate(real_table_temp)
             if(grav) deallocate(gvar)
         end do
+        !$OMP END PARALLEL DO
         deallocate(ngridfile)
+        deallocate(cursors)
+        deallocate(cursors_temp)
 
     end subroutine read_cell
 
@@ -295,7 +347,7 @@ contains
 !#####################################################################
         implicit none
 
-        integer :: i, j, icpu, idim, ipart
+        integer :: i, j, icpu, idim
         integer :: ncpu, ndim
         integer :: npart, nstar_int, nsink, ncursor
         integer(kind=8) :: npart_tot, nstar, npart_c
@@ -393,7 +445,7 @@ contains
             nint = 4
             nbyte = 2
             nchem = 8
-        elseif(mode == 'y4' .or. mode == 'nc') then ! New RAMSES version that includes family, tag, 9 chems, stellar densities
+        elseif(mode == 'y4' .or. mode == 'nc' .or. mode == 'nh2') then ! New RAMSES version that includes family, tag, 9 chems, stellar densities
             nreal = 2*ndim + 14
             nint = 4
             nbyte = 2
@@ -466,7 +518,7 @@ contains
                 ! Add CPU information
                 integer_table(pint, npart_c:npart_c+npart-1) = icpu
             elseif(mode == 'iap' .or. mode == 'gem' .or. mode == 'none' .or. mode == 'fornax' &
-                & .or. mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc') then
+                & .or. mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc' .or. mode=='nh2') then
                 ! family, tag
                 read(part_n) byte_table(1, npart_c:npart_c+npart-1)
                 read(part_n) byte_table(2, npart_c:npart_c+npart-1)
@@ -475,7 +527,7 @@ contains
                 if(nstar > 0 .or. nsink > 0) then
                     read(part_n) real_table(2*ndim+2, npart_c:npart_c+npart-1)
                     read(part_n) real_table(2*ndim+3, npart_c:npart_c+npart-1)
-                    if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4') then
+                    if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode=='nc' .or. mode=='nh2') then
                         ! Initial mass
                         read(part_n) real_table(2*ndim+4, npart_c:npart_c+npart-1)
                         ! Chemical elements
@@ -483,14 +535,14 @@ contains
                             read(part_n) real_table(2*ndim+4+j, npart_c:npart_c+npart-1)
                         end do
                     end if
-                    if(mode == 'y3' .or. mode == 'y4') then
+                    if(mode == 'y3' .or. mode == 'y4' .or. mode=='nc' .or. mode=='nh2') then
                         ! Stellar densities at formation
                         read(part_n) real_table(2*ndim+nchem+5, npart_c:npart_c+npart-1)
                     end if
                 else
                     real_table(2*ndim+2:2*ndim+3, npart_c:npart_c+npart-1) = 0d0
                 end if
-                if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4') then
+                if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode=='nc' .or. mode=='nh2') then
                     ! Parent indices
                     read(part_n) integer_table(pint+1, npart_c:npart_c+npart-1)
                 end if
@@ -626,11 +678,11 @@ contains
         ! Counts the number of leaf cells per level
         implicit none
 
-        integer :: i, j, icpu, jcpu, ilevel, idim, jdim, igrid
-        integer :: ncell_loc, ncpu, ndim, nlevelmax, nboundary, ngrid_a, ndim1, ngridmax
+        integer :: i, icpu, jcpu, ilevel, jdim, igrid
+        integer :: ncell_loc, ncpu, ndim, nlevelmax, nboundary, ngrid_a, ngridmax
 
-        integer :: amr_n, hydro_n, twotondim, skip_amr, skip_hydro
-        logical :: ok, is_leaf, output_particle_density
+        integer :: amr_n, hydro_n, twotondim, skip_amr
+        logical :: ok
         character(len=128) :: file_path
 
         ! temporary arrays

@@ -24,14 +24,14 @@ class TimeSeries(object):
     """
     A class to manage multiple snapshots in the same repository
     """
-    def __init__(self, snap):
-        self.snaps = {}
+    def __init__(self, snap:'RamsesSnapshot'):
+        self.snaps:dict[RamsesSnapshot] = {}
         self.basesnap = snap
         self.snaps[snap.iout] = snap
         self.iout_avail = None
         self.icoarse_avail = None
 
-    def get_snap(self, iout=None, aexp=None, age=None):
+    def get_snap(self, iout=None, aexp=None, age=None) -> 'RamsesSnapshot':
         if(iout is None):
             if aexp is not None:
                 self.read_iout_avail()
@@ -753,7 +753,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                         if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='nh2'):
                             if('m0' in target_fields): part['m0'][cursor:cursor+nsize] = f.read_reals(np.float64)[mask]
                             else: f.read_reals(np.float64)
-                            # (read & write) chemical elements
+                        # (read & write) chemical elements
                         if(mode=='y2') or (mode=='y3') or (mode=='y4') or (mode=='nc') or (mode=='hagn') or (mode=='nh2'):
                             if len(chem)>0:
                                 for ichem in chem:
@@ -773,7 +773,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                     cursor += nsize
         return part[:cursor]
 
-    def read_part(self, target_fields=None, cpulist=None, pname=None, nthread=4, return_raw=False):
+    def read_part(self, target_fields=None, cpulist=None, pname=None, nthread=1, return_raw=False):
         """Reads particle data from current box.
 
         Parameters
@@ -847,7 +847,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if (timer.verbose >= 1):
                 print('CPU list already satisfied.')
 
-    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, return_raw=False):
+    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, return_raw=False, nthread=1):
         """Reads amr data from current box.
 
         Parameters
@@ -879,7 +879,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             timer.start('Reading %d AMR & hydro files (%s) in %s... ' % (cpulist.size, utool.format_bytes(filesize), self.path), 1)
 
             progress_bar = cpulist.size > progress_bar_limit and timer.verbose >= 1
-            readr.read_cell(self.snap_path, self.iout, cpulist, self.mode, read_grav, progress_bar)
+            readr.read_cell(self.snap_path, self.iout, cpulist, self.mode, read_grav, progress_bar, nthread)
             self.params['nhvar'] = int(readr.nhvar)
             timer.record()
 
@@ -903,7 +903,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 arr = [arr[idx] for idx in target_idx]
                 formats = [formats[idx] for idx in target_idx]
                 names = [names[idx] for idx in target_idx]
-
+                dtype = [(nm, fmt) for nm, fmt in zip(names, formats)]
                 cell = fromarrays(arr, formats=formats, names=names) if not return_raw else arr
             else:
                 dtype = np.format_parser(formats=formats, names=names, titles=None).dtype
@@ -1274,8 +1274,13 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.ref = np.concatenate(amr_refs)
         self.cpu = np.concatenate(amr_cpus)
 
-    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False, return_raw=False):
-        if(return_raw): print("`return_raw` is experimental!")
+    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False, return_raw=False, nthread=1):
+        if(return_raw):
+            if(timer.verbose>0): print("`return_raw` is experimental!")
+        if(isinstance(self.part, tuple)):
+            if(timer.verbose>0): print("`snap.part` already occupy fortran arrays! --> Remove")
+            self.part=None
+            readr.close()
         if(box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -1298,11 +1303,38 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 domain_slicing=False
                 exact_box=False
             if(not ripses):
-                self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist, return_raw=return_raw)
+                self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist, return_raw=return_raw, nthread=nthread)
                 if(return_raw):
-                    if(target_fields is None): print("\nsnap.cell=\ntuple( \n    list[real_array, \n\t integer_array, \n\t byte_array \n\t], \n    dtype(nfield,)\n     )\n")
-                    else: print("\nsnap.cell=\ntuple( \n    list[\n\t array_1(npart,), \n\t array_2(npart,), \n\t ...\n\t array_nfield(npart,) \n\t], \n    dtype(nfield,)\n     )\n")
-                    print("Fortran memory should be deallocated via `snap.clear()`!")
+                    if(exact_box):
+                        print("`exact_box=True` makes the code slower when `return_raw` is True!")
+                        cell, dtype = self.cell
+                        if(isinstance(dtype, list)):
+                            if not (dtype[0][0]=='x')&(dtype[1][0]=='y')&(dtype[2][0]=='z'):
+                                raise AssertionError("dtype should have `x`, `y`, `z` for box cut!")
+                            if not ('level' in [d[0] for d in dtype]):
+                                raise AssertionError("dtype should have `level` for box cut!")
+                        else:
+                            if not (dtype.names[0]=='x')&(dtype.names[1]=='y')&(dtype.names[2]=='z'):
+                                raise AssertionError("dtype should have `x`, `y`, `z` for box cut!")
+                            if not ('level' in dtype.names):
+                                raise AssertionError("dtype should have `level` for box cut!")
+                        if(target_fields is None):
+                            coo = np.vstack(cell[0][:,:3])
+                            lvl = cell[1][:,0]
+                        else:
+                            coo = np.vstack(cell[:3]).T
+                            arg = dtype.names.index('level') if(hasattr(dtype, 'names')) else [i for i in range(len(dtype)) if dtype[i][0]=='level'][0]
+                            lvl = cell[arg]
+                        dx = 0.5 ** lvl
+                        mask = box_mask(coo, self.box, size=dx)
+                        timer.start('Masking cells... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask)/mask.size), 1)
+                        cell = [p[mask] for p in cell]
+                        timer.record()
+                        self.cell = (cell, dtype)
+                    if(timer.verbose>0): 
+                        if(target_fields is None): print("\nsnap.cell=\ntuple( \n    list[real_array, \n\t integer_array, \n\t byte_array \n\t], \n    dtype(nfield,)\n     )\n")
+                        else: print("\nsnap.cell=\ntuple( \n    list[\n\t array_1(npart,), \n\t array_2(npart,), \n\t ...\n\t array_nfield(npart,) \n\t], \n    dtype(nfield,)\n     )\n")
+                        print("Fortran memory should be deallocated via `snap.clear()`!")
                     return self.cell
             else:
                 self.read_ripses(target_fields=target_fields, cpulist=cpulist)
@@ -1322,8 +1354,13 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.cell = cell
         return self.cell
 
-    def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None, nthread=4, return_raw=False):
-        if(return_raw): print("`return_raw` is experimental!")
+    def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None, nthread=1, return_raw=False):
+        if(return_raw):
+            if(timer.verbose>0): print("`return_raw` is experimental!")
+        if(isinstance(self.cell, tuple)):
+            if(timer.verbose>0): print("`snap.cell` already occupy fortran arrays! --> Remove")
+            self.cell=None
+            readr.close()
         if(box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -1357,9 +1394,25 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 exact_box = False
             self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, return_raw=return_raw)
             if(return_raw):
-                if(target_fields is None): print("\nsnap.part=\ntuple( \n    list[\n\t real_array(npart, nfield), \n\t integer_array(npart, nfield), \n\t byte_array(npart, nfield) \n\t], \n    dtype(nfield,)\n     )\n")
-                else: print("\nsnap.part=\ntuple( \n    list[\n\t array_1(npart,), \n\t array_2(npart,), \n\t ...\n\t array_nfield(npart,) \n\t], \n    dtype(nfield,)\n     )\n")
-                print("Fortran memory should be deallocated via `snap.clear()`!")
+                if(exact_box):
+                    print("`exact_box=True` makes the code slower when `return_raw` is True!")
+                    part, dtype = self.part
+                    if(isinstance(dtype, list)):
+                        if not (dtype[0][0]=='x')&(dtype[1][0]=='y')&(dtype[2][0]=='z'):
+                            raise AssertionError("dtype should have `x`, `y`, `z` for box cut!")
+                    else:
+                        if not (dtype.names[0]=='x')&(dtype.names[1]=='y')&(dtype.names[2]=='z'):
+                            raise AssertionError("dtype should have `x`, `y`, `z` for box cut!")
+                    coo = np.vstack(part[0][:,:3]) if(target_fields is None) else np.vstack(part[:3]).T
+                    mask = box_mask(coo, self.box)
+                    timer.start('Masking particles... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask)/mask.size), 1)
+                    part = [p[mask] for p in part]
+                    timer.record()
+                    self.part = (part, dtype)
+                if(timer.verbose>0): 
+                    if(target_fields is None): print("\nsnap.part=\ntuple( \n    list[\n\t real_array(npart, nfield), \n\t integer_array(npart, nfield), \n\t byte_array(npart, nfield) \n\t], \n    dtype(nfield,)\n     )\n")
+                    else: print("\nsnap.part=\ntuple( \n    list[\n\t array_1(npart,), \n\t array_2(npart,), \n\t ...\n\t array_nfield(npart,) \n\t], \n    dtype(nfield,)\n     )\n")
+                    print("Fortran memory should be deallocated via `snap.clear()`!")
                 return self.part
             if(domain_slicing):
                 part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)

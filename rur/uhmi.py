@@ -152,8 +152,10 @@ class HaloMaker:
                 double_precision=True
             else:
                 double_precision=False
-            if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2'):
+            if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2')or(snap.mode=='fornax'):
                 double_precision=True
+            else:
+                double_precision=False
         if (galaxy):
             if(path_in_repo is None):
                 path_in_repo = default_path_in_repo['GalaxyMaker']
@@ -1262,7 +1264,7 @@ class TreeMaker:
         ('host', 'i4'), ('hostsub', 'i4'), ('nbsub', 'i4'), ('nextsub', 'i4'),
         ('nfat', 'i4'), ('fat1', 'i4'), ('fat2', 'i4'), ('fat3', 'i4'), ('fat4', 'i4'), ('fat5', 'i4'),
         ('nson', 'i4'), ('son1', 'i4'), ('son2', 'i4'), ('son3', 'i4'), ('son4', 'i4'), ('son5', 'i4'),
-        ('aexp', 'f4'), ('age_univ', 'f4'), ('m', 'f8'), ('macc', 'f8'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'),
+        ('aexp', 'f8'), ('age_univ', 'f8'), ('m', 'f8'), ('macc', 'f8'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'),
         ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'),
         ('Lx', 'f8'), ('Ly', 'f8'), ('Lz', 'f8'),
         ('r', 'f8'), ('a', 'f8'), ('b', 'f8'), ('c', 'f8'),
@@ -1295,7 +1297,7 @@ class TreeMaker:
     def load(snap, path_in_repo=None, galaxy=False, double_precision=None):
         repo = snap.repo
         if(double_precision is None):
-            if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2'):
+            if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2')or(snap.mode=='fornax'):
                 double_precision=True
             else:
                 double_precision=False
@@ -1307,7 +1309,7 @@ class TreeMaker:
             if(path_in_repo is None):
                 path_in_repo = default_path_in_repo['HaloMaker']
             path = os.path.join(repo, path_in_repo, "tree.dat")
-        dtype = TreeMaker.dtype if double_precision else TreeMaker.dtype_dp
+        dtype = TreeMaker.dtype_dp if double_precision else TreeMaker.dtype
         if(not os.path.exists(path)):
             raise FileNotFoundError('Error: Tree file not found in path: %s' % path)
 
@@ -1318,7 +1320,10 @@ class TreeMaker:
 
         print('Building table for %d nodes... ' % readh.integer_table.shape[-1] , end='')
         timer.start()
-        array = fromarrays([*readh.integer_table.T, *readh.real_table.T], dtype=dtype)
+        if(double_precision):
+            array = fromarrays([*readh.integer_table.T, *readh.real_table_dp.T], dtype=dtype)
+        else:
+            array = fromarrays([*readh.integer_table.T, *readh.real_table.T], dtype=dtype)
         print('Took %.3fs' % timer.time())
 
         return TreeMaker.unit_conversion(array, snap)

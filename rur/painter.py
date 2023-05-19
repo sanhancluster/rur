@@ -561,18 +561,18 @@ def draw_image(image, extent=None, vmin=None, vmax=None, qscale=3., normmode='lo
 
     if imfilter is not None:
         image = imfilter(image)
-
+    ax = kwargs.pop('ax', plt.gca())
     if not len(image.shape)>2:
         if qscale is not None and vmax is None:
             vmax = np.nanmax(image)
         #image = norm(image, vmin, vmax, qscale=qscale, mode=normmode, nanzero=nanzero)
         nm = get_norm(vmin, vmax, qscale=qscale, mode=normmode)
         sm = mpl.cm.ScalarMappable(norm=nm, cmap=cmap)
-        ims = plt.imshow(image, extent=extent, norm=sm.norm, origin='lower', zorder=1, cmap=sm.cmap, **kwargs)
+        ims = ax.imshow(image, extent=extent, norm=sm.norm, origin='lower', zorder=1, cmap=sm.cmap, **kwargs)
         if colorbar:
-            plt.colorbar(mappable=sm, **colorbar_kw)
+            plt.colorbar(mappable=sm, ax=ax, **colorbar_kw)
     else:
-        ims = plt.imshow(image, extent=extent, origin='lower', zorder=1, **kwargs)
+        ims = ax.imshow(image, extent=extent, origin='lower', zorder=1, **kwargs)
 
     return ims
 
