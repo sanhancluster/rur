@@ -8,7 +8,7 @@ from scipy.interpolate import LinearNDInterpolator
 from numpy.linalg import det
 import h5py
 from rur.sci.geometry import rss, ss, rms, align_to_vector, euler_angle
-from rur.config import Table, get_vector, Timer
+from rur.config import Table, get_vector, Timer, alias_dict
 from collections.abc import Iterable
 from collections import defaultdict
 import warnings
@@ -325,32 +325,37 @@ def add_dims(arr, ndim, axis=-1):
     return np.expand_dims(arr, list(np.arange(axis, axis-ndim, -1)))
 
 class discrete_stat(object):
-    # A class to manage discrete set of data y (e.g. binned data, etc...)
-    # idx indicates the bin position of the data should be integer that gets within size
-    # statistics (such as mean, median, quantile, etc..) can be computed in binned data
-    # any idx outside (0, size) will be ignored
-    # this class only works with 1d discrete data. use inherited class to use it for higher dimensions.
-
+    """A class to manage discrete set of data y (e.g. binned data, etc...)
+    idx indicates the bin position of the data should be integer that gets within size
+    statistics (such as mean, median, quantile, etc..) can be computed in binned data
+    any idx outside (0, size) will be ignored
+    this class only works with 1d discrete data. use inherited class to use it for higher dimensions.
+    """
     def __init__(self, y, idx, grid_size=None, weights=None):
+        # convert idx and y to numpy array
         y = np.array(y)
         idx = np.array(idx)
 
+        # check dimensions and shapes
         if(idx.ndim != 1):
-            raise ValueError("idx must be ndim==1 (received: idx.ndim=%d)" % idx.ndim)
+            raise ValueError("idx must have ndim==1 (received: idx.ndim=%d)" % idx.ndim)
         if(y.shape[0] != idx.size):
-            raise ValueError("Size mismatch: %d != %d" % (y.shape[0], idx.size))
+            raise ValueError("Size mismatch: %d != %d\ny must have same shape with idx at axis 0!" % (y.shape[0], idx.size))
 
-        if(weights is None):
-            weights = 1.
+        # automatically set grid_size
         if(grid_size is None):
             grid_size = np.max(idx) + 1
 
+        # set internal variables
         self.y = y
+
+        # number of items => same as idx.size
         self.n = y.shape[0]
 
         self.grid_size = grid_size
         self.idx = idx
 
+        # shape and dimension of one item
         self.value_shape = y.shape[1:]
         self.ndim = len(self.value_shape)
 
@@ -358,119 +363,108 @@ class discrete_stat(object):
         self.dtype = y.dtype
 
         # set weights to the correct shape (should be broadcastable to y)
-        weights = np.atleast_1d(weights)
-        self.weights = np.reshape(weights, weights.shape+(1,)*(self.ndim - weights.ndim + 1))
+        self.weights = weights
+        if self.weights is not None:
+            weights = np.atleast_1d(weights)
+            try:
+                self.weights = np.broadcast_to(weights, y.shape)
+            except ValueError:
+                raise ValueError("weights must be broadcastable to y!\n"
+                                 "shape: %s -> %s" % (weights.shape, y.shape))
 
         self.init_boundary()
         self.cache = defaultdict(lambda: None)
+
+        self.mode_alias = alias_dict()
+        self.method_dict = {}
+        self.set_dict()
 
     def init_boundary(self):
         # sort data by indices and precompute boundaries
         keys = np.argsort(self.idx)
         self.idx = self.idx[keys]
         self.y = self.y[keys]
+        if self.weights is not None:
+            self.weights = self.weights[keys]
 
         self.bounds = np.searchsorted(self.idx, np.arange(np.prod(self.grid_size)+1))
         self.valid_slice = slice(self.bounds[0], self.bounds[-1])
-        if(self.weights.shape[0] == self.y.shape[0]):
-            self.weights = self.weights[keys]
 
     def apply_at_idx(self, value: np.ndarray, func=np.add, dtype=None, use_valid_slice=True):
         if(dtype is None):
             dtype = self.dtype
         value = np.atleast_1d(value)
-        shape = (self.grid_size,) + value.shape[1:]
+        return_shape = (self.grid_size,) + value.shape[1:]
 
-        if(func == np.minimum):
-            out = np.full(shape, np.inf, dtype=dtype)
-        elif(func == np.maximum):
-            out = np.full(shape, -np.inf, dtype=dtype)
+        # set default value of the output array
+        if func == np.minimum:
+            out = np.full(return_shape, np.inf, dtype=dtype)
+        elif func == np.maximum:
+            out = np.full(return_shape, -np.inf, dtype=dtype)
         else:
-            out = np.full(shape, func.identity, dtype=dtype)
+            out = np.full(return_shape, func.identity, dtype=dtype)
 
-        if(value.shape[0] != 1 and use_valid_slice):
-            value = value[self.valid_slice]
+        if use_valid_slice:
+            value = np.broadcast_to(value, self.idx.shape + value.shape[1:])[self.valid_slice]
         func.at(out, self.idx[self.valid_slice], value)
         return out
 
-    def evaluate(self, mode, *args, **kwargs):
-        if(mode in ['num', 'number']):
-            return self.eval_number()
-        elif(mode in ['mean', 'average']):
-            return self.eval_mean()
-        elif(mode in ['wsum', 'weights']):
-            return self.eval_weights()
-        elif(mode in ['sum']):
-            return self.eval_sum()
-        elif(mode in ['min', 'minimum']):
-            return self.eval_minimum()
-        elif (mode in ['max', 'maximum']):
-            return self.eval_maximum()
-        elif(mode in ['std', 'stdev', 'standard_deviation']):
-            return self.eval_std()
-        elif(mode in ['var', 'variance']):
-            return self.eval_variance()
-        elif(mode in ['skew', 'skewness']):
-            return self.eval_skew()
-        elif(mode in ['kurt', 'kurtosis']):
-            return self.eval_kurt()
-        elif(mode in ['mom', 'moment']):
-            return self.eval_moment(*args, **kwargs)
-        elif(mode in ['quant', 'quantile']):
-            return self.eval_quantile(*args, **kwargs)
-        elif(mode in ['med', 'median']):
-            return self.eval_median(*args, **kwargs)
-        else:
+    def get(self, mode, method, *args, **kwargs):
+        if self.cache[mode] is None:
+            self.cache[mode] = method(*args, **kwargs)
+        return self.cache[mode]
+
+    def eval(self, mode, *args, **kwargs):
+        mode = self.mode_alias[mode]
+        try:
+            method = self.method_dict[mode]
+        except KeyError:
             raise ValueError("Unknown mode: ", mode)
+        return self.get(mode, method, *args, **kwargs)
 
-    def eval_weights(self):
-        if(self.cache['wsum'] is None):
-            self.cache['wsum'] = self.apply_at_idx(self.weights)
-        return self.cache['wsum']
-
-    def eval_minimum(self):
-        if(self.cache['min'] is None):
-            self.cache['min'] = self.apply_at_idx(self.y, np.minimum)
-        return self.cache['min']
-
-    def eval_maximum(self):
-        if(self.cache['max'] is None):
-            self.cache['max'] = self.apply_at_idx(self.y, np.maximum)
-        return self.cache['max']
+    def __call__(self, mode, *args, **kwargs):
+        return self.eval(mode, *args, **kwargs)
 
     def eval_number(self):
         return self.apply_at_idx(1, dtype='i4')
 
-    def eval_sum(self, use_weights=True):
-        if(self.cache['sum'] is None):
-            y = self.y[self.valid_slice]
-            if(use_weights):
-                to_add = y * self.weights[self.valid_slice]
-            else:
-                to_add = y.copy()
-            self.cache['sum'] = self.apply_at_idx(to_add, use_valid_slice=False)
-        return self.cache['sum']
-
     def eval_mean(self):
-        if(self.cache['mean'] is None):
-            self.cache['mean'] = self.eval_sum() / self.eval_weights()
-        return self.cache['mean']
+        return self.eval('sum') / self.eval('wsum')
+
+    def eval_weights_sum(self):
+        if self.weights is not None:
+            wsum = self.apply_at_idx(self.weights)
+        else:
+            wsum = self.eval('num')
+        return wsum
+
+    def eval_minimum(self):
+        return self.apply_at_idx(self.y, np.minimum)
+
+    def eval_maximum(self):
+        return self.apply_at_idx(self.y, np.maximum)
+
+    def eval_sum(self, use_weights=True):
+        y = self.y[self.valid_slice]
+        if use_weights and self.weights is not None:
+            to_add = y * self.weights[self.valid_slice]
+        else:
+            to_add = y.copy()
+        return self.apply_at_idx(to_add, use_valid_slice=False)
 
     def eval_variance(self):
-        if(self.cache['var'] is None):
-            idx = self.idx[self.valid_slice]
-            y = self.y[self.valid_slice]
-            weights = self.weights
-            if (weights.shape[0] != 1):
-                weights = weights[self.valid_slice]
+        idx = self.idx[self.valid_slice]
+        y = self.y[self.valid_slice]
+        weights = self.weights
+        if (weights.shape[0] != 1):
+            weights = weights[self.valid_slice]
 
-            means = self.eval_mean()
-            to_add = weights*(y-means[idx])**2
-            self.cache['var'] = self.apply_at_idx(to_add, use_valid_slice=False) / self.eval_weights()
-        return self.cache['var']
+        means = self.eval_mean()
+        to_add = weights*(y-means[idx])**2
+        return self.apply_at_idx(to_add, use_valid_slice=False) / self.eval('wsum')
 
     def eval_std(self):
-        var = self.eval_variance()
+        var = self.eval('var')
         return np.sqrt(var)
 
     def eval_moment(self, k=1):
@@ -480,33 +474,32 @@ class discrete_stat(object):
         if (weights.shape[0] != 1):
             weights = weights[self.valid_slice]
 
-        means = self.eval_mean()
-        stds = self.eval_std()
+        means = self.eval('mean')
+        stds = self.eval('std')
 
         to_add = weights*((y-means[idx])/stds[idx])**k
-        moments = self.apply_at_idx(to_add, use_valid_slice=False) / self.eval_weights()
+        moments = self.apply_at_idx(to_add, use_valid_slice=False) / self.eval('wsum')
 
         return moments
 
     def eval_skew(self):
         if(self.cache['skew'] is None):
-            self.cache['skew'] = self.eval_moment(k=3)
+            self.cache['skew'] = self.eval('mom', k=3)
         return self.cache['skew']
 
     def eval_kurt(self):
         if(self.cache['kurt'] is None):
-            self.cache['kurt'] = self.eval_moment(k=4)
+            self.cache['kurt'] = self.eval('mom', k=4)
         return self.cache['kurt']
 
     def eval_median(self, *args, **kwargs):
         if(self.cache['med'] is None):
-            self.cache['med'] = self.eval_quantile(0.5, *args, **kwargs)
+            self.cache['med'] = self.eval('quant', 0.5, *args, **kwargs)
         return self.cache['med']
 
     def eval_quantile(self, q, use_weights=None):
         y = self.y
-        if(use_weights is None):
-            use_weights = self.weights.size > 1
+        use_weights = use_weights and self.weights is not None
         if(use_weights):
             weights = np.broadcast_to(self.weights, y.shape)
         slices = [slice(low, upp) for low, upp in zip(self.bounds[:-1], self.bounds[1:])]
@@ -544,23 +537,56 @@ class discrete_stat(object):
             np.add.at(pdf[..., i], (idx_pdf, idx), weights[..., 0])
         return pdf
 
-    __call__ = evaluate
+    def set_dict(self):
+        # set defaultdict object for aliasing
+        mode_alias = {
+            'number': 'num',
+            'average': 'mean',
+            'weights': 'wsum',
+            'minumum': 'min',
+            'maximum': 'max',
+            'stdev': 'std',
+            'standard_deviation': 'std',
+            'variance': 'var',
+            'skewness': 'skew',
+            'skw': 'skew',
+            'kurtosis': 'kurt',
+            'krt': 'kurt',
+            'moment': 'mom',
+            'quantile': 'quant',
+            'median': 'med'
+        }
+        self.mode_alias.update(mode_alias)
+
+        # dictionary object to return function
+        self.method_dict = {
+            'num': self.eval_number,
+            'mean': self.eval_mean,
+            'wsum': self.eval_weights_sum,
+            'sum': self.eval_sum,
+            'min': self.eval_minimum,
+            'max': self.eval_maximum,
+            'std': self.eval_std,
+            'var': self.eval_variance,
+            'skew': self.eval_skew,
+            'kurt': self.eval_kurt,
+            'mom': self.eval_moment,
+            'quant': self.eval_quantile,
+            'med': self.eval_median,
+        }
 
 class binned_stat(discrete_stat):
     def __init__(self, x, y, bins, lims=None, weights=None):
         self.bins = set_bins(bins, lims, y)
         idx = digitize(x, self.bins, lims, single_idx=True)
-        self.grid_shape = [len(bin)-1 for bin in np.atleast_2d(self.bins)]
+        self.grid_shape = tuple([len(bin)-1 for bin in self.bins])
         grid_size = np.prod(self.grid_shape)
-        print(idx.shape)
 
         super().__init__(y, idx, grid_size, weights)
 
-    def evaluate(self, mode, *args, **kwargs):
-        out = super().evaluate(mode, *args, **kwargs)
+    def __call__(self, mode, *args, **kwargs):
+        out = super().__call__(mode, *args, **kwargs)
         return np.reshape(out, tuple(self.grid_shape) + out.shape[1:], order='F')
-
-    __call__ = evaluate
 
 class kde_stat(object):
 
@@ -633,7 +659,7 @@ def k_partitioning(centers_init, points, weights,
     def replace(centers):
         centers = centers.copy()
         tree = KDTree(centers)
-        dists, idx_closest = tree.query(points, k=1, n_jobs=n_jobs)
+        dists, idx_closest = tree.query(points, k=1)
         sums = np.zeros(centers.shape[0], dtype='f8')
         np.add.at(sums, idx_closest, weights)
 
@@ -647,7 +673,7 @@ def k_partitioning(centers_init, points, weights,
         centers = centers.copy()
         # get closest centers in each points
         tree = KDTree(centers)
-        dists, idx = tree.query(points, k=n_nei, n_jobs=n_jobs)
+        dists, idx = tree.query(points, k=n_nei)
         idx_closest = idx[:, 0]
 
         # get number of points in each Voronoi bin
@@ -669,7 +695,7 @@ def k_partitioning(centers_init, points, weights,
     def perturb(centers):
         centers = centers.copy()
         tree = KDTree(centers)
-        dists, idx_closest = tree.query(points, n_jobs=n_jobs)
+        dists, idx_closest = tree.query(points)
 
         sums = np.zeros(centers.shape[0], dtype='f8')
         np.add.at(sums, idx_closest, weights)
@@ -740,7 +766,7 @@ def voronoi_binning(centers, points, weights=1., n_jobs=-1):
 
 def find_closest(centers, points, n_jobs=-1):
     tree = KDTree(centers)
-    idx_closest = tree.query(points, k=1, n_jobs=n_jobs)[1]
+    idx_closest = tree.query(points, k=1)[1]
     return idx_closest
 
 def format_bytes(size, format='{:#.4g}'):
@@ -1219,7 +1245,7 @@ class gaussian_kde_tree(object):
         points = np.atleast_2d(points)
 
         # compute the normalised residuals
-        distances, indices = self.tree.query(points, self.nsearch, n_jobs=-1)
+        distances, indices = self.tree.query(points, self.nsearch)
         normpdf = lambda x, b: (2*np.pi*b**2)**-(0.5*self.d)*np.exp(-0.5*(x/b)**2)
         bandwidth = distances[:, -1]/np.sqrt(self.nsearch)*self.smooth_factor
 
