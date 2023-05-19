@@ -591,7 +591,7 @@ def binned_plot(x, y, weights=None, errors=None, bins=10, weighted_binning=False
     if error_dict is None:
         error_dict = {}
     if errmode is None:
-        errmode = ['quatile', 'face']
+        errmode = ['sigma', 'face']
     if mode is None:
         mode = ['median', 'line']
     if(weights is None):
@@ -648,8 +648,12 @@ def binned_plot(x, y, weights=None, errors=None, bins=10, weighted_binning=False
             xqua = weighted_quantile(x_slice, [0.25, 0.75], sample_weight=w_slice)
             xe = np.abs(xqua - xbin)
         elif(xerrmode in ['sigma', '1sigma']):
-            sig = 0.68269
+            sig = 0.682689492137086
             xqua = weighted_quantile(x_slice, [0.5-sig/2, 0.5+sig/2], sample_weight=w_slice)
+            xe = np.abs(xqua - xbin)
+        elif (xerrmode in ['2sigma']):
+            sig = 0.954499736103642
+            xqua = weighted_quantile(x_slice, [0.5 - sig / 2, 0.5 + sig / 2], sample_weight=w_slice)
             xe = np.abs(xqua - xbin)
         elif(xerrmode == 'std'):
             xstd = weighted_std(x_slice, weights=w_slice)
