@@ -73,6 +73,10 @@ class TimeSeries(object):
             self.read_icoarse_avail()
         return np.interp(value, self.icoarse_avail[name1], self.icoarse_avail[name2])
 
+    def icoarse_to_dt(self, icoarse):
+        return self.interpolate_icoarse_table(icoarse+0.5, 'icoarse', 'time') \
+               - self.interpolate_icoarse_table(icoarse-0.5, 'icoarse', 'time')
+
     def interpolate_iout_table(self, value, name1, name2):
         if self.iout_avail is None:
             self.read_iout_avail()
@@ -155,6 +159,8 @@ class TimeSeries(object):
 
         self.snaps = None
         self.basesnap = None
+
+RamsesRepo = TimeSeries
 
 class Particle(Table):
     def __init__(self, table, snap, units=None, ptype=None):
@@ -788,7 +794,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if not isinstance(self.part, tuple):
                 if pname == self.part.ptype:
                     if(timer.verbose>=1): print('Searching for extra files...')
-                    cpulist = cpulist[np.isin(cpulist, self.cpulist_part, assume_unique=True, invert=True)]
+                    cpulist = np.array(cpulist)[np.isin(cpulist, self.cpulist_part, assume_unique=True, invert=True)]
 
         if (cpulist.size > 0):
             filesize = 0
@@ -1392,7 +1398,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.sink = sink
         return self.sink
 
-    def get_halos_cpulist(self, halos, radius=3., use_halo_radius=True, radius_name='rvir', n_divide=4):
+    def get_halos_cpulist(self, halos, radius=1., use_halo_radius=True, radius_name='r', n_divide=4):
         # returns cpulist that encloses given list of halos
         cpulist = []
         for halo in halos:
