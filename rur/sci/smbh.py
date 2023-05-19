@@ -15,6 +15,7 @@ def set_unit(aexps, snap):
     unit['v'] = unit['l'] / unit['t']  # unit to cm/s
 
     unit['to_kms'] = unit['v'] / uri.km
+    unit['to_cms'] = unit['v']
     unit['to_Msol'] = unit['m'] / uri.Msol
     unit['to_Hcc'] = unit['d'] / uri.m_H
     unit['to_yr'] = unit['t'] / uri.yr
@@ -50,17 +51,17 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
     if (xmode == 'icoarse'):
         xarr = tl['icoarse']
 
-    aexp_scale = snap.aexp / tl['aexp']
-    unit_m = snap.unit_m  # unit to g
-    unit_l = snap.unit_l / aexp_scale  # unit to cm
-    unit_d = unit_m / unit_l ** 3  # unit to g/cm^3
-    unit_t = snap.unit_t / aexp_scale ** 2  # unit to s
-    unit_v = unit_l / unit_t  # unit to cm/s
+    unit = set_unit(tl['aexp'], snap)
+    unit_m = unit['m']  # unit to g
+    unit_l = unit['l']  # unit to cm
+    unit_d = unit['d']  # unit to g/cm^3
+    unit_t = unit['t']  # unit to s
+    unit_v = unit['v']  # unit to cm/s
 
-    unit_to_kms = unit_v / uri.km
-    unit_to_Msol = unit_m / uri.Msol
-    unit_to_Hcc = unit_d / uri.m_H
-    unit_to_yr = unit_t / uri.yr
+    unit_to_kms = unit['to_kms']
+    unit_to_Msol = unit['to_Msol']
+    unit_to_Hcc = unit['to_Hcc']
+    unit_to_yr = unit['to_yr']
     dt_yr = np.gradient(tl['aexp']) / snap.aexp_to_dadt(tl['aexp']) * 1E9
 
     for irow, mode in enumerate(modes):

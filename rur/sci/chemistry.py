@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from rur import drawer
 from matplotlib.colors import LogNorm
 
+# Asplund 2009
 solar_frac = {
     'H' : 0.08884559 / 0.001767991866,
     'C' : 0.16245322,

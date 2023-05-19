@@ -75,4 +75,3 @@ def rotation_matrix(angles):
     R = np.dot(R_zz, np.dot(R_y, R_z))
 
     return R
-
