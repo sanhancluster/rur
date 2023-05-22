@@ -1014,7 +1014,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if(legacy):
                 pass
             else:
-                signal.signal(signal.SIGTERM, self.terminate)
+                signal.signal(signal.SIGTERM, signal.SIG_DFL)
                 with Pool(processes=nthread) as pool:
                     results = pool.starmap(_calc_npart, [(filename,kwargs) for filename in files])
                 results = np.asarray(results, dtype=[("mask", object), ("size", int)])
@@ -1204,7 +1204,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 ncell_tot=None; cell=None
             else:
                 files = [f"{self.snap_path}/output_{self.iout:05d}/amr_{self.iout:05d}.out{icpu:05d}" for icpu in cpulist]
-                signal.signal(signal.SIGTERM, self.terminate)
+                signal.signal(signal.SIGTERM, signal.SIG_DFL)
                 with Pool(processes=nthread) as pool:
                     sizes = pool.starmap(_calc_ncell, [(fname,amr_kwargs) for fname in files])
                 signal.signal(signal.SIGTERM, self.terminate)
