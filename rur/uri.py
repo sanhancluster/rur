@@ -356,6 +356,7 @@ def _read_part(fname, kwargs, legacy, part=None, mask=None, nsize=None, cursor=N
         return cursor
     if(legacy):
         return part
+    exist.close()
     
 
 def _calc_ncell(fname, amr_kwargs):
@@ -579,6 +580,7 @@ def _read_cell(icpu, snap_kwargs, amr_kwargs, legacy, cell=None, nsize=None, cur
         return cursor
     if(legacy):
         return cell[:cursor]
+    exist.close()
     
     
     
@@ -697,10 +699,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
     def __del__(self):
         if(self.part_mem is not None):
             self.part_mem.close()
-            self.part_mem.unlink()
+            try: self.part_mem.unlink()
+            except: pass
         if(self.cell_mem is not None):
             self.cell_mem.close()
-            self.cell_mem.unlink()
+            try: self.cell_mem.unlink()
+            except: pass
 
     def get_iout_avail(self):
         output_names = glob.glob(join(self.snap_path, output_glob))
@@ -1066,7 +1070,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 part = np.empty(size, dtype=dtype)
                 if(self.part_mem is not None):
                     self.part_mem.close()
-                    self.part_mem.unlink()
+                    try: self.part_mem.unlink()
+                    except: pass
                 self.part_mem = shared_memory.SharedMemory(create=True, size=part.nbytes)
                 part = np.ndarray(part.shape, dtype=np.dtype(dtype), buffer=self.part_mem.buf)
                 
@@ -1088,7 +1093,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             part = part[:cursor]
         return part
 
-    def read_part(self, target_fields=None, cpulist=None, pname=None, nthread=1, python=False, legacy=False):#, return_raw=False):
+    def read_part(self, target_fields=None, cpulist=None, pname=None, nthread=8, python=True, legacy=False):
         """Reads particle data from current box.
 
         Parameters
@@ -1147,7 +1152,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                             m = arr[np.where(np.array(target_fields) == 'm')[0][0]] if('m' in target_fields) else None
                     mask, _ = _classify(pname, ids=ids, epoch=epoch, m=m, family=family)
                     if(pname is not None): arr = [iarr[mask] for iarr in arr]
-                    part = fromarrays(arr, dtype=dtype)# if not return_raw else arr
+                    part = fromarrays(arr, dtype=dtype)
                 else:
                     if(self.longint):
                         arrs = [readr.real_table.T, readr.long_table.T, readr.integer_table.T, readr.byte_table.T]
@@ -1190,12 +1195,14 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.bound_part = np.concatenate([self.bound_part[:-1], self.bound_part[-1] + bound])
             self.cpulist_part = np.concatenate([self.cpulist_part, cpulist])
             timer.record()
+            try: self.part_mem.unlink()
+            except: pass
 
         else:
             if (timer.verbose >= 1):
                 print('CPU list already satisfied.')
 
-    def read_cell_py(self, cpulist:Iterable, target_fields:Iterable=None, nthread:int=1, read_grav:bool=False, legacy:bool=False):
+    def read_cell_py(self, cpulist:Iterable, target_fields:Iterable=None, nthread:int=8, read_grav:bool=False, legacy:bool=False):
         # 1) Read AMR params
         fname = f"{self.snap_path}/output_{self.iout:05d}/amr_{self.iout:05d}.out00001"
         with FortranFile(fname, mode='r') as f:
@@ -1251,7 +1258,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 cell = np.empty(np.sum(sizes), dtype=dtype)
                 if(self.cell_mem is not None):
                     self.cell_mem.close()
-                    self.cell_mem.unlink()
+                    try: self.cell_mem.unlink()
+                    except: pass
                 self.cell_mem = shared_memory.SharedMemory(create=True, size=cell.nbytes)
                 cell = np.ndarray(cell.shape, dtype=np.dtype(dtype), buffer=self.cell_mem.buf)
                 
@@ -1277,7 +1285,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                         r.get()
         return cell
 
-    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, python=False, nthread=1, legacy=False):#, return_raw=False):
+    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, python=True, nthread=8, legacy=False):
         """Reads amr data from current box.
 
         Parameters
@@ -1311,6 +1319,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if(python):
                 cell = self.read_cell_py(cpulist, read_grav=read_grav, nthread=nthread, target_fields=target_fields, legacy=legacy)
             else:
+                if(nthread>1):
+                    warnings.warn(f"\n[read_cell] In Fortran mode, \nmulti-threading is usually slower than single-threading\nunless there are lots of hydro variables!", UserWarning)
                 progress_bar = cpulist.size > progress_bar_limit and timer.verbose >= 1
                 readr.read_cell(self.snap_path, self.iout, cpulist, self.mode, read_grav, progress_bar, nthread)
                 self.params['nhvar'] = int(readr.nhvar)
@@ -1354,6 +1364,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.bound_cell = np.concatenate([self.bound_cell[:-1], self.bound_cell[-1] + bound])
             self.cpulist_cell = np.concatenate([self.cpulist_cell, cpulist])
             timer.record()
+            try: self.cell_mem.unlink()
+            except: pass
 
         else:
             if(timer.verbose>=1):
@@ -1629,7 +1641,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.part = None
             if(self.part_mem is not None):
                 self.part_mem.close()
-                self.part_mem.unlink
+                try: self.part_mem.unlink
+                except: pass
                 self.part_mem = None
             self.box_part = None
             self.cpulist_part = np.array([], dtype='i4')
@@ -1639,7 +1652,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.cell = None
             if(self.cell_mem is not None):
                 self.cell_mem.close()
-                self.cell_mem.unlink
+                try: self.cell_mem.unlink
+                except: pass
                 self.cell_mem = None
             self.box_cell = None
             self.cpulist_cell = np.array([], dtype='i4')
@@ -1712,7 +1726,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.ref = np.concatenate(amr_refs)
         self.cpu = np.concatenate(amr_cpus)
 
-    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False, python=False, nthread=1, legacy=False):
+    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False, python=True, nthread=8, legacy=False):
         if(isinstance(self.part, tuple)):
             if(timer.verbose>0): print("`snap.part` already occupy fortran arrays! --> Remove")
             self.part=None
@@ -1758,7 +1772,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.cell = cell
         return self.cell
 
-    def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None, python=False, nthread=1, legacy=False):
+    def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None, python=True, nthread=8, legacy=False):
         if(isinstance(self.cell, tuple)):
             if(timer.verbose>0): print("`snap.cell` already occupy fortran arrays! --> Remove")
             self.cell=None
