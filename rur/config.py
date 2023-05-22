@@ -132,6 +132,11 @@ class alias_dict(dict):
     def __missing__(self, key):
         return key
 
+oct_offset = np.array([
+    -0.5,  0.5, -0.5,  0.5, -0.5,  0.5, -0.5,  0.5,
+    -0.5, -0.5,  0.5,  0.5, -0.5, -0.5,  0.5,  0.5,
+    -0.5, -0.5, -0.5, -0.5,  0.5,  0.5,  0.5,  0.5 
+    ]).reshape(3,8).T
 
 # path_related parameters
 # avaiable modes: none, ng, nh, etc.

@@ -469,15 +469,15 @@ contains
 
         ! Step 3: Read the actual particle data
         ! Current position for particle
-        if(verbose)write(6, '(a)', advance='no') 'Progress: '
+        ! if(verbose)write(6, '(a)', advance='no') 'Progress: '
         !$OMP PARALLEL DO &
         !$OMP SHARED(integer_table, long_table, real_table, byte_table,ndim,nstar,nsink,nchem) &
         !$OMP PRIVATE(i,j, icpu,npart,part_n,npart_c,idim,pint) &
         !$OMP NUM_THREADS(nthread)
         do i = 1, SIZE(cpu_list)
-            !$OMP CRITICAL
-            if(verbose)call progress_bar(i, SIZE(cpu_list))
-            !$OMP END CRITICAL
+            ! !$OMP CRITICAL
+            ! if(verbose)call progress_bar(i, SIZE(cpu_list))
+            ! !$OMP END CRITICAL
             icpu = cpu_list(i)
             part_n = 30 + omp_get_thread_num()
             npart_c = cursors(i)

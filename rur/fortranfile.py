@@ -9,6 +9,7 @@ from __future__ import division, print_function, absolute_import
 import warnings
 import numpy as np
 import os
+import struct
 
 __all__ = ['FortranFile']
 
@@ -260,19 +261,24 @@ class FortranFile(object):
         else:
             return tuple(data)
 
-    def skip_records(self, skip_num=1):
+    def skip_records(self, skip_num=1, legacy=False):
         """
         Skips a record from current position, faster than read_ints.
         """
-        for _ in range(skip_num):
-            first_size = self._read_size()
+        if(legacy):
+            for _ in range(skip_num):
+                first_size = self._read_size()
 
-            self._fp.seek(first_size, 1)
+                self._fp.seek(first_size, 1)
 
-            second_size = self._read_size()
-            if first_size != second_size:
-                raise IOError(f'Sizes do not agree in the header({first_size}) and footer({second_size}) for '
-                              'this record - check header dtype')
+                second_size = self._read_size()
+                if first_size != second_size:
+                    raise IOError(f'Sizes do not agree in the header({first_size}) and footer({second_size}) for '
+                                'this record - check header dtype')
+        else:
+            for _ in range(skip_num):
+                first_size = struct.unpack('i', self._fp.read(4))[0]+4
+                self._fp.read(first_size)
 
     def read_ints(self, dtype='i4'):
         """
