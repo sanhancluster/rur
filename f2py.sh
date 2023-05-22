@@ -47,5 +47,8 @@ for f in $FILES
 do
   bn=$(basename "$f" .f90)
   echo -e "\n\n\nCompiling $bn\n\n\n"
+  if [$MACHINE == "tardis" ]; then
+    export CFLAGS="-fPIC -O2 -std=c99"
+  fi
   $F2PY -m $bn --fcompiler=$FORT --f90flags='-fopenmp' -lgomp -c $f
 done
