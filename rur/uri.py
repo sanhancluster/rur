@@ -229,7 +229,7 @@ def readorskip_int(f:FortranFile, dtype:type, key:str, search:Iterable, add=None
     else:
         f.skip_records()
 
-def _classify(pname, ids=None, epoch=None, m=None, family=None, sizeonly=False):
+def _classify(pname:str, ids=None, epoch=None, m=None, family=None, sizeonly:bool=False):
     if(pname is None):
         mask = ...
         if(family is None):
@@ -250,9 +250,16 @@ def _classify(pname, ids=None, epoch=None, m=None, family=None, sizeonly=False):
             elif(pname == 'sink' or pname == 'cloud'):
                 mask = (ids < 0) & (m > 0) & (epoch == 0)
             nsize = np.count_nonzero(mask)
-        elif(pname in tracers):
-            mask = (ids < 0) & (m == 0)
-            nsize = np.count_nonzero(mask)
+        elif(ids is not None):
+            if(pname == 'dm'):
+                mask =  ids > 0
+                nsize = np.count_nonzero(mask)
+            elif(pname in tracers):
+                mask = (ids < 0) & (m == 0)
+                nsize = np.count_nonzero(mask)
+            else:
+                mask = False
+                nsize = 0
         else:
             mask = False
             nsize = 0
@@ -260,7 +267,7 @@ def _classify(pname, ids=None, epoch=None, m=None, family=None, sizeonly=False):
         return nsize
     return mask, nsize
     
-def _calc_npart(fname, kwargs, sizeonly=False):
+def _calc_npart(fname:str, kwargs:dict, sizeonly=False):
     pname = kwargs.get('pname', None)
     isfamily = kwargs.get('isfamily', False)
     isstar = kwargs.get('isstar', False)
@@ -282,7 +289,7 @@ def _calc_npart(fname, kwargs, sizeonly=False):
         result = _classify(pname, ids, epoch, m, family, sizeonly=sizeonly)
     return result
 
-def _read_part(fname, kwargs, legacy, part=None, mask=None, nsize=None, cursor=None, name=None, shape=None):
+def _read_part(fname:str, kwargs:dict, legacy:bool, part=None, mask=None, nsize=None, cursor=None, address=None, shape=None):
     pname, ids, epoch, m, family = None, None, None, None, None
     target_fields = kwargs["target_fields"]
     dtype = kwargs["dtype"]
@@ -316,11 +323,11 @@ def _read_part(fname, kwargs, legacy, part=None, mask=None, nsize=None, cursor=N
         if(mask is None)or(nsize is None):
             mask, nsize = _classify(pname, ids, epoch, m, family)
         # Allocating
-        if(legacy)or(name is None):
+        if(legacy)or(address is None):
             if(part is None): part = np.empty(nsize, dtype=dtype)
             pointer = part[cursor:cursor+nsize].view() if(sequential) else part
         else:
-            exist = shared_memory.SharedMemory(name=name)
+            exist = shared_memory.SharedMemory(name=address)
             part = np.ndarray(shape=shape, dtype=dtype, buffer=exist.buf)
             pointer = part[cursor:cursor+nsize].view() 
         if('x' in target_fields):pointer['x'] = x[mask]
@@ -361,7 +368,7 @@ def _read_part(fname, kwargs, legacy, part=None, mask=None, nsize=None, cursor=N
     exist.close()
     
 
-def _calc_ncell(fname, amr_kwargs):
+def _calc_ncell(fname:str, amr_kwargs:dict):
     ncpu = amr_kwargs['ncpu']
     nboundary = amr_kwargs['nboundary']
     nlevelmax = amr_kwargs['nlevelmax']
@@ -393,7 +400,7 @@ def _calc_ncell(fname, amr_kwargs):
                 f.skip_records(skip_amr)
     return ncell
 
-def _read_cell(icpu, snap_kwargs, amr_kwargs, legacy, cell=None, nsize=None, cursor=None, name=None, shape=None):
+def _read_cell(icpu:int, snap_kwargs:dict, amr_kwargs:dict, legacy:bool, cell=None, nsize=None, cursor=None, address=None, shape=None):
     # 0) From snapshot
     nhvar = snap_kwargs['nhvar']
     hydro_names = snap_kwargs['hydro_names']
@@ -436,12 +443,12 @@ def _read_cell(icpu, snap_kwargs, amr_kwargs, legacy, cell=None, nsize=None, cur
     f_amr.skip_records(7)
     if nboundary>0: f_amr.skip_records(3)
     if(cursor is None): cursor = 0
-    if(legacy)or(name is None):
+    if(legacy)or(address is None):
         if(cell is None): cell = np.empty(nsize, dtype=dtype)
         pointer = cell[cursor:cursor+nsize].view() if(sequential) else cell
         icursor = 0 if(sequential) else cursor
     else:
-        exist = shared_memory.SharedMemory(name=name)
+        exist = shared_memory.SharedMemory(name=address)
         cell = np.ndarray(shape=shape, dtype=dtype, buffer=exist.buf)
         pointer = cell[cursor:cursor+nsize].view()
         icursor=0
@@ -656,7 +663,6 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 pass
     
     def __del__(self):
-        print("! __del__ !")
         self.flush(parent='[__del__]')
         atexit.unregister(self.flush)
 
@@ -906,7 +912,6 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
     def read_part_py(self, pname:str, cpulist:Iterable, target_fields:Iterable=None, nthread:int=1, legacy:bool=False):
         # 1) Mode check
-        import os
         mode = self.mode
         modes = ['hagn', 'yzics', 'nh', 'fornax', 'y2', 'y3', 'y4', 'nc', 'nh2', 'dm_only']
         if mode not in modes:
@@ -928,14 +933,15 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         header = f"{self.snap_path}/output_{self.iout:05d}/header_{self.iout:05d}.txt"
         sinkinfo = f"{self.snap_path}/output_{self.iout:05d}/sink_{self.iout:05d}.info"
 
+        sequential = nthread==1
         isstar = self.star[0]
         isfamily = False
-        if os.path.isfile(header): # (NH, NH2, Fornax, NC)
+        if exists(header): # (NH, NH2, Fornax, NC)
             with open(header, "rt") as f:
                 temp = f.readline()
                 if "Family" in temp: # (Fornax, NH2, NC)
                     isfamily = True
-                    if(nthread==1):
+                    if(sequential):
                         ntracer_tot = int( f.readline()[14:] ) # other_tracer
                         for _ in range(5):
                             # tracers of debris, cloud, star, other, gas
@@ -948,7 +954,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                             # debris, other, undefined
                             npart_tot += int( f.readline()[14:] ) # debris
                         
-                        if os.path.isfile(sinkinfo): # (NH2, NC)
+                        if exists(sinkinfo): # (NH2, NC)
                             with open(sinkinfo, 'rt') as f:
                                 nsink_tot = int(f.readline().split()[-1])
                         else: # (Fornax)
@@ -956,7 +962,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                                 f.skip_records(7)
                                 nsink_tot = f.read_ints(np.int32)[0]
                 else: # (NH)
-                    if(nthread==1):
+                    if(sequential):
                         npart_tot = int(f.readline()); f.readline()
                         ndm_tot = int(f.readline()); f.readline()
                         nstar_tot = int(f.readline()); f.readline()
@@ -964,7 +970,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                         ncloud_tot = nsink_tot * 2109
                         ntracer_tot = 0
         else: # (hagn, yzics)
-            if(nthread==1):
+            if(sequential):
                 with FortranFile(f"{allfiles[0]}", mode='r') as f:
                     f.skip_records(4) # ncpu, ndim, npart, localseed(+tracer_seed)
                     nstar_tot = f.read_ints(np.int32)[0] # nstar
@@ -995,7 +1001,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             "pname":pname, "isfamily":isfamily, "isstar":isstar, "chem":chem, "mode":mode,
             "target_fields":target_fields, "dtype":dtype}
 
-        if(nthread==1):
+        if(sequential):
             tracers = ["tracer","cloud_tracer","star_tracer","gas_tracer"]
             if(pname == 'star'):
                 size = nstar_tot
@@ -1011,41 +1017,34 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 raise ValueError(f"{pname} is currently not supported!")
             part = np.empty(size, dtype=dtype)
         else:
-            if(legacy):
-                pass
-            else:
-                signal.signal(signal.SIGTERM, signal.SIG_DFL)
-                with Pool(processes=nthread) as pool:
-                    results = pool.starmap(_calc_npart, [(filename,kwargs) for filename in files])
-                results = np.asarray(results, dtype=[("mask", object), ("size", int)])
-                signal.signal(signal.SIGTERM, self.terminate)
-                sizes = results['size']
-                masks = results['mask']
-                size = np.sum(sizes)
-                cursors = np.cumsum(sizes)-sizes
-                part = np.empty(size, dtype=dtype)
-                self.part_mem = shared_memory.SharedMemory(create=True, size=part.nbytes)
-                self.memory.append(self.part_mem)
-                part = np.ndarray(part.shape, dtype=np.dtype(dtype), buffer=self.part_mem.buf)
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            with Pool(processes=nthread) as pool:
+                results = pool.starmap(_calc_npart, [(fname,kwargs) for fname in files])
+            results = np.asarray(results, dtype=[("mask", object), ("size", int)])
+            signal.signal(signal.SIGTERM, self.terminate)
+            sizes = results['size']
+            masks = results['mask']
+            size = np.sum(sizes)
+            cursors = np.cumsum(sizes)-sizes
+            part = np.empty(size, dtype=dtype)
+            self.part_mem = shared_memory.SharedMemory(create=True, size=part.nbytes)
+            self.memory.append(self.part_mem)
+            part = np.ndarray(part.shape, dtype=np.dtype(dtype), buffer=self.part_mem.buf)
                 
         # 5) Read output part files
-        if(nthread>1):
-            if(legacy):
-                with Pool(processes=nthread) as pool:
-                    result_list = pool.starmap(_read_part, [(filename, kwargs, legacy, None, None,None,None, None, None) for filename in files])
-                part = np.concatenate(result_list)
-            else:
-                signal.signal(signal.SIGTERM, signal.SIG_DFL)
-                with Pool(processes=nthread) as pool:
-                    async_result = [pool.apply_async(_read_part, (filename, kwargs, legacy, None, mask, size, cursor, self.part_mem.name, part.shape)) for filename,mask,size,cursor in zip(files,masks,sizes,cursors)]
-                    for r in async_result:
-                        r.get()
-                signal.signal(signal.SIGTERM, self.terminate)
-        else:
+        if(sequential):
             cursor = 0
             for fname in files:
-                cursor = _read_part(fname, kwargs, legacy=legacy, part=part, mask=None, nsize=None, cursor=cursor, name=None, shape=None)
+                cursor = _read_part(fname, kwargs, legacy, part=part, mask=None, nsize=None, cursor=cursor, address=None, shape=None)
             part = part[:cursor]
+        else:
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            with Pool(processes=nthread) as pool:
+                async_result = [pool.apply_async(_read_part, (fname, kwargs, legacy, None, mask, size, cursor, self.part_mem.name, part.shape)) for fname,mask,size,cursor in zip(files,masks,sizes,cursors)]
+                for r in async_result:
+                    r.get()
+            signal.signal(signal.SIGTERM, self.terminate)
+            
         return part
 
     def read_part(self, target_fields=None, cpulist=None, pname=None, nthread=8, python=True, legacy=False):
@@ -1157,6 +1156,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
 
     def read_cell_py(self, cpulist:Iterable, target_fields:Iterable=None, nthread:int=8, read_grav:bool=False, legacy:bool=False):
         # 1) Read AMR params
+        sequential = nthread==1
         fname = f"{self.snap_path}/output_{self.iout:05d}/amr_{self.iout:05d}.out00001"
         with FortranFile(fname, mode='r') as f:
             ncpu,                   = f.read_ints()
@@ -1192,51 +1192,43 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             dtype = np.format_parser(formats=formats, names=names, titles=None).dtype
 
         # 4) Calculate total number of cells
-        if(nthread==1):
+        if(sequential):
             ncell_tot = 0
             sizes = np.zeros(len(cpulist), dtype=np.int32)
             for i, icpu in enumerate(cpulist):
                 fname = f"{self.snap_path}/output_{self.iout:05d}/amr_{self.iout:05d}.out{icpu:05d}"
                 sizes[i] = _calc_ncell(fname, amr_kwargs)
             ncell_tot = np.sum(sizes)
+            cell = np.empty(ncell_tot, dtype=dtype)
         else:
-            if(legacy):
-                ncell_tot=None; cell=None
-            else:
-                files = [f"{self.snap_path}/output_{self.iout:05d}/amr_{self.iout:05d}.out{icpu:05d}" for icpu in cpulist]
-                signal.signal(signal.SIGTERM, signal.SIG_DFL)
-                with Pool(processes=nthread) as pool:
-                    sizes = pool.starmap(_calc_ncell, [(fname,amr_kwargs) for fname in files])
-                signal.signal(signal.SIGTERM, self.terminate)
-                sizes = np.asarray(sizes, dtype=np.int32)
-                cursors = np.cumsum(sizes)-sizes
-                cell = np.empty(np.sum(sizes), dtype=dtype)
-                self.cell_mem = shared_memory.SharedMemory(create=True, size=cell.nbytes)
-                self.memory.append(self.cell_mem)
-                cell = np.ndarray(cell.shape, dtype=np.dtype(dtype), buffer=self.cell_mem.buf)
+            files = [f"{self.snap_path}/output_{self.iout:05d}/amr_{self.iout:05d}.out{icpu:05d}" for icpu in cpulist]
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            with Pool(processes=nthread) as pool:
+                sizes = pool.starmap(_calc_ncell, [(fname,amr_kwargs) for fname in files])
+            signal.signal(signal.SIGTERM, self.terminate)
+            sizes = np.asarray(sizes, dtype=np.int32)
+            cursors = np.cumsum(sizes)-sizes
+            cell = np.empty(np.sum(sizes), dtype=dtype)
+            self.cell_mem = shared_memory.SharedMemory(create=True, size=cell.nbytes)
+            self.memory.append(self.cell_mem)
+            cell = np.ndarray(cell.shape, dtype=np.dtype(dtype), buffer=self.cell_mem.buf)
                 
         snap_kwargs = {
             'nhvar':nhvar, 'hydro_names':self.hydro_names, 'repo':self.snap_path, 'iout':self.iout,
             'skip_hydro':nhvar * 2**ndim, 'read_grav':read_grav, 'dtype':dtype, 'names':names}
         # 5) Read data
-        if(nthread==1):
-            cell = np.empty(ncell_tot, dtype=dtype)
+        if(sequential):
             cursor = 0
             for i, icpu in enumerate(cpulist):
-                cursor = _read_cell(icpu, snap_kwargs, amr_kwargs, legacy, cell=cell, nsize=sizes[i], cursor=cursor, name=None, shape=None)
+                cursor = _read_cell(icpu, snap_kwargs, amr_kwargs, legacy, cell=cell, nsize=sizes[i], cursor=cursor, address=None, shape=None)
             cell = cell[:cursor]
         else:
-            if(legacy):
-                with Pool(processes=nthread) as pool:
-                    result_list = list(pool.starmap(_read_cell, [(icpu, snap_kwargs, amr_kwargs, legacy, None, None, None, None, None) for icpu in cpulist]))
-                cell = np.concatenate(result_list)
-            else:
-                signal.signal(signal.SIGTERM, signal.SIG_DFL)
-                with Pool(processes=nthread) as pool:
-                    async_result = [pool.apply_async(_read_cell, (icpu, snap_kwargs, amr_kwargs, legacy, None, size, cursor, self.cell_mem.name, cell.shape)) for icpu,size,cursor in zip(cpulist,sizes, cursors)]
-                    for r in async_result:
-                        r.get()
-                signal.signal(signal.SIGTERM, self.terminate)
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            with Pool(processes=nthread) as pool:
+                async_result = [pool.apply_async(_read_cell, (icpu, snap_kwargs, amr_kwargs, legacy, None, size, cursor, self.cell_mem.name, cell.shape)) for icpu,size,cursor in zip(cpulist,sizes, cursors)]
+                for r in async_result:
+                    r.get()
+            signal.signal(signal.SIGTERM, self.terminate)
         return cell
 
     def read_cell(self, target_fields=None, read_grav=False, cpulist=None, python=True, nthread=8, legacy=False):
@@ -1886,13 +1878,14 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             print('Baryonic fraction: %.3f' % ((gas_tot+star_tot+smbh_tot) / (dm_tot+gas_tot+star_tot+smbh_tot)))
 
     def write_contam_part(self, mdm_cut):
+        import os
         self.clear()
         self.get_part(box=default_box, pname='dm', target_fields=['x', 'y', 'z', 'm', 'cpu'])
         part = self.part
         contam_part = part[part['m'] > mdm_cut]
-        dirpath = os.path.join(self.repo, 'contam')
+        dirpath = join(self.repo, 'contam')
         os.makedirs(dirpath, exist_ok=True)
-        utool.dump(contam_part.table, os.path.join(dirpath, 'contam_part_%05d.pkl' % self.iout))
+        utool.dump(contam_part.table, join(dirpath, 'contam_part_%05d.pkl' % self.iout))
 
     def get_ncell(self, cpulist=None):
         if cpulist is None:
