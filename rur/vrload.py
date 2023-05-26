@@ -4,7 +4,7 @@ import sys
 import os
 import copy
 import os.path
-import pickle5 as pickle
+import pickle as pickle
 import pkg_resources
 import multiprocessing
 from multiprocessing import Process, Queue
