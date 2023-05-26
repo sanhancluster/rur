@@ -1079,14 +1079,71 @@ def get_tickvalues(range, nticks=4):
         ticks = ticks.astype(int)
     return ticks
 
+def quick_target_box(snap:uri.RamsesSnapshot, center=None, target=None, catalog=None, source='GalaxyMaker',
+                 rank=None, rank_order=None, id=None, id_name='id', radius=None, radius_unit='kpc', drag_part=True):
+    # complex parameter handling comes here...
+    if (radius is None):
+        radius = 10.
+    if (radius_unit in snap.unit):
+        radius = radius * snap.unit[radius_unit]
+    elif (target is not None and radius_unit in target.dtype.names):
+        radius = radius * target[radius_unit]
+    elif radius_unit is not None:
+        warn("Unknown radius_unit, assuming as code unit...")
+
+    if (center is not None):
+        # if center is specified, use it
+        pass
+    elif (rank is None and id is None and target is None
+          and not (np.array_equal(snap.box, default_box) or snap.box is None)):
+        # if there is predefined box in snap, use it
+        pass
+    else:
+        if(target is None):
+            # if target is not specified, get one from catalog using rank / id
+            if(catalog is None):
+                # if catalog is not specified, get it using source
+                if (source == 'GalaxyMaker'):
+                    catalog = uhmi.HaloMaker.load(snap, path_in_repo=default_path_in_repo['GalaxyMaker'], galaxy=True, double_precision=True)
+                elif(source == 'SINKPROPS'):
+                    catalog = snap.read_sinkprop(drag_part=drag_part)
+                elif (source == 'sink'):
+                    snap.get_sink(all=True)
+                    catalog = snap.sink.table
+                else:
+                    raise ValueError("Unknown source: %s" % source)
+
+            if rank is None:
+                rank = 1
+
+            catalog = np.sort(catalog, order=rank_order)
+            if(id is not None):
+                # use id if specified
+                target = catalog[catalog[id_name] == id]
+                if(target.size == 0):
+                    raise ValueError("No target found with the matching id")
+                elif(target.size > 1):
+                    # print("Multiple targets with same id are selected, using rank to select 1 target")
+                    target = catalog[catalog[id_name] == id][-rank]
+                else:
+                    target = catalog[catalog[id_name] == id][0]
+            else:
+                # use rank instead, default value is 1
+                target = catalog[-rank]
+        center = uri.get_vector(target)
+    box = uri.get_box(center, extent=radius * 2)
+
+    return box, target
+
+
 def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=None, source='GalaxyMaker',
-           rank=None, rank_order='m', id=None, id_name='id', radius=10, radius_unit='kpc', mode=['star', 'gas'],
+           rank=None, rank_order='m', id=None, id_name='id', radius=None, radius_unit='kpc', mode=['star', 'gas'],
            show_smbh=True, savefile=None, part_method='cic', cell_method=None, align=False, age_cut=None, proj=[0, 1],
            smbh_minmass=1E4, interp_order=1, subplots_adjust_kw=None,
            smbh_labels=True, figsize=None, dpi=150, vmaxs=None, qscales=None, phot_filter='SDSS_u', shape=1000,
            drag_part=True, colorbar=False, colorbar_kw=None, colorbar_size=0.15,
            axis=False, ruler=True, ruler_size_in_radius_unit=None, props=['contam', 'sfr', 'fedd', 'mbh'], fontsize=8,
-           nrows=1, ncols=-1, size_panel=3.5):
+           nrows=1, ncols=-1, size_panel=3.5, title=None):
     """Simple galaxy viewer integrated with GalaxyMaker / SINKPROPS data.
     parameters are used in following priorities, inputs with lower priorities are ignored
     - box
@@ -1168,60 +1225,11 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
         'sdss':  None,
     }
 
-    # complex parameter handling comes here...
     if (box is not None):
         # if box is specified, use it
         snap.box = box
-    elif (center is not None):
-        # if center is specified, use it
-        snap.set_box(center, radius * 2 * snap.unit[radius_unit])
-    elif (rank is None and id is None and target is None
-          and not (np.array_equal(snap.box, default_box) or snap.box is None)):
-        # if there is predefined box in snap, use it
-        pass
     else:
-        if(target is None):
-            # if target is not specified, get one from catalog using rank / id
-            if(catalog is None):
-                # if catalog is not specified, get it using source
-                if (source == 'GalaxyMaker'):
-                    catalog = uhmi.HaloMaker.load(snap, path_in_repo=default_path_in_repo['GalaxyMaker'], galaxy=True, double_precision=True)
-                elif(source == 'SINKPROPS'):
-                    catalog = snap.read_sinkprop(drag_part=drag_part)
-                elif (source == 'sink'):
-                    snap.get_sink(all=True)
-                    catalog = snap.sink.table
-                else:
-                    raise ValueError("Unknown source: %s" % source)
-
-            if rank is None:
-                rank = 1
-
-            catalog = np.sort(catalog, order=rank_order)
-            if(id is not None):
-                # use id if specified
-                target = catalog[catalog[id_name] == id]
-                if(target.size == 0):
-                    raise ValueError("No target found with the matching id")
-                elif(target.size > 1):
-                    # print("Multiple targets with same id are selected, using rank to select 1 target")
-                    target = catalog[catalog[id_name] == id][-rank]
-                else:
-                    target = catalog[catalog[id_name] == id][0]
-            else:
-                # use rank instead, default value is 1
-                target = catalog[-rank]
-
-        if (radius_unit in snap.unit):
-            radius_in_unit = radius
-            radius = radius * snap.unit[radius_unit]
-        elif (radius_unit in target.dtype.names):
-            radius_in_unit = radius
-            radius = radius * target[radius_unit]
-        elif radius_unit is not None:
-            radius_in_unit = radius / snap.unit[radius_unit]
-            warn("Unknown radius_unit, assuming as code unit...")
-        snap.set_box_halo(target, radius=radius, use_halo_radius=False)
+        snap.box, target = quick_target_box(snap, center, target, catalog, source, rank, rank_order, id, id_name, radius, radius_unit, drag_part)
 
     if (np.any(np.isin(['star', 'dm', 'sdss', 'phot'], mode)) or True in show_smbh
             or np.any(np.isin(['sfr', 'contam'], mode))):
@@ -1253,6 +1261,8 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
             if colorbar_kw['orientation'] == 'vertical':
                 figsize[0] *= (1.05 + colorbar_size)
     fig, axes = plt.subplots(figsize=figsize, dpi=dpi, ncols=ncols, nrows=nrows, squeeze=False)
+    if title is not None:
+        plt.suptitle(title)
 
     for ipan in np.arange(ncols * nrows):
         irow, icol = ipan // ncols, ipan % ncols
@@ -1390,6 +1400,7 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
             dr.axlabel(mode_label + ('\nz = %.3f' % snap.z), 'right top', color='white', fontsize=fontsize, linespacing=1.5)
 
         if(ruler):
+            radius_in_unit = (snap.box[proj_now[0], 1] - snap.box[proj_now[0], 0]) * 0.5 / snap.unit['kpc']
             if(ruler_size_in_radius_unit is None):
                 ruler_size_in_radius_unit = int(radius_in_unit / 2.5)
             bar_length = 0.5 / radius_in_unit * ruler_size_in_radius_unit
