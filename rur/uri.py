@@ -639,10 +639,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.box_cell = None
         self.box_part = None
         self.box_sink = None
-        atexit.register(self.flush, msg=True, parent='[Auto]')
-        signal.signal(signal.SIGINT, self.terminate)
-        signal.signal(signal.SIGPIPE, self.terminate)
-    
+        self.alert = False     
+
     def terminate(self, signum, frame):
         self.flush(msg=True, parent=f'[Signal{signum}]')
         atexit.unregister(self.flush)
@@ -661,6 +659,11 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 del mem
             except:
                 pass
+        if(self.alert):
+            atexit.unregister(self.flush)
+            self.alert=False
+            signal.signal(signal.SIGINT, signal.SIG_DFL)
+            signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     
     def __del__(self):
         self.flush(parent='[__del__]')
@@ -676,7 +679,10 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         return RamsesSnapshot(self.repo, iout, self.mode, self.box, self.path_in_repo, snap=self, longint=self.longint)
 
     def __getitem__(self, item):
-        return self.params[item]
+        try:
+            return self.params[item]
+        except:
+            raise AttributeError(f"Attribute `{item}` not found in snapshot `{repr(self)}`")
 
     def __getattr__(self, item):
         if item.startswith('__') and item.endswith('__'):
@@ -1027,6 +1033,11 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             size = np.sum(sizes)
             cursors = np.cumsum(sizes)-sizes
             part = np.empty(size, dtype=dtype)
+            if(not self.alert):
+                atexit.register(self.flush, msg=True, parent='[Auto]')
+                signal.signal(signal.SIGINT, self.terminate)
+                signal.signal(signal.SIGPIPE, self.terminate)
+                self.alert=True
             self.part_mem = shared_memory.SharedMemory(create=True, size=part.nbytes)
             self.memory.append(self.part_mem)
             part = np.ndarray(part.shape, dtype=np.dtype(dtype), buffer=self.part_mem.buf)
@@ -1209,6 +1220,11 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             sizes = np.asarray(sizes, dtype=np.int32)
             cursors = np.cumsum(sizes)-sizes
             cell = np.empty(np.sum(sizes), dtype=dtype)
+            if(not self.alert):
+                atexit.register(self.flush, msg=True, parent='[Auto]')
+                signal.signal(signal.SIGINT, self.terminate)
+                signal.signal(signal.SIGPIPE, self.terminate)
+                self.alert=True
             self.cell_mem = shared_memory.SharedMemory(create=True, size=cell.nbytes)
             self.memory.append(self.cell_mem)
             cell = np.ndarray(cell.shape, dtype=np.dtype(dtype), buffer=self.cell_mem.buf)
