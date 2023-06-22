@@ -30,7 +30,7 @@ if type_of_script() == 'jupyter':
 else:
     from tqdm import tqdm
 
-defnone = lambda:None
+def defnone(): return None
 class Table:
     """
     Table class to store RAMSES particle/AMR data.

@@ -656,6 +656,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         if(len(self.memory) > 0):
             if(msg or timer.verbose>=1): print(f"{parent} Clearing memory")
             if(msg or timer.verbose>1): print(f"  {[i.name for i in self.memory]}")
+        self.part_mem = None
+        self.cell_mem = None
         while(len(self.memory) > 0):
             try:
                 mem = self.memory.pop()
