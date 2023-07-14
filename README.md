@@ -16,6 +16,7 @@ Download the code from bitbucket repository, or use clone it from the latest rep
 git clone https://github.com/sanhancluster/rur.git
 ```
 ### Installing
+rur requires python version to be >= 3.8
 #### Using pip
 Use the following command to install the package using pip.
 ```bash
@@ -29,13 +30,14 @@ Use the following command to install the package on current python environment.
 cd rur
 python3 setup.py install
 ```
-if you want to continuously change the source code while using, 
+if you want to develop the source code, 
 use included bash script [f2py.sh](f2py.sh) and [conda develop][2] instead.
 ```bash
 cd rur
 ./f2py.sh
 conda develop .
 ```
+[f2py.sh](f2py.sh) should be run whenever there is a change in Fortran (*.f90) files.
 
 Usage
 -----------------------------
