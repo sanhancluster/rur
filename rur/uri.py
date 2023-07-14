@@ -722,7 +722,10 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         return RamsesSnapshot(self.repo, iout, self.mode, self.box, self.path_in_repo, snap=self, longint=self.longint)
 
     def __getitem__(self, item):
-        return self.params[item]
+        if(hasattr(self, 'params')):
+            return self.params[item]
+        else:
+            raise ValueError("Error: uninitialized snapshot")
 
     def __getattr__(self, item):
         if item.startswith('__') and item.endswith('__'):
@@ -1732,7 +1735,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.ref = np.concatenate(amr_refs)
         self.cpu = np.concatenate(amr_cpus)
 
-    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False, python=True, nthread=8, legacy=False):
+    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False, python=False, nthread=8, legacy=False):
         if(isinstance(self.part, tuple)):
             if(timer.verbose>0): print("`snap.part` already occupy fortran arrays! --> Remove")
             self.part=None
@@ -1778,7 +1781,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.cell = cell
         return self.cell
 
-    def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None, python=True, nthread=8, legacy=False):
+    def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None, python=False, nthread=8, legacy=False):
         if(isinstance(self.cell, tuple)):
             if(timer.verbose>0): print("`snap.cell` already occupy fortran arrays! --> Remove")
             self.cell=None
@@ -2287,7 +2290,7 @@ def sync_tracer(tracer, cell, copy=False, **kwargs):
 
 def match_part_to_cell(part, cell, n_search=16):
     tree = KDTree(cell['pos'])
-    dists, idx_cell = tree.query(part['pos'], k=n_search, n_jobs=-1, p=np.inf)
+    dists, idx_cell = tree.query(part['pos'], k=n_search, p=np.inf)
 
     star_pos = utool.expand_shape(part['pos'], [0, 2], 3)
     dists_cand = np.max(np.abs(cell[idx_cell]['pos'] - star_pos), axis=-1) / cell[idx_cell]['dx']

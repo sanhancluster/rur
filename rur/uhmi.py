@@ -433,7 +433,11 @@ class HaloMaker:
         else:
             uri.timer.verbose = iverbose
         return jout, halo_ids[mask][arg][::-1], occurence[mask][arg][::-1]
-        
+
+class GalaxyMaker(HaloMaker):
+    @staticmethod
+    def load(snap, galaxy=True, **kwargs):
+        return super().load(snap, galaxy=galaxy, **kwargs)
 
 class PhantomTree:
     path_in_repo = 'ptree'

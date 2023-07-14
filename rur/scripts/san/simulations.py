@@ -45,4 +45,4 @@ def get_snapshot(name, iout=None):
     snap = uri.RamsesSnapshot(repo=repos[name], iout=iout, mode=name)
     return snap
 
-hagn = get_repo('hagn')
+#hagn = get_repo('hagn')

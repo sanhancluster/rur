@@ -106,12 +106,12 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
             plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
 
         elif (mode == 'eddington_rate'):
-            Mdot = gaussian_filter1d(tl['dM'] * unit_to_Msol / dt_yr / (1-tl['eps_sink']), smooth)
-            Macc = gaussian_filter1d(tl['Mdot'] * unit_to_Msol / unit_to_yr, smooth)
-            Medd = gaussian_filter1d(tl['Medd'] * unit_to_Msol / unit_to_yr, smooth)
-            plt.plot(xarr, np.log10(np.minimum(Mdot / Medd, 1)), label='f$_{acc}$')
+            Mdot = tl['dM'] * unit_to_Msol / dt_yr / (1-tl['eps_sink'])
+            Macc = tl['Mdot'] * unit_to_Msol / unit_to_yr
+            Medd = tl['Medd'] * unit_to_Msol / unit_to_yr
+            draw(xarr, np.log10(np.minimum(Mdot / Medd, 1)), lsmooth=True, label='f$_{acc}$')
+            plt.plot(xarr, np.log10(np.minimum(Mdot / Medd, 1)), color='k', alpha=0.3, lw=0.5, zorder=-1)
             #plt.plot(xarr, np.log10(np.minimum(Macc / Medd, 1)), label='f$_{Bon}$')
-            plt.plot(xarr, np.log10(np.minimum(tl['dM'] / dt_yr / tl['Medd'] * unit_to_yr / (1-tl['eps_sink']), 1)), color='k', alpha=0.3, lw=0.5, zorder=-1)
             plt.axhline(-2, color='gray', lw=0.5)
             plt.ylabel('log f$_{Edd}$')
             plt.ylim(-4, 0.05)
@@ -193,7 +193,6 @@ def eps_spin(spinmag):
     r_lso = np.select([spinmag > 0., True], [3. + ZZ2 - np.sqrt((3. - ZZ1) * (3. + ZZ1 + 2. * ZZ2)),
                                              3. + ZZ2 + np.sqrt((3. - ZZ1) * (3. + ZZ1 + 2. * ZZ2))])
     return 1. - np.sqrt(1. - 2. / (3. * r_lso))
-
 
 def eff_mad(spinmag):
     # energy efficiency in MAD model

@@ -1400,7 +1400,7 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
             dr.axlabel(mode_label + ('\nz = %.3f' % snap.z), 'right top', color='white', fontsize=fontsize, linespacing=1.5)
 
         if(ruler):
-            radius_in_unit = (snap.box[proj_now[0], 1] - snap.box[proj_now[0], 0]) * 0.5 / snap.unit['kpc']
+            radius_in_unit = (snap.box[proj_now[0], 1] - snap.box[proj_now[0], 0]) * 0.5 / snap.unit[radius_unit]
             if(ruler_size_in_radius_unit is None):
                 ruler_size_in_radius_unit = int(radius_in_unit / 2.5)
             bar_length = 0.5 / radius_in_unit * ruler_size_in_radius_unit
