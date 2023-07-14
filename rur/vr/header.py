@@ -13,7 +13,7 @@ import scipy.integrate as integrate
 import statistics
 from mpl_toolkits import mplot3d
 
-import pickle5 as pickle
+import pickle
 
 
 from rur.vr.fortran.find_domain_py import find_domain_py
