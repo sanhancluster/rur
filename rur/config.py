@@ -30,7 +30,7 @@ if type_of_script() == 'jupyter':
 else:
     from tqdm import tqdm
 
-
+def defnone(): return None
 class Table:
     """
     Table class to store RAMSES particle/AMR data.
@@ -44,7 +44,7 @@ class Table:
         if units is None:
             units = {}
         # unit of table data in dict form, returns 'None' by default, which indicates code unit
-        self.units = defaultdict(lambda: None)
+        self.units = defaultdict(defnone)
         self.units.update(units)
 
     def __getitem__(self, item, return_code_unit=False):

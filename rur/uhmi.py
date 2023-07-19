@@ -204,6 +204,7 @@ class HaloMaker:
             part_ids = readh.part_ids
             if(copy_part_id):
                 part_ids = part_ids.copy()
+                readh.close()
             return array, part_ids
         else:
             return array
