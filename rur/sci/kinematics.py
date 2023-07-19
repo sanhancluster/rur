@@ -388,8 +388,9 @@ def f_getpot(pos, mm, num_thread=None, timereport=None, mesh_type=None, pole_typ
 
     js_getpt.js_getpt_ft(larr, darr, pos, mm)
     pot = js_getpt.pot
-    #js_getpt.js_getpt_ft_free()
-    return pot
+    pot_out = np.array(pot)
+    js_getpt.js_getpt_ft_free()
+    return pot_out
 
 def f_getsfe(snum, x, y, z, vx, vy, vz, dx, den, temp, num_thread=None, simtype=None):
     """ SFE Calculation by cell by cell
