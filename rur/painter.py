@@ -14,7 +14,8 @@ from itertools import repeat
 from PIL import Image
 from warnings import warn
 from rur.sci import geometry as geo
-import os
+import os, inspect
+use_multi=False if('channel_axis' in inspect.signature(rescale).parameters) else True
 from astropy.visualization import make_lupton_rgb
 from rur.config import default_path_in_repo, timer
 import matplotlib as mpl
@@ -135,7 +136,8 @@ def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, sub
         image = np.nanmax([image, hist_map], axis=0)
 
         if(ilvl < maxlvl):
-            image = rescale(image, 2, order=0, multichannel=False)
+            if(use_multi): image = rescale(image, 2, order=0, multichannel=False)
+            else: image = rescale(image, 2, order=0, channel_axis=None)
 
     crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
     if(subpx_crop):
@@ -274,8 +276,12 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
         depth_map = depth_map_new
 
         if(ilvl < maxlvl):
-            image = rescale(image, 2, mode='constant', order=interp_order, multichannel=False)
-            depth_map = rescale(depth_map, 2, mode='constant', order=interp_order, multichannel=False)
+            if(use_multi):
+                image = rescale(image, 2, mode='constant', order=interp_order, multichannel=False)
+                depth_map = rescale(depth_map, 2, mode='constant', order=interp_order, multichannel=False)
+            else:
+                image = rescale(image, 2, mode='constant', order=interp_order, channel_axis=None)
+                depth_map = rescale(depth_map, 2, mode='constant', order=interp_order, channel_axis=None)
 
     crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
     if(subpx_crop):
@@ -363,9 +369,11 @@ def velmap(data, box=None, proj=[0, 1], shape=500, unit=None, minlvl=None, maxlv
 
             if(ilvl < maxlvl):
                 image = np.moveaxis(image, 0, -1)
-                image = rescale(image, 2, mode='constant', order=interp_order, multichannel=True)
+                if(use_multi): image = rescale(image, 2, mode='constant', order=interp_order, multichannel=True)
+                else: image = rescale(image, 2, mode='constant', order=interp_order, channel_axis=2)
                 image = np.moveaxis(image, -1, 0)
-                depth_map = rescale(depth_map, 2, mode='constant', order=interp_order, multichannel=False)
+                if(use_multi): depth_map = rescale(depth_map, 2, mode='constant', order=interp_order, multichannel=False)
+                else: depth_map = rescale(depth_map, 2, mode='constant', order=interp_order, channel_axis=None)
 
         crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
 
@@ -446,7 +454,8 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
         image += hist_map * 0.5 ** ibin
 
         if(ilvl < maxlvl):
-            image = rescale(image, 2, mode='constant', order=0, multichannel=False)
+            if(use_multi): image = rescale(image, 2, mode='constant', order=0, multichannel=False)
+            else: image = rescale(image, 2, mode='constant', order=0, channel_axis=None)
     image /= depth
 
     crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
