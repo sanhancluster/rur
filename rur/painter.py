@@ -135,7 +135,7 @@ def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, sub
         image = np.nanmax([image, hist_map], axis=0)
 
         if(ilvl < maxlvl):
-            image = rescale(image, 2, order=0, multichannel=False)
+            image = rescale(image, 2, order=0)
 
     crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
     if(subpx_crop):
@@ -274,8 +274,8 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
         depth_map = depth_map_new
 
         if(ilvl < maxlvl):
-            image = rescale(image, 2, mode='constant', order=interp_order, multichannel=False)
-            depth_map = rescale(depth_map, 2, mode='constant', order=interp_order, multichannel=False)
+            image = rescale(image, 2, mode='constant', order=interp_order)
+            depth_map = rescale(depth_map, 2, mode='constant', order=interp_order)
 
     crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
     if(subpx_crop):
@@ -363,9 +363,9 @@ def velmap(data, box=None, proj=[0, 1], shape=500, unit=None, minlvl=None, maxlv
 
             if(ilvl < maxlvl):
                 image = np.moveaxis(image, 0, -1)
-                image = rescale(image, 2, mode='constant', order=interp_order, multichannel=True)
+                image = rescale(image, 2, mode='constant', order=interp_order, channel_axis=0)
                 image = np.moveaxis(image, -1, 0)
-                depth_map = rescale(depth_map, 2, mode='constant', order=interp_order, multichannel=False)
+                depth_map = rescale(depth_map, 2, mode='constant', order=interp_order)
 
         crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
 
@@ -446,7 +446,7 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
         image += hist_map * 0.5 ** ibin
 
         if(ilvl < maxlvl):
-            image = rescale(image, 2, mode='constant', order=0, multichannel=False)
+            image = rescale(image, 2, mode='constant', order=0)
     image /= depth
 
     crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
