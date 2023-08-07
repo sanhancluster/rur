@@ -269,7 +269,7 @@ def hist_img_adaptive(x, y, lims, reso=100, weights=None, smooth=5, supergrids=5
     return image
 
 def gaussian_filter_border(image, sigma, **kwargs):
-    sigma_int = np.int(sigma)
+    sigma_int = int(sigma)
     fraction = sigma - sigma_int
     return gaussian_filter(image, sigma_int, **kwargs) * fraction + gaussian_filter(image, sigma_int+1, **kwargs) * (1-fraction)
 
@@ -403,7 +403,7 @@ def dtfe_img(x, y, lims, reso=100, weights=None, smooth=0):
     n_points = points.shape[0]
 
     if(smooth is None):
-        smooth = np.int(0.05 * n_points**0.6)
+        smooth = int(0.05 * n_points**0.6)
 
     # For some "Complex Geometrical Reasons", Qhull does not work properly without options???
     # Even with blank option, the result is different.
