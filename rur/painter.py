@@ -1204,7 +1204,7 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
         smbh_labels = np.repeat(smbh_labels, npans)
 
     vmax_dict = {
-        'star':  3E5,
+        'star':  3E4,
         'gas':   3E3,
         'dm':    1E4,
         'metal': 1E-1,
@@ -1298,10 +1298,11 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
             if (age_cut is not None):
                 star = star[star['age', 'Gyr'] < age_cut]
             mags = phot.measure_magnitude(star, filter_name=phot_filter, total=False)
+            phot.absmag_to_mass()
             lums = 10**(-mags/2.5)
-            im = draw_partmap(star, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
-                         weights=lums)
-            colorbar_label = 'Stellar flux'
+            im = draw_partmap(lums, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
+                         weights=lums, unit='mag/arcsec2')
+            colorbar_label = 'Surface brightness [mag]'
             mode_label = 'Stars'
         elif (mode_now == 'sdss'):
             star = part['star']
@@ -1322,17 +1323,17 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
             im = draw_partmap(dm, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
                                  unit='Msol/pc2')
             mode_label = 'DM'
-            colorbar_label = 'DM density\nM$_{\odot}$ pc$^{-2}$'
+            colorbar_label = 'DM density [M$_{\odot}$ pc$^{-2}$]'
         elif (mode_now == 'gas' or mode_now == 'rho'):
             im = draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='crho', cmap=ccm.hesperia,
                                 interp_order=interp_order, unit='Msol/pc2', method=cell_method)
             mode_label = 'Gas - Density'
-            colorbar_label = 'Gas density\nM$_{\odot}$ pc$^{-2}$'
+            colorbar_label = 'Gas density [M$_{\odot}$ pc$^{-2}$]'
         elif (mode_now == 'temp' or mode_now == 'T'):
             im = draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='T', cmap=ccm.hesperia,
                         unit='K', method=cell_method)
             mode_label = 'Gas - Temperature'
-            colorbar_label = 'Gas temperature\nK'
+            colorbar_label = 'Gas temperature [K]'
         elif (mode_now == 'dust'):
             im = draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='dust', cmap=ccm.lacerta,
                                 interp_order=interp_order, method=cell_method)
@@ -1342,7 +1343,7 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
             im = draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='metal', cmap=ccm.lacerta,
                                 interp_order=interp_order, method=cell_method)
             mode_label = 'Gas - Metallicity'
-            colorbar_label = 'Metal fraction'
+            colorbar_label = 'Metallicity'
         else:
             raise ValueError('Unknown mode: ', mode_now)
 
@@ -1382,10 +1383,10 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
                     else:
                         mms = sink[np.argmax(sink['m'])]
                     f1 = mms['dM'] / mms['dMEd']
-                    ax_label2 += '\nf$_{Edd}$ = %.3f' % f1
+                    ax_label2 += '\nf$_{\\rm{Edd}}$ = %.3f' % f1
                 if(prop == 'sfr'):
                     f1 = np.sum(star[star['age', 'Myr'] < 100]['m', 'Msol'] / 1E8)
-                    ax_label2 += '\nSFR$_{100 Myr}$ = %.2f' % f1
+                    ax_label2 += '\nSFR$_{100 \\rm{Myr}}$ = %.2f' % f1
             dr.axlabel(ax_label2, 'right bottom', color='white', fontsize=fontsize, linespacing=1.5)
 
         if(mode_now in ['star', 'phot', 'sdss']):
@@ -1412,13 +1413,13 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
         if colorbar:
             divider = make_axes_locatable(plt.gca())
             if colorbar_kw['orientation'] == 'horizontal':
-                cax = divider.append_axes('bottom', size=colorbar_size, pad=0.05)
+                cax = divider.append_axes('bottom', size=colorbar_size, pad=0.03)
                 cbar = plt.colorbar(im, cax=cax, **colorbar_kw)
-                subplots_adjust_kw['hspace'] += 0.05
+                subplots_adjust_kw['hspace'] += 0.03
             elif colorbar_kw['orientation'] == 'vertical':
-                cax = divider.append_axes('right', size=colorbar_size, pad=0.05)
+                cax = divider.append_axes('right', size=colorbar_size, pad=0.03)
                 cbar = plt.colorbar(im, cax=cax, **colorbar_kw)
-                subplots_adjust_kw['wspace'] += 0.05
+                subplots_adjust_kw['wspace'] += 0.03
             else:
                 raise ValueError("Unknown colorbar orientation: ", colorbar_kw['orientation'])
             cbar.ax.tick_params(labelsize=fontsize)

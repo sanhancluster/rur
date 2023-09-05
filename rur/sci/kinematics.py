@@ -27,7 +27,7 @@ def measure_amon(part: Particle, gal):
     vrel = part['vel', 'km/s'] - vcen
     rrel = (part['pos'] - rcen) / part.snap.unit['kpc']
 
-    return np.cross(rrel, vrel) * utool.expand_shape(part['m', 'Msol'], [0], 2)
+    return np.cross(rrel, vrel) * part['m', 'Msol'][..., np.newaxis]
 
 def align_axis(part: Particle, gal: np.recarray, center_vel=False, prefix=None):
     coo = get_vector(part)

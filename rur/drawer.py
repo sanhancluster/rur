@@ -684,6 +684,11 @@ def binned_plot(x, y, weights=None, errors=None, bins=10, weighted_binning=False
             # y must be a value between 0 and 1, we assume mean(y) as p, ignores weights.
             ystd = np.sqrt(np.average(y_slice) * (1-np.average(y_slice)) / (itop - ibot))
             ye = [ystd, ystd]
+        elif (errmode[0] == 'std_median'):
+            # standard deviation of binomial function.
+            # y must be a value between 0 and 1, we assume mean(y) as p, ignores weights.
+            ystd = weighted_std(y_slice, weights=w_slice)/np.sqrt(y_slice.size) * 1.2533
+            ye = [ystd, ystd]
         else:
             ye = None
 
@@ -718,6 +723,10 @@ def binned_plot(x, y, weights=None, errors=None, bins=10, weighted_binning=False
         plt.fill_between(xarr, yarr-yerr[0], yarr+yerr[1], color=color, alpha=0.25, linewidth=0, **error_dict)
     elif(errmode[1] in ['bar', 'errorbar', 'errbar']):
         plt.errorbar(xarr, yarr, yerr=yerr, xerr=xerr, color=color, linewidth=0., **error_dict)
+    elif (errmode[1] in ['arrow']):
+        p, c, b = plt.errorbar(xarr, yarr, yerr=yerr, xerr=xerr, color=color, linewidth=0., **error_dict)
+        c[0].set_marker('v')
+        c[1].set_marker('^')
     elif(errmode[1] == 'line'):
         plt.plot(xarr, yarr-yerr[0], color=color, linewidth=0.5, **error_dict)
         plt.plot(xarr, yarr+yerr[1], color=color, linewidth=0.5, **error_dict)
