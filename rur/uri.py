@@ -674,8 +674,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
     def __del__(self):
-        self.flush(parent='[__del__]')
         atexit.unregister(self.flush)
+        self.flush(parent='[__del__]')
 
     def get_iout_avail(self):
         output_names = glob.glob(join(self.snap_path, output_glob))
@@ -1095,13 +1095,13 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 filesize += getsize(self.get_path('part', icpu))
             timer.start('Reading %d part files (%s) in %s... ' % (cpulist.size, utool.format_bytes(filesize), self.path), 1)
             if(python):
-                part = self.read_part_py(pname, cpulist, target_fields=target_fields, nthread=nthread, legacy=legacy)
+                part = self.read_part_py(pname, cpulist, target_fields=target_fields, nthread=min(nthread, cpulist.size), legacy=legacy)
             else:
                 progress_bar = cpulist.size > progress_bar_limit and timer.verbose >= 1
                 mode = self.mode
                 if mode == 'nc':
                     mode = 'y4'
-                readr.read_part(self.snap_path, self.iout, cpulist, mode, progress_bar, self.longint, nthread)
+                readr.read_part(self.snap_path, self.iout, cpulist, mode, progress_bar, self.longint, min(nthread, cpulist.size))
                 timer.record()
 
                 timer.start('Building table for %d particles... ' % readr.integer_table.shape[1], 1)

@@ -153,7 +153,7 @@ class HaloMaker:
                 double_precision=True
             else:
                 double_precision=False
-            if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2')or(snap.mode=='fornax'):
+            if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2')or(snap.mode=='fornax')or(snap.mode=='y4'):
                 double_precision=True
             else:
                 double_precision=False

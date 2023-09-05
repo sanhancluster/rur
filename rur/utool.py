@@ -188,7 +188,7 @@ def expand_shape(arr, axes, ndim):
     dests = rank(axes)
     new_arr = np.moveaxis(arr, sources, dests)
 
-    newshape = np.full(ndim, 1, dtype=np.int)
+    newshape = np.full(ndim, 1, dtype=int)
     newshape[np.array(axes)] = np.array(arr.shape)[np.arange(axes.size)]
 
     return np.reshape(new_arr, newshape)

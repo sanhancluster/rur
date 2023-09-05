@@ -933,3 +933,6 @@ class ccm:
     laguna = load_cmap(join(cmap_dir, 'laguna.csv'))
     lacerta = load_cmap(join(cmap_dir, 'lacerta.csv'))
     mod_plasma = load_cmap(join(cmap_dir, 'mod_plasma.csv'))
+    arctic = load_cmap(join(cmap_dir, 'arctic.csv'))
+    sunburst = load_cmap(join(cmap_dir, 'sunburst.csv'))
+    amber = load_cmap(join(cmap_dir, 'amber.csv'))
