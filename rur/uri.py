@@ -1685,7 +1685,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.ref = np.concatenate(amr_refs)
         self.cpu = np.concatenate(amr_cpus)
 
-    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False, python=True, nthread=8, legacy=False):
+    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False, python=False, nthread=8, legacy=True):
         if(box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -1727,7 +1727,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.cell = cell
         return self.cell
 
-    def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None, python=True, nthread=8, legacy=False):
+    def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None, python=False, nthread=8, legacy=True):
         if(box is not None):
             # if box is not specified, use self.box by default
             self.box = box
