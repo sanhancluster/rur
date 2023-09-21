@@ -36,6 +36,19 @@ done
 rm *.o *.mod
 
 # exit 0
+FOR dice
+FILES='io_dice.f90'
+FORT=gfortran
+cd $BASEDIR/rur
+for f in $FILES
+do
+  bn=$(basename "$f" .f90)
+  echo -e "\n\n\nCompiling $bn\n\n\n"
+  if [$MACHINE == "tardis" ]; then
+    export CFLAGS="-fPIC -O2 -std=c99"
+  fi
+  $F2PY -m $bn --fcompiler=$FORT --f90flags='-fopenmp' -lgomp -c $f
+done
 
 For VR part
 cd ..
