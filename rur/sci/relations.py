@@ -2,8 +2,8 @@ import numpy as np
 from scipy.interpolate import interp2d
 from scipy.interpolate import interp1d
 
-# galaxy-BH mass relation
 def mgal_mbh(tag, logscale=False):
+    # galaxy-BH mass relation
     try:
         params_dict = {
             'RV15a': [1.05, 1E11, 7.45],  # Reines & Volonteri 2015 (AGNs)
@@ -17,40 +17,51 @@ def mgal_mbh(tag, logscale=False):
     except KeyError:
         raise ValueError("Available tags: RV15a, RV15b, BM19, S20a, S20b")
     params = params_dict[tag]
+
     if not logscale:
         return lambda mgal: 10**(params[0]*np.log10(mgal/params[1])+params[2])
     else:
-        return lambda mgal: (params[0]*np.log10(mgal/params[1])+params[2])
+        return lambda mgal: params[0]*np.log10(10**mgal/params[1])+params[2]
 
-# sigma*-BH mass relation
-def sigma_mbh(tag, z=0):
+def sigma_mbh(tag, logscale=False):
+    # sigma*-BH mass relation
     params_dict = {
-        'G09': [8.12, 4.24],  # Gultekin 09,
+        'G09': [8.12, 4.24],  # Gultekin 09
         'K13': [8.49, 4.377],  # Kormendy 13
         'M13': [8.32, 5.64],  # McConnel+ 13
     }
 
-    def robertson(z):
-        # Robertson et al. 2006
+    def msig(sig, params):
+        if logscale:
+            sig = 10**sig
+        mbh = params[0] + params[1] * np.log10(sig / 200)
+        if not logscale:
+            mbh = 10**mbh
+        return mbh
+
+    def robertson(sig, z=0):
+        # Robertson+ 06
         zarr = [0, 2, 3, 6]
         params = [[8.01, 7.83, 7.72, 7.44], [3.87, 4.10, 4.02, 3.62]]
         interp = interp1d(zarr, np.array(params))
-        return interp(z)
+        params = interp(z)
+        return msig(sig, params)
 
-    if(tag == 'R06'):
-        params = robertson(z)
+
+    if tag == 'R06':
+        return robertson
     else:
         params = params_dict[tag]
-    return lambda sig: 10 ** (params[0] + params[1] * np.log10(sig / 200))
+        return lambda sig: msig(sig, params)
 
 def mgal_mdmh(tag):
     # stellar to halo mass ratio
     def guo(m, c=0.129, m_0=10 ** 11.4, alpha=0.926, beta=0.261, gamma=2.440):
-        # from Guo et al. (2010)
+        # Guo+ 10
         return c * ((m / m_0) ** -alpha + (m / m_0) ** beta) ** (-gamma)
 
     def moster(m, z=0.):
-        #  Stellar-to-halo mass relation from Moster et al. (2010)
+        #   Moster+ 10
         table = np.array(
             [
                 (0.0, 11.88, 0.02, 0.0282, 0.0005, 1.06, 0.05, 0.05, 0.56, 0.00),
@@ -73,7 +84,7 @@ def mgal_mdmh(tag):
         return 2 * mm0 * ((m / m1) ** -beta + (m / m1) ** gamma) ** -1
 
     def behroozi(mh, z):
-        #  Stellar-to-halo mass relation from Behroozi et al. (2013)
+        #  Behroozi+ 13
         exp = np.exp
         logmh = np.log10(mh)
         a = 1. / (1. + z)
@@ -103,7 +114,7 @@ def mgal_mdmh(tag):
         raise ValueError("Available tags: B13 (Behroozi+ 13), M10 (Moster+ 10), G10 (Guo+ 10)")
 
 
-class mgal_size:
+def mgal_size(tag='V14'):
     # mass-size relation
     def V14(self, mlog, z=0, shape='circular', radius_type=1, gal_type='late', return_error=False): # van der Wel+ 2014 (SDSS)
         if(shape == 'circular'):
@@ -153,18 +164,66 @@ class mgal_size:
                 return out, err
             else:
                 return out
+    if tag == 'V14':
+        return V14
 
-class mgal_sfr:
+def mgal_sfr(tag='W12'):
     # star formation main sequence
-    @staticmethod
-    def W14(logm, z=0): # Whitaker+ 2014
+    def W12(logm, z=0): # Whitaker+ 12
         alpha = 0.70 - 0.13 * z
         beta = 0.38 + 1.14 * z - 0.19 * z**2
         log_sfr = alpha * (logm - 10.5) + beta
         return log_sfr
 
-class gmf:
+    def W14(logm, z=0):
+        params_arr = np.array([
+            [-27.40, -26.03, -24.04, -19.99],
+            [5.02, 4.62, 4.17, 3.44],
+            [-0.22, -0.19, -0.16, -0.13],
+        ])
+        z_arr = [0.75, 1.25, 1.75, 2.25]
+
+        table = np.rec.fromarrays([
+        ], dtype=[('z', 'f8'), ('a', 'f8'),
+                  ('b', 'f8') ('c', 'f8')])
+
+        a = np.interp(z, table['z'], params_arr[0])
+        b = np.interp(z, table['z'], params_arr[1])
+        c = np.interp(z, table['z'], params_arr[2])
+        return a + b * logm + c * logm**2
+
+    if tag == 'W12':
+        return W12
+    elif tag == 'W14':
+        return W14
+
+
+def gmf():
     # galaxy mass function
-    @staticmethod
     def schechter(m, ms, phi, alpha):
         return np.log(10) * phi * 10**((m-ms) * (1+alpha)) * np.exp(-10**(m - ms))
+
+
+def gpm(m, params):
+    z0, m0, gamma = params
+    return z0+np.log10(1-10**(-(m/m0)**gamma))
+
+class mzr:
+    params0 = (8.69, 10**9.02, 0.4)
+    params09 = (8.8, 10**10.2, 0.4)
+    params23 = (8.7, 10**10.5, 0.5)
+
+    mzr_T04 = lambda logm: -1.492 + 1.847*logm - 0.08026*logm**2 # Tremonti+ 04
+
+    # Erb+ 2006
+    mzr_E06 = np.rec.fromarrays([np.array([0.71, 1.5, 2.6, 4.1, 10.5]) * 1E10,
+                                 np.array([0.17, 0.3, 0.4, 0.6, 5.4]) * 1E10,
+                                 [8.33, 8.42, 8.46, 8.52, 8.58],
+                                 [0.07, 0.06, 0.06, 0.06, 0.06],
+                                 [0.07, 0.05, 0.05, 0.05, 0.04]],
+                                dtype=[('m', 'f8'), ('merr', 'f8'),
+                                       ('OH12', 'f8'), ('OH12uerr', 'f8'), ('OH12lerr', 'f8')])
+
+    mzr_S14 = np.rec.fromarrays([[8.87, 9.34, 9.69, 9.87, 10.11, 10.37, 10.66, 11.19],
+                                 [8.20, 8.23, 8.31, 8.35, 8.38, 8.47, 8.51, 8.65]],
+                                dtype=[('m', 'f8'), ('OH12', 'f8')])
