@@ -129,7 +129,7 @@ def hist_imshow(x, y, lims=None, reso=100, weights=None, filter_sigma=None, norm
                 [np.nanquantile(y, 0.00001), np.nanquantile(y, 0.99999)]]
         print('Automatically setting lims as ', lims)
 
-    pdi = np.histogram2d(x, y, range=lims, bins=reso, weights=weights, normed=True)[0].T
+    pdi = np.histogram2d(x, y, range=lims, bins=reso, weights=weights, density=True)[0].T
     if(normalize is not None and filter_sigma is not None):
         print('Warning: using both filter and normalization may cause problem')
     if(normalize is not None):
@@ -180,7 +180,7 @@ def fun_contour(f, lims, reso=100, axis=-1, sig_arr=[1, 2], filled=False, **kwar
 
 def hist_contour(x, y, lims, reso=100, weights=None, sig_arr=[1, 2], filled=False, filter_sigma=None, **kwargs):
 
-    pdi = np.histogram2d(x, y, range=lims, bins=reso, weights=weights, normed=True)[0].T
+    pdi = np.histogram2d(x, y, range=lims, bins=reso, weights=weights, density=True)[0].T
     if filter_sigma is not None:
         pdi = gaussian_filter(pdi, sigma=filter_sigma)
         area_per_px = (lims[0][1]-lims[0][0]) * (lims[1][1]-lims[1][0]) / reso**2
