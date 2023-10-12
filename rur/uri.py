@@ -14,6 +14,7 @@ from rur.io_ramses import io_ramses
 from rur.config import *
 from rur import utool
 from rur.utool import *
+from rur.io_dice import io_dice
 import numpy as np
 import warnings
 import glob
@@ -2633,3 +2634,68 @@ def quad_to_f16(by):
     exponent = ((asint >> 112) & 0x7FFF) - 16383;
     significand = np.float128((asint & ((1 << 112) - 1)) | (1 << 112))
     return sign * significand * 2.0 ** np.float128(exponent - 112)
+
+class dice_utils():
+    def __init__(self, repo='', num_thread=1):
+        ##-----
+        ## General Settings
+        ##-----
+        self.num_thread = int(num_thread)
+        self.repo = repo
+        self.ncpu = 1
+
+
+    def get_part(self, n_snap):
+
+        info = self.get_info(n_snap)
+
+        ##-----
+        ##
+        ##-----
+        io_dice.ncpu = info['ncpu']
+        io_dice.repo = self.repo.ljust(1000)
+        io_dice.nsnap = np.int32(n_snap)
+
+        io_dice.get_part()
+
+        pos = np.array(io_dice.g_pos, dtype='<f8') * info['unit_l']/3.086e21
+        vel = np.array(io_dice.g_vel, dtype='<f8') * info['kms']
+        mm = np.array(io_dice.g_mm, dtype='<f8') * info['unit_m'] / 1.98892e33
+        id = np.array(io_dice.g_id, dtype='int32')
+        tt = np.array(io_dice.g_type, dtype='int32')
+
+        io_dice.get_part_deallocate()
+
+        return pos, vel, mm, id, tt
+
+    def get_info(self, n_snap):
+        ##-----
+        ## rd info
+        ##-----
+        fname = self.repo + "/snapshots/output_%0.5d"%n_snap + "/info_%0.5d"%n_snap + ".txt"
+
+        fdata = np.loadtxt(fname, dtype=object, max_rows=18, delimiter = '=')
+
+        info = {'ncpu':0, 'ndim':0, 'levmin':0, 'levmax':0, 'T':0, 'boxlen':0,  
+                'unit_l':0, 'unit_d':0, 'unit_T2':0, 'nH':0, 'unit_t':0, 'kms':0, 'unit_m':0}
+
+        dtype = [('ncpu', np.int32), ('ndim', np.int32), ('levelmin', np.int32), ('levelmax', np.int32), 
+                ('time', np.double), ('boxlen', np.double), ('unit_l', np.double), ('unit_d', np.double), 
+                ('unit_T2', np.double), ('unit_t', np.double), ('kms', np.double), ('unit_m', np.double)]
+
+        info    = np.zeros(1, dtype=dtype)
+        info    = info[0]
+
+        dname   = info.dtype.names
+        for f in fdata:
+            if np.char.strip(f[0]) in dname:
+                name = str(np.char.strip((f[0])))
+                info[name] = f[1]
+
+        info['kms'] = info['unit_l']/info['unit_t']/1e5
+        info['unit_m'] = info['unit_d'] * info['unit_l']**3
+        return info
+
+
+
+        

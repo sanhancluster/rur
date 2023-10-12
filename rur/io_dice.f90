@@ -29,6 +29,13 @@ MODULE io_dice
     	CHARACTER, DIMENSION(48) :: unused
     END TYPE htype
 
+    !! GET PART
+    INTEGER(KIND=4) ncpu, nsnap, npart_tot
+    CHARACTER(LEN=1000) repo
+
+    REAL(KIND=4), DIMENSION(:,:), ALLOCATABLE :: g_pos, g_vel
+    REAL(KIND=4), DIMENSION(:), ALLOCATABLE :: g_mm
+    INTEGER(KIND=4), DIMENSION(:), ALLOCATABLE :: g_id, g_type 
 CONTAINS
     SUBROUTINE read_gadget(fname)
 
@@ -61,7 +68,7 @@ CONTAINS
          header%flag_entropy_instead_u, header%flag_doubleprecision, &
          header%flag_ic_info, header%lpt_scalingfactor
 
-    !PRINT *, header%npart
+    !PRINT *, header%mass
 
     !! READ PART
     np = sum(header%npart)
@@ -79,7 +86,7 @@ CONTAINS
     DO i=1, SIZE(header%npart)
     	IF(header%npart(i) .EQ. 0) CYCLE
     	i1 = i0 + header%npart(i)-1
-    	type(i0:i1) = i
+    	type(i0:i1) = i-1
 
     	i0 = i1 + 1
     ENDDO
@@ -111,6 +118,115 @@ CONTAINS
     IF(ALLOCATED(id)) DEALLOCATE(id)
     IF(ALLOCATED(mm)) DEALLOCATE(mm)
     IF(ALLOCATED(type)) DEALLOCATE(type)
+    END SUBROUTINE
+
+!!!!!
+    SUBROUTINE get_part()
+    IMPLICIT NONE
+    !!----- LOCAL
+    INTEGER(KIND=4) i, j, k, n, npdum
+    CHARACTER*(1000) fdum, domnum, snum
+
+    REAL(KIND=8), DIMENSION(:), ALLOCATABLE :: tmp_dbl
+    INTEGER(KIND=4), DIMENSION(:), ALLOCATABLE :: tmp_int
+
+    CALL get_part_tot()
+
+    CALL get_part_allocate()
+
+    WRITE(snum, '(I5.5)') nsnap
+
+    j = 1
+    DO i=1, ncpu
+      WRITE(domnum, '(I5.5)') i
+      fdum = TRIM(repo)//'/snapshots/output_'//TRIM(snum)//'/part_'//TRIM(snum)//'.out'//TRIM(domnum)
+
+      OPEN(UNIT=10, FILE=fdum, FORM='unformatted', STATUS='OLD')
+      READ(10); READ(10); READ(10) npdum; READ(10)
+      READ(10); READ(10); READ(10); READ(10);
+
+      k = j + npdum-1
+
+      ALLOCATE(tmp_dbl(1:npdum))
+      ALLOCATE(tmp_int(1:npdum))
+
+      !x, y, z
+      DO n=1, 3
+        READ(10) tmp_dbl
+        g_pos(j:k,n) = tmp_dbl
+      ENDDO
+
+      !vx, vy, vz
+      DO n=1, 3
+        READ(10) tmp_dbl
+        g_vel(j:k,n) = tmp_dbl
+      ENDDO
+
+      !mass
+      READ(10) tmp_dbl
+      g_mm(j:k) = tmp_dbl
+
+      !ID
+      READ(10) tmp_int
+      g_id(j:k) = tmp_int
+
+      !TAG (TODO)
+         
+
+      DEALLOCATE(tmp_dbl)
+      DEALLOCATE(tmp_int)
+      j = k+1
+    ENDDO
+    END SUBROUTINE
+
+    SUBROUTINE get_part_allocate()
+    IMPLICIT NONE
+        IF(ALLOCATED(g_pos)) DEALLOCATE(g_pos)
+        IF(ALLOCATED(g_vel)) DEALLOCATE(g_vel)
+        IF(ALLOCATED(g_id)) DEALLOCATE(g_id)
+        IF(ALLOCATED(g_mm)) DEALLOCATE(g_mm)
+        IF(ALLOCATED(g_type)) DEALLOCATE(g_type)
+
+
+        ALLOCATE(g_pos(1:npart_tot,3))
+        ALLOCATE(g_vel(1:npart_tot,3))
+        ALLOCATE(g_id(1:npart_tot))
+        ALLOCATE(g_mm(1:npart_tot))
+        ALLOCATE(g_type(1:npart_tot))
+    END SUBROUTINE
+
+    SUBROUTINE get_part_deallocate()
+    IMPLICIT NONE
+        IF(ALLOCATED(g_pos)) DEALLOCATE(g_pos)
+        IF(ALLOCATED(g_vel)) DEALLOCATE(g_vel)
+        IF(ALLOCATED(g_id)) DEALLOCATE(g_id)
+        IF(ALLOCATED(g_mm)) DEALLOCATE(g_mm)
+        IF(ALLOCATED(g_type)) DEALLOCATE(g_type)
+    END SUBROUTINE
+
+    SUBROUTINE get_part_tot()
+    IMPLICIT NONE
+
+    !!----- LOCAL
+    INTEGER(KIND=4), DIMENSION(:), ALLOCATABLE :: parts
+    INTEGER(KIND=4) i, j, k, np
+
+    CHARACTER*(1000) fdum, domnum, snum
+
+    ALLOCATE(parts(1:ncpu))
+    parts = 0
+    WRITE(snum, '(I5.5)') nsnap
+    DO i=1, ncpu
+      WRITE(domnum, '(I5.5)') i
+      fdum = TRIM(repo)//'/snapshots/output_'//TRIM(snum)//'/part_'//TRIM(snum)//'.out'//TRIM(domnum)
+
+      OPEN(UNIT=10, FILE=fdum, FORM='unformatted', STATUS='OLD')
+      READ(10); READ(10); READ(10) np
+      parts(i) = np
+    ENDDO
+
+    npart_tot = SUM(parts)
+    DEALLOCATE(parts)
     END SUBROUTINE
 
 
