@@ -246,7 +246,7 @@ class HaloMaker:
         star = snap.part['star']
     
     @staticmethod
-    def read_one(snap, path, galaxy, hmid, nchem, simple):
+    def read_one(snap, path, galaxy, hmid, nchem, simple, target_fields=None):
         dtype = [('id', 'i4'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
         if(galaxy):
             nomfich = os.path.join(path, f"gal_stars_{hmid:07d}")
@@ -256,6 +256,9 @@ class HaloMaker:
                     raise ValueError("Currently non-zero `nchem` is not supported!")
         else:
             nomfich = os.path.join(path, f"halo_dms_{hmid:07d}")
+        dtype = np.dtype(dtype)
+        ind = np.isin(dtype.names, target_fields)
+        dtype = np.dtype([idt for idt, iid in zip(dtype.descr, ind) if(iid)])
 
         with FortranFile(nomfich, 'r') as f:
             f.skip_records(6)
@@ -266,22 +269,36 @@ class HaloMaker:
                 boxsize_physical = snap['boxsize_physical']
                 nparts, = f.read_ints()
                 array = np.empty(nparts, dtype=dtype)
-                array['x'] = f.read_reals() / boxsize_physical + 0.5
-                array['y'] = f.read_reals() / boxsize_physical + 0.5
-                array['z'] = f.read_reals() / boxsize_physical + 0.5
-                array['vx'] = f.read_reals()
-                array['vy'] = f.read_reals()
-                array['vz'] = f.read_reals()
-                array['m'] = f.read_reals()*1e11
-                array['id'] = f.read_ints()
+                if('x' in target_fields): array['x'] = f.read_reals() / boxsize_physical + 0.5
+                else: f.skip_records(1)
+                if('y' in target_fields): array['y'] = f.read_reals() / boxsize_physical + 0.5
+                else: f.skip_records(1)
+                if('z' in target_fields): array['z'] = f.read_reals() / boxsize_physical + 0.5
+                else: f.skip_records(1)
+                if('vx' in target_fields): array['vx'] = f.read_reals()
+                else: f.skip_records(1)
+                if('vy' in target_fields): array['vy'] = f.read_reals()
+                else: f.skip_records(1)
+                if('vz' in target_fields): array['vz'] = f.read_reals()
+                else: f.skip_records(1)
+                if('m' in target_fields): array['m'] = f.read_reals()*1e11
+                else: f.skip_records(1)
+                if('id' in target_fields): array['id'] = f.read_ints()
+                else: f.skip_records(1)
                 if(galaxy):
-                    array['epoch'] = f.read_reals()
-                    array['metal'] = f.read_reals()
+                    if('epoch' in target_fields): array['epoch'] = f.read_reals()
+                    else: f.skip_records(1)
+                    if('metal' in target_fields): array['metal'] = f.read_reals()
+                    else: f.skip_records(1)
         return array
 
     @staticmethod
-    def read_member_part(snap, hmid, nchem=0, galaxy=False, path_in_repo=None, full_path=None, usefortran=False, simple=False):
+    def read_member_part(snap, hmid, nchem=0, galaxy=False, path_in_repo=None, full_path=None, usefortran=False, simple=False, target_fields=None):
         # usefortran=False is faster
+        if(target_fields is None):
+            target_fields = ['id', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'm']
+            if(galaxy):
+                target_fields = target_fields + ['epoch', 'metal']
         if(full_path is None):
             if(path_in_repo is None):
                 if (galaxy):        
@@ -304,7 +321,7 @@ class HaloMaker:
             if(simple):
                 array = np.array(readh.integer_table, dtype='i4') 
                 readh.close()
-                return array
+                return array.flatten()
             dtype = [('id', 'i4'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
             if(galaxy):
                 dtype = dtype+[('epoch', 'f8'), ('metal', 'f8')]
@@ -318,14 +335,14 @@ class HaloMaker:
             array['z'] = array['z'] / boxsize_physical + 0.5
             readh.close()
         else:
-            array = HaloMaker.read_one(snap, path, galaxy, hmid, nchem, simple=simple)
+            array = HaloMaker.read_one(snap, path, galaxy, hmid, nchem, simple=simple, target_fields=target_fields)
             if(simple):
                 return array
         # Convert to codeunit
-        array['m'] *= snap.unit['Msol']
-        array['vx'] *= snap.unit['km/s']
-        array['vy'] *= snap.unit['km/s']
-        array['vz'] *= snap.unit['km/s']
+        if('m' in target_fields): array['m'] *= snap.unit['Msol']
+        if('vx' in target_fields): array['vx'] *= snap.unit['km/s']
+        if('vy' in target_fields): array['vy'] *= snap.unit['km/s']
+        if('vz' in target_fields): array['vz'] *= snap.unit['km/s']
         return uri.Particle(array, snap)
 
     from rur.uri import RamsesSnapshot

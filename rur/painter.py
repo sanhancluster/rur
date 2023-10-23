@@ -200,7 +200,9 @@ def set_weights(mode, cell, unit, depth, weights=None, quantity=None):
     return quantity, weights
 
 def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True,
-           interp_order=0, weights=None, quantity=None, method='hist'):
+           interp_order=0, weights=None, quantity=None, method='hist', total=False):
+    if(total):
+        print("Warning!\n\t`total` is developed for testing purpose.\n\tIt just shows the total quantity in the image, not the average.")
     if(box is None and hasattr(cell, 'snap')):
         box = cell.snap.box
 
@@ -255,7 +257,7 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
                                       reso=binsize, lims=edge, weights=qm*wm)
 
         # weighted average map of quantities
-        hist_map = np.divide(hist_map, hist_weight, where=hist_weight!=0)
+        if(not total): hist_map = np.divide(hist_map, hist_weight, where=hist_weight!=0)
 
         if (ilvl < maxlvl):
             ibin = ilvl
@@ -268,13 +270,16 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
         # new depth
         depth_map_new = depth_map + add_depth
         mask_active = (hist_weight > 0) & (depth_map_new > 0)
-
-        image[mask_active] = (np.divide(image * depth_map + hist_map * add_depth, depth_map_new,
+        if(total):
+            image[mask_active] = image[mask_active] + hist_map[mask_active]
+        else:
+            image[mask_active] = (np.divide(image * depth_map + hist_map * add_depth, depth_map_new,
                                         where=mask_active))[mask_active]
         depth_map = depth_map_new
 
         if(ilvl < maxlvl):
             image = rescale(image, 2, mode='constant', order=interp_order)
+            if(total): image /= 4
             depth_map = rescale(depth_map, 2, mode='constant', order=interp_order)
 
     crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
