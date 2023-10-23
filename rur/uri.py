@@ -328,6 +328,7 @@ def _read_part(fname:str, kwargs:dict, legacy:bool, part=None, mask=None, nsize=
         # Masking
         if(mask is None)or(nsize is None):
             mask, nsize = _classify(pname, ids, epoch, m, family)
+            assert np.sum(mask)==nsize
         # Allocating
         if(legacy)or(address is None):
             if(part is None): part = np.empty(nsize, dtype=dtype)

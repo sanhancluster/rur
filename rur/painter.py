@@ -14,7 +14,7 @@ from itertools import repeat
 from PIL import Image
 from warnings import warn
 from rur.sci import geometry as geo
-import os
+import os, inspect
 from astropy.visualization import make_lupton_rgb
 from rur.config import default_path_in_repo, timer
 import matplotlib as mpl
@@ -473,7 +473,7 @@ def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, m
     return draw_image(image, extent=extent, **kwargs)
 
 def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, method='hist', x=None, smooth=16,
-            crho=False, angles=None, **kwargs):
+            crho=False, angles=None, order='ZXZ', **kwargs):
     if(box is None and isinstance(part, uri.Particle)):
         box = part.snap.box
 
@@ -483,7 +483,7 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
     if(angles is not None):
         focus = np.mean(box, axis=-1)
         x = x - focus
-        x = geo.euler_angle(x, angles) + focus
+        x = geo.euler_angle(x, angles, order=order) + focus
 
     box_proj = get_box_proj(box, proj)
 
@@ -531,11 +531,11 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
 
 
 def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=None, unit=None, method='hist',
-                 smooth=16, crho=False, angles=None, kwargs_partmap={}, **kwargs):
+                 smooth=16, crho=False, angles=None, order='ZXZ', kwargs_partmap={}, **kwargs):
     if(box is None and hasattr(part, 'snap')):
         box = part.snap.box
 
-    image = partmap(part, box, proj, shape, weights, unit, method, smooth=smooth, crho=crho, angles=angles, **kwargs_partmap)
+    image = partmap(part, box, proj, shape, weights, unit, method, smooth=smooth, crho=crho, angles=angles,order=order, **kwargs_partmap)
 
     box_proj = get_box_proj(box, proj)
 
