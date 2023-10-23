@@ -1031,6 +1031,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             else:
                 raise ValueError(f"{pname} is currently not supported!")
             part = np.empty(size, dtype=dtype)
+            if(size==0): return part
         else:
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
@@ -1042,6 +1043,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             size = np.sum(sizes)
             cursors = np.cumsum(sizes)-sizes
             part = np.empty(size, dtype=dtype)
+            if(size==0): return part
             if(not self.alert):
                 atexit.register(self.flush, msg=True, parent='[Auto]')
                 signal.signal(signal.SIGINT, self.terminate)
