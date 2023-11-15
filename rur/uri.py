@@ -321,9 +321,9 @@ def _read_part(fname:str, kwargs:dict, legacy:bool, part=None, mask=None, nsize=
         if(isfamily):
             family = f.read_ints(np.int8) # family
             tag = readorskip_int(f, np.int8, 'tag', target_fields) # tag
-        if(isstar):
-            epoch = readorskip_real(f, np.float64, 'epoch', target_fields) # epoch
-            metal = readorskip_real(f, np.float64, 'metal', target_fields)
+        # if(isstar):
+        epoch = readorskip_real(f, np.float64, 'epoch', target_fields) # epoch
+        metal = readorskip_real(f, np.float64, 'metal', target_fields)
         
         # Masking
         if(mask is None)or(nsize is None):
@@ -1007,8 +1007,20 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         # 4) Allocate base array
         dtype = self.part_dtype
         if target_fields is not None:
-            if 'cpu' not in target_fields:
+            if( 'cpu' not in target_fields ):
                 target_fields = np.append(target_fields, 'cpu')
+            if(pname is not None):
+                # If `pname` is specified, you should include family(or m,epoch) to classify
+                if(isfamily):
+                    if('family' not in target_fields):
+                        target_fields = np.append(target_fields, 'family')
+                else:
+                    if('m' not in target_fields):
+                        target_fields = np.append(target_fields, 'm')
+                    if('epoch' not in target_fields):
+                        target_fields = np.append(target_fields, 'epoch')
+                    if('id' not in target_fields):
+                        target_fields = np.append(target_fields, 'id')
             dtype = [idtype for idtype in dtype if idtype[0] in target_fields]
         else:
             target_fields = [idtype[0] for idtype in dtype]
@@ -1063,7 +1075,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(_read_part, (fname, kwargs, legacy, None, mask, size, cursor, self.part_mem.name, part.shape)) for fname,mask,size,cursor in zip(files,masks,sizes,cursors)]
-                for r in async_result:
+                iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading parts") if(timer.verbose>=1) else async_result
+                for r in iterobj:
                     r.get()
             signal.signal(signal.SIGTERM, self.terminate)
 
@@ -1110,6 +1123,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 timer.start('Building table for %d particles... ' % readr.integer_table.shape[1], 1)
                 dtype = self.part_dtype
                 if(target_fields is not None):
+                    if('cpu' not in target_fields):
+                        target_fields = np.append(target_fields, 'cpu')
                     if(self.longint):
                         arr = [*readr.real_table, *readr.long_table, *readr.integer_table, *readr.byte_table]
                     else:
@@ -1206,6 +1221,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             formats.insert(-2, "f8")
             names.insert(-2, "pot")
         if target_fields is not None:
+            if 'cpu' not in target_fields:
+                target_fields = np.append(target_fields, 'cpu')
             target_idx = np.where(np.isin(names, target_fields))[0]
             formats = [formats[idx] for idx in target_idx]
             names = [names[idx] for idx in target_idx]
@@ -1253,7 +1270,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(_read_cell, (icpu, snap_kwargs, amr_kwargs, legacy, None, size, cursor, self.cell_mem.name, cell.shape)) for icpu,size,cursor in zip(cpulist,sizes, cursors)]
-                for r in async_result:
+                iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading parts") if(timer.verbose>=1) else async_result
+                for r in iterobj:
                     r.get()
             signal.signal(signal.SIGTERM, self.terminate)
         return cell
