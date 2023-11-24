@@ -328,7 +328,8 @@ def _read_part(fname:str, kwargs:dict, legacy:bool, part=None, mask=None, nsize=
         # Masking
         if(mask is None)or(nsize is None):
             mask, nsize = _classify(pname, ids, epoch, m, family)
-            assert np.sum(mask)==nsize
+            if(isinstance(mask, np.ndarray)):
+                assert np.sum(mask)==nsize
         # Allocating
         if(legacy)or(address is None):
             if(part is None): part = np.empty(nsize, dtype=dtype)
@@ -1223,6 +1224,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         if target_fields is not None:
             if 'cpu' not in target_fields:
                 target_fields = np.append(target_fields, 'cpu')
+            if 'level' not in target_fields:
+                target_fields = np.append(target_fields, 'level')
             target_idx = np.where(np.isin(names, target_fields))[0]
             formats = [formats[idx] for idx in target_idx]
             names = [names[idx] for idx in target_idx]
