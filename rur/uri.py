@@ -1273,7 +1273,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(_read_cell, (icpu, snap_kwargs, amr_kwargs, legacy, None, size, cursor, self.cell_mem.name, cell.shape)) for icpu,size,cursor in zip(cpulist,sizes, cursors)]
-                iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading parts") if(timer.verbose>=1) else async_result
+                iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading cells") if(timer.verbose>=1) else async_result
                 for r in iterobj:
                     r.get()
             signal.signal(signal.SIGTERM, self.terminate)
