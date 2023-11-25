@@ -1029,6 +1029,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             "pname":pname, "isfamily":isfamily, "isstar":isstar, "chem":chem, "mode":mode,
             "target_fields":target_fields, "dtype":dtype}
 
+        if(timer.verbose>0):
+            print("Allocating Memory..."); ref = time.time()
         if(sequential):
             tracers = ["tracer","cloud_tracer","star_tracer","gas_tracer"]
             if(pname == 'star'):
@@ -1065,7 +1067,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.part_mem = shared_memory.SharedMemory(create=True, size=part.nbytes)
             self.memory.append(self.part_mem)
             part = np.ndarray(part.shape, dtype=np.dtype(dtype), buffer=self.part_mem.buf)
-                
+        if(timer.verbose>0): print(f"Done ({time.time()-ref:.3f} sec)")
+
         # 5) Read output part files
         if(sequential):
             cursor = 0
@@ -1234,6 +1237,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             dtype = np.format_parser(formats=formats, names=names, titles=None).dtype
 
         # 4) Calculate total number of cells
+        if(timer.verbose>0):
+            print("Allocating Memory..."); ref = time.time()
         if(sequential):
             ncell_tot = 0
             sizes = np.zeros(len(cpulist), dtype=np.int32)
@@ -1259,7 +1264,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.cell_mem = shared_memory.SharedMemory(create=True, size=cell.nbytes)
             self.memory.append(self.cell_mem)
             cell = np.ndarray(cell.shape, dtype=np.dtype(dtype), buffer=self.cell_mem.buf)
-                
+        if(timer.verbose>0): print(f"Done ({time.time()-ref:.3f} sec)")
+
         snap_kwargs = {
             'nhvar':nhvar, 'hydro_names':self.hydro_names, 'repo':self.snap_path, 'iout':self.iout,
             'skip_hydro':nhvar * 2**ndim, 'read_grav':read_grav, 'dtype':dtype, 'names':names}
@@ -1736,7 +1742,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             else:
                 self.read_ripses(target_fields=target_fields, cpulist=cpulist)
             if(domain_slicing):
+                timer.start('Domain Slicing...')
                 cell = domain_slice(self.cell_data, cpulist, self.cpulist_cell, self.bound_cell)
+                timer.record()
             else:
                 cell = self.cell_data
 
@@ -1785,7 +1793,9 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 exact_box = False
             self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, python=python, legacy=legacy)
             if(domain_slicing):
+                timer.start('Domain Slicing...')
                 part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
+                timer.record()
             else:
                 part = self.part_data
             if(self.box is not None):
