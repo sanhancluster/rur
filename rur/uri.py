@@ -293,7 +293,7 @@ def _calc_npart(fname:str, kwargs:dict, sizeonly=False):
                 f.skip_records(1) #lvl
                 epoch = f.read_reals(np.float64)
         result = _classify(pname, ids, epoch, m, family, sizeonly=sizeonly)
-    return result
+    return result[0], result[1], int(fname[-5:])
 
 def _read_part(fname:str, kwargs:dict, legacy:bool, part=None, mask=None, nsize=None, cursor=None, address=None, shape=None):
     pname, ids, epoch, m, family = None, None, None, None, None
@@ -946,6 +946,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         # 3) Check numbers of particles from txt (or from output file)
         allfiles = glob.glob(f"{self.snap_path}/output_{self.iout:05d}/part*out*")
         files = [fname for fname in allfiles if int(fname[-5:]) in cpulist]
+        files.sort()
         header = f"{self.snap_path}/output_{self.iout:05d}/header_{self.iout:05d}.txt"
         sinkinfo = f"{self.snap_path}/output_{self.iout:05d}/sink_{self.iout:05d}.info"
 
@@ -1051,8 +1052,10 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
                 results = pool.starmap(_calc_npart, [(fname,kwargs) for fname in files])
-            results = np.asarray(results, dtype=[("mask", object), ("size", int)])
+            results = np.asarray(results, dtype=[("mask", object), ("size", int), ("iout", int)])
             signal.signal(signal.SIGTERM, self.terminate)
+            argsort = np.argsort(results['iout'])
+            results = results[argsort]
             sizes = results['size']
             masks = results['mask']
             size = np.sum(sizes)
