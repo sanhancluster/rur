@@ -1715,6 +1715,21 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         self.ref = np.concatenate(amr_refs)
         self.cpu = np.concatenate(amr_cpus)
 
+    def get_cell_instant(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False, python=True, nthread=8, legacy=False):
+        '''
+        Use only if you want to read part data from already loaded whole snapshot.
+        It will not affect attributes of `RamsesSnapshot` class if all CPUlist are satisfied.
+        '''
+        cpulist = self.get_involved_cpu(box=box)
+        ind = np.isin(cpulist, self.cpulist_cell, assume_unique=True)
+        if(not ind.all() ):
+            print(f"Extend CPU list...\n->{cpulist[~ind]}")
+            self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist, python=python, nthread=nthread, legacy=legacy)
+        cell = domain_slice(self.cell_data, cpulist, self.cpulist_cell, self.bound_cell)
+        mask = box_mask(get_vector(cell), box, size=self.cell_extra['dx'](cell))
+        cell = cell[mask]
+        return Cell(cell, self)
+
     def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False, python=True, nthread=8, legacy=False):
         if(box is not None):
             # if box is not specified, use self.box by default
@@ -1758,6 +1773,21 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             self.box_cell = self.box
             self.cell = cell
         return self.cell
+
+    def get_part_instant(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None, python=True, nthread=8, legacy=False):
+        '''
+        Use only if you want to read part data from already loaded whole snapshot.
+        It will not affect attributes of `RamsesSnapshot` class if all CPUlist are satisfied.
+        '''
+        cpulist = self.get_involved_cpu(box=box)
+        ind = np.isin(cpulist, self.cpulist_part, assume_unique=True)
+        if(not ind.all() ):
+            print(f"Extend CPU list...\n->{cpulist[~ind]}")
+            self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, python=python, legacy=legacy)
+        part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
+        mask = box_mask(get_vector(part), box)
+        part = part[mask]
+        return Particle(part, self, ptype=pname)
 
     def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None, python=True, nthread=8, legacy=False):
         if(box is not None):
