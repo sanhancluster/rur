@@ -321,9 +321,9 @@ def _read_part(fname:str, kwargs:dict, legacy:bool, part=None, mask=None, nsize=
         if(isfamily):
             family = f.read_ints(np.int8) # family
             tag = readorskip_int(f, np.int8, 'tag', target_fields) # tag
-        # if(isstar):
-        epoch = readorskip_real(f, np.float64, 'epoch', target_fields) # epoch
-        metal = readorskip_real(f, np.float64, 'metal', target_fields)
+        if(isstar):
+            epoch = readorskip_real(f, np.float64, 'epoch', target_fields) # epoch
+            metal = readorskip_real(f, np.float64, 'metal', target_fields)
         
         # Masking
         if(mask is None)or(nsize is None):
@@ -1011,6 +1011,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         if target_fields is not None:
             if( 'cpu' not in target_fields ):
                 target_fields = np.append(target_fields, 'cpu')
+            if( 'epoch' in target_fields ):
+                target_fields.remove('epoch')
             if(pname is not None):
                 # If `pname` is specified, you should include family(or m,epoch) to classify
                 if(isfamily):
@@ -1019,7 +1021,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 else:
                     if('m' not in target_fields):
                         target_fields = np.append(target_fields, 'm')
-                    if('epoch' not in target_fields):
+                    if('epoch' not in target_fields)and(isstar):
                         target_fields = np.append(target_fields, 'epoch')
                     if('id' not in target_fields):
                         target_fields = np.append(target_fields, 'id')
