@@ -1012,7 +1012,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             if( 'cpu' not in target_fields ):
                 target_fields = np.append(target_fields, 'cpu')
             if( 'epoch' in target_fields ):
-                target_fields.remove('epoch')
+                target_fields = target_fields[target_fields!='epoch']
             if(pname is not None):
                 # If `pname` is specified, you should include family(or m,epoch) to classify
                 if(isfamily):
