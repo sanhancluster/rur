@@ -914,7 +914,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             box = np.array(box)
             maxlvl = self.params['levelmax']
 
-            involved_cpu = get_cpulist(box, binlvl, maxlvl, self.bound_key, self.ndim, n_divide)
+            involved_cpu = get_cpulist(box, binlvl, maxlvl, self.bound_key, self.ndim, n_divide, ncpu=self.params['ncpu'])
         else:
             involved_cpu = np.arange(self.params['ncpu']) + 1
         return involved_cpu
@@ -1875,7 +1875,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             else:
                 extent = radius*2
             box = get_box(get_vector(halo), extent)
-            cpulist.append(get_cpulist(box, None, self.levelmax, self.bound_key, self.ndim, n_divide))
+            cpulist.append(get_cpulist(box, None, self.levelmax, self.bound_key, self.ndim, n_divide, ncpu=self.params['ncpu']))
         return np.unique(np.concatenate(cpulist))
 
     def get_cpulist_from_part(self, ids, path_in_repo='part_cpumap', mode='init', filename='%s_cpumap_%05d.pkl'):
@@ -2352,7 +2352,7 @@ def time_series(repo, iouts, halo_table, mode='none', extent=None, unit=None):
         snaps.append(snap)
     return snaps
 
-def get_cpulist(box, binlvl, maxlvl, bound_key, ndim, n_divide):
+def get_cpulist(box, binlvl, maxlvl, bound_key, ndim, n_divide, ncpu=None):
     # get list of cpus involved in selected box.
     volume = np.prod([box[:, 1] - box[:, 0]])
     if (binlvl is None):
@@ -2380,12 +2380,13 @@ def get_cpulist(box, binlvl, maxlvl, bound_key, ndim, n_divide):
     key_range = np.stack([keys, keys + 1], axis=-1)
     key_range = key_range.astype('f8')
 
-    involved_cpu = []
-    for icpu_range, key in zip(
-            np.searchsorted(bound_key / 2. ** (ndim * (maxlvl - binlvl + 1)), key_range),
-            key_range):
-        involved_cpu.append(np.arange(icpu_range[0], icpu_range[1] + 1))
-    involved_cpu = np.unique(np.concatenate(involved_cpu)) + 1
+    involved_cpu = np.zeros(ncpu, dtype='?')
+    icpu_ranges = np.searchsorted(bound_key / 2. ** (ndim * (maxlvl - binlvl + 1)), key_range)
+    icpu_ranges = np.unique(icpu_ranges, axis=0)
+    for icpu_range in icpu_ranges:
+        involved_cpu[np.arange(icpu_range[0], icpu_range[1] + 1, dtype=int)] = True
+    involved_cpu = np.where(involved_cpu)[0] + 1
+
     if (timer.verbose >= 2):
         print("List of involved CPUs: ", involved_cpu)
     return involved_cpu
