@@ -1077,7 +1077,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         # 5) Read output part files
         if(sequential):
             cursor = 0
-            for fname in files:
+            iterobj = tqdm(files, desc=f"Reading parts") if(timer.verbose>=1) else files
+            for fname in iterobj:
                 cursor = _read_part(fname, kwargs, legacy, part=part, mask=None, nsize=None, cursor=cursor, address=None, shape=None)
             part = part[:cursor]
         else:
@@ -1119,14 +1120,15 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             for icpu in cpulist:
                 filesize += getsize(self.get_path('part', icpu))
             timer.start('Reading %d part files (%s) in %s... ' % (cpulist.size, utool.format_bytes(filesize), self.path), 1)
+            nthread = min(nthread, cpulist.size)
             if(python):
-                part = self.read_part_py(pname, cpulist, target_fields=target_fields, nthread=min(nthread, cpulist.size), legacy=legacy)
+                part = self.read_part_py(pname, cpulist, target_fields=target_fields, nthread=nthread, legacy=legacy)
             else:
                 progress_bar = cpulist.size > progress_bar_limit and timer.verbose >= 1
                 mode = self.mode
                 if mode == 'nc':
                     mode = 'y4'
-                readr.read_part(self.snap_path, self.iout, cpulist, mode, progress_bar, self.longint, min(nthread, cpulist.size))
+                readr.read_part(self.snap_path, self.iout, cpulist, mode, progress_bar, self.longint, nthread)
                 timer.record()
 
                 timer.start('Building table for %d particles... ' % readr.integer_table.shape[1], 1)
@@ -1277,7 +1279,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         # 5) Read data
         if(sequential):
             cursor = 0
-            for i, icpu in enumerate(cpulist):
+            iterobj = tqdm(enumerate(cpulist),total=len(cpulist), desc=f"Reading cells") if(timer.verbose>=1) else enumerate(cpulist)
+            for i, icpu in iterobj:
                 cursor = _read_cell(icpu, snap_kwargs, amr_kwargs, legacy, cell=cell, nsize=sizes[i], cursor=cursor, address=None, shape=None)
             cell = cell[:cursor]
         else:
@@ -1320,7 +1323,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 filesize += getsize(self.get_path('amr', icpu))
                 filesize += getsize(self.get_path('hydro', icpu))
             timer.start('Reading %d AMR & hydro files (%s) in %s... ' % (cpulist.size, utool.format_bytes(filesize), self.path), 1)
-
+            nthread = min(nthread, cpulist.size)
             if(python):
                 cell = self.read_cell_py(cpulist, read_grav=read_grav, nthread=nthread, target_fields=target_fields, legacy=legacy)
             else:
@@ -1728,9 +1731,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         cpulist = self.get_involved_cpu(box=box)
         ind = np.isin(cpulist, self.cpulist_cell, assume_unique=True)
         if(not ind.all() ):
-            print(f"Extend CPU list...\n->{cpulist[~ind]}")
-            self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist, python=python, nthread=nthread, legacy=legacy)
-        cell = domain_slice(self.cell_data, cpulist, self.cpulist_cell, self.bound_cell)
+            if(timer.verbose>=1): print(f"Extend CPU list...\n->{cpulist[~ind]}")
+            self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist[~ind], python=python, nthread=nthread, legacy=legacy)
+        if( ind.all() & np.isin(self.cpulist_cell, cpulist).all() ):
+            cell = self.cell_data
+        else:
+            cell = domain_slice(self.cell_data, cpulist, self.cpulist_cell, self.bound_cell)
         mask = box_mask(get_vector(cell), box, size=self.cell_extra['dx'](cell))
         cell = cell[mask]
         return Cell(cell, self)
@@ -1762,9 +1768,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             else:
                 self.read_ripses(target_fields=target_fields, cpulist=cpulist)
             if(domain_slicing):
-                timer.start('Domain Slicing...')
-                cell = domain_slice(self.cell_data, cpulist, self.cpulist_cell, self.bound_cell)
-                timer.record()
+                if( np.isin(cpulist, self.cpulist_cell).all() & np.isin(self.cpulist_cell, cpulist).all() ):
+                    cell = self.cell_data
+                else:
+                    timer.start('Domain Slicing...')
+                    cell = domain_slice(self.cell_data, cpulist, self.cpulist_cell, self.bound_cell)
+                    timer.record()
             else:
                 cell = self.cell_data
 
@@ -1787,9 +1796,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         cpulist = self.get_involved_cpu(box=box)
         ind = np.isin(cpulist, self.cpulist_part, assume_unique=True)
         if(not ind.all() ):
-            print(f"Extend CPU list...\n->{cpulist[~ind]}")
+            if(timer.verbose>=1): print(f"Extend CPU list...\n->{cpulist[~ind]}")
             self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, python=python, legacy=legacy)
-        part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
+        if( ind.all() & np.isin(self.cpulist_part, cpulist).all() ):
+            part = self.part_data
+        else:
+            part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
         mask = box_mask(get_vector(part), box)
         part = part[mask]
         return Particle(part, self, ptype=pname)
@@ -1828,9 +1840,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 exact_box = False
             self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, python=python, legacy=legacy)
             if(domain_slicing):
-                timer.start('Domain Slicing...')
-                part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
-                timer.record()
+                if( np.isin(cpulist, self.cpulist_part).all() & np.isin(self.cpulist_part, cpulist).all() ):
+                    part = self.part_data
+                else:
+                    timer.start('Domain Slicing...')
+                    part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
+                    timer.record()
             else:
                 part = self.part_data
             if(self.box is not None):
@@ -2429,7 +2444,7 @@ def ckey2idx(amr_keys, nocts, levelmin, ndim=3):
 
 def domain_slice(array, cpulist, cpulist_all, bound):
     # array should already been aligned with bound
-    idxs = np.where(np.isin(cpulist_all, cpulist))[0]
+    idxs = np.where(np.isin(cpulist_all, cpulist, assume_unique=True))[0]
     doms = np.stack([bound[idxs], bound[idxs+1]], axis=-1)
     segs = doms[:, 1] - doms[:, 0]
 
