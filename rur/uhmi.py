@@ -12,7 +12,9 @@ from numpy.lib.recfunctions import append_fields, drop_fields, merge_arrays
 import gc
 import string
 from multiprocessing import Process, Queue
+from multiprocessing import Pool, shared_memory
 from time import sleep
+import atexit, signal
 
 chars = string.ascii_lowercase
 
@@ -71,6 +73,40 @@ def fix_out_of_order_fields(array):
 
     output = fromarrays(arrays, names = names)
     return output
+
+def _read_one(shape, dtype, cursor, address, galaxy, path, hmid, nchem, target_fields=None):
+    if(galaxy): nomfich = os.path.join(path, f"gal_stars_{hmid:07d}")
+    else: nomfich = os.path.join(path, f"halo_dms_{hmid:07d}")
+    exist = shared_memory.SharedMemory(name=address)
+    partmem = np.ndarray(shape=shape, dtype=dtype, buffer=exist.buf)
+    
+
+    with FortranFile(nomfich, 'r') as f:
+        f.skip_records(6)
+        nparts, = f.read_ints()
+        array = partmem[cursor:cursor+nparts].view()
+        array['hmid'] = hmid
+        if('x' in target_fields): array['x'] = f.read_reals()
+        else: f.skip_records(1)
+        if('y' in target_fields): array['y'] = f.read_reals()
+        else: f.skip_records(1)
+        if('z' in target_fields): array['z'] = f.read_reals()
+        else: f.skip_records(1)
+        if('vx' in target_fields): array['vx'] = f.read_reals()
+        else: f.skip_records(1)
+        if('vy' in target_fields): array['vy'] = f.read_reals()
+        else: f.skip_records(1)
+        if('vz' in target_fields): array['vz'] = f.read_reals()
+        else: f.skip_records(1)
+        if('m' in target_fields): array['m'] = f.read_reals()*1e11
+        else: f.skip_records(1)
+        if('id' in target_fields): array['id'] = f.read_ints()
+        else: f.skip_records(1)
+        if(galaxy):
+            if('epoch' in target_fields): array['epoch'] = f.read_reals()
+            else: f.skip_records(1)
+            if('metal' in target_fields): array['metal'] = f.read_reals()
+            else: f.skip_records(1)
 
 class HaloMaker:
     @staticmethod
@@ -344,6 +380,60 @@ class HaloMaker:
         if('vy' in target_fields): array['vy'] *= snap.unit['km/s']
         if('vz' in target_fields): array['vz'] *= snap.unit['km/s']
         return uri.Particle(array, snap)
+
+    @staticmethod
+    def read_member_parts(snap, hals:np.ndarray, nchem=0, galaxy=False, path_in_repo=None, full_path=None, usefortran=False, simple=False, target_fields=None, nthread=4):
+        nthread = min(nthread, len(hals))
+        dtype = [('id', 'i4'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8'), ('hmid', 'i4')]
+        if(galaxy)&(not simple): dtype = dtype+[('epoch', 'f8'), ('metal', 'f8')]
+        dtype = np.dtype(dtype)
+        if(target_fields is None): target_fields = dtype.names
+        else:
+            ind = np.isin(dtype.names, target_fields, assume_unique=True)
+            dtype = np.dtype([idt for idt, iid in zip(dtype.descr, ind) if(iid)]+[('hmid', 'i4')])
+        if(full_path is None):
+            if(path_in_repo is None):
+                if (galaxy):        
+                    path_in_repo = default_path_in_repo['GalaxyMaker']
+                    temp = "GAL"
+                else:
+                    path_in_repo = default_path_in_repo['HaloMaker']
+                    temp = "HAL"
+            path = os.path.join(snap.repo, path_in_repo, f"{temp}_{snap.iout:05d}")
+        else:
+            path = full_path # ex: /storage8/.../galaxy/GAL_00001
+            if not ("AL" in path):
+                if (galaxy):        
+                    temp = "GAL"
+                else:
+                    temp = "HAL"
+                path = os.path.join(path, f"{temp}_{snap.iout:05d}")
+        
+        if(not hasattr(hals,'id')):
+            if(np.isreal(hals[0])):
+                tmp = HaloMaker.load(snap, galaxy=galaxy, path_in_repo=path_in_repo, full_path=full_path)
+                hals = tmp[hals-1]
+            else:
+                raise TypeError("`hals` should be either array of `int` or `structured array`!")
+
+        part = np.empty(np.sum(hals['nparts']), dtype=dtype)
+        snap.part_mem = shared_memory.SharedMemory(create=True, size=part.nbytes)
+        snap.memory.append(snap.part_mem)
+        part = np.ndarray(part.shape, dtype=dtype, buffer=snap.part_mem.buf)
+
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        cursors = np.insert(np.cumsum(hals['nparts']), 0, 0)[:-1]
+        with Pool(processes=nthread) as pool:
+            async_result = [pool.apply_async(_read_one, (part.shape, part.dtype, cursor, snap.part_mem.name, galaxy, path, hmid, nchem, target_fields)) for cursor, hmid in zip(cursors, hals['id'])]
+            iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading members") if(uri.timer.verbose>=1) else async_result
+            for r in iterobj:
+                r.get()
+        signal.signal(signal.SIGTERM, snap.terminate)
+        boxsize_physical = snap['boxsize_physical']
+        part['x'] = part['x'] / boxsize_physical + 0.5
+        part['y'] = part['y'] / boxsize_physical + 0.5
+        part['z'] = part['z'] / boxsize_physical + 0.5
+        return part
 
     from rur.uri import RamsesSnapshot
     @staticmethod
