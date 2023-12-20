@@ -257,6 +257,7 @@ def _classify(pname:str, ids=None, epoch=None, m=None, family=None, sizeonly:boo
                 mask = (ids < 0) & (m > 0) & (epoch == 0)
             nsize = np.count_nonzero(mask)
         elif(ids is not None):
+            print("Warning: either `family` or `epoch` should be given to classify particles.")
             if(pname == 'dm'):
                 mask =  ids > 0
                 nsize = np.count_nonzero(mask)
@@ -315,14 +316,21 @@ def _read_part(fname:str, kwargs:dict, legacy:bool, part=None, mask=None, nsize=
         vx = readorskip_real(f, np.float64, 'vx', target_fields)
         vy = readorskip_real(f, np.float64, 'vy', target_fields)
         vz = readorskip_real(f, np.float64, 'vz', target_fields)
-        m = readorskip_real(f, np.float64, 'm', target_fields)
-        ids = readorskip_int(f, np.int32, 'id', target_fields)
+        if(pname is None):
+            m = readorskip_real(f, np.float64, 'm', target_fields)
+            ids = readorskip_int(f, np.int32, 'id', target_fields)
+        else:
+            m = f.read_reals(np.float64)
+            ids = f.read_ints(np.int32)
         level = readorskip_int(f, np.int32, 'level', target_fields)
         if(isfamily):
             family = f.read_ints(np.int8) # family
             tag = readorskip_int(f, np.int8, 'tag', target_fields) # tag
         if(isstar):
-            epoch = readorskip_real(f, np.float64, 'epoch', target_fields) # epoch
+            if(pname is None):
+                epoch = readorskip_real(f, np.float64, 'epoch', target_fields) # epoch
+            else:
+                epoch = f.read_reals(np.float64)
             metal = readorskip_real(f, np.float64, 'metal', target_fields)
         
         # Masking
@@ -1011,20 +1019,18 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         if target_fields is not None:
             if( 'cpu' not in target_fields ):
                 target_fields = np.append(target_fields, 'cpu')
-            if( 'epoch' in target_fields ):
-                target_fields = target_fields[target_fields!='epoch']
-            if(pname is not None):
-                # If `pname` is specified, you should include family(or m,epoch) to classify
-                if(isfamily):
-                    if('family' not in target_fields):
-                        target_fields = np.append(target_fields, 'family')
-                else:
-                    if('m' not in target_fields):
-                        target_fields = np.append(target_fields, 'm')
-                    if('epoch' not in target_fields)and(isstar):
-                        target_fields = np.append(target_fields, 'epoch')
-                    if('id' not in target_fields):
-                        target_fields = np.append(target_fields, 'id')
+            # if(pname is not None):
+            #     # If `pname` is specified, you should include family(or m,epoch) to classify
+            #     if(isfamily):
+            #         if('family' not in target_fields):
+            #             target_fields = np.append(target_fields, 'family')
+            #     else:
+            #         if('m' not in target_fields):
+            #             target_fields = np.append(target_fields, 'm')
+            #         if('epoch' not in target_fields)and(isstar):
+            #             target_fields = np.append(target_fields, 'epoch')
+            #         if('id' not in target_fields):
+            #             target_fields = np.append(target_fields, 'id')
             dtype = [idtype for idtype in dtype if idtype[0] in target_fields]
         else:
             target_fields = [idtype[0] for idtype in dtype]
@@ -1077,7 +1083,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         # 5) Read output part files
         if(sequential):
             cursor = 0
-            for fname in files:
+            iterobj = tqdm(files, desc=f"Reading parts") if(timer.verbose>=1) else files
+            for fname in iterobj:
                 cursor = _read_part(fname, kwargs, legacy, part=part, mask=None, nsize=None, cursor=cursor, address=None, shape=None)
             part = part[:cursor]
         else:
@@ -1119,14 +1126,15 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             for icpu in cpulist:
                 filesize += getsize(self.get_path('part', icpu))
             timer.start('Reading %d part files (%s) in %s... ' % (cpulist.size, utool.format_bytes(filesize), self.path), 1)
+            nthread = min(nthread, cpulist.size)
             if(python):
-                part = self.read_part_py(pname, cpulist, target_fields=target_fields, nthread=min(nthread, cpulist.size), legacy=legacy)
+                part = self.read_part_py(pname, cpulist, target_fields=target_fields, nthread=nthread, legacy=legacy)
             else:
                 progress_bar = cpulist.size > progress_bar_limit and timer.verbose >= 1
                 mode = self.mode
                 if mode == 'nc':
                     mode = 'y4'
-                readr.read_part(self.snap_path, self.iout, cpulist, mode, progress_bar, self.longint, min(nthread, cpulist.size))
+                readr.read_part(self.snap_path, self.iout, cpulist, mode, progress_bar, self.longint, nthread)
                 timer.record()
 
                 timer.start('Building table for %d particles... ' % readr.integer_table.shape[1], 1)
@@ -1277,7 +1285,8 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         # 5) Read data
         if(sequential):
             cursor = 0
-            for i, icpu in enumerate(cpulist):
+            iterobj = tqdm(enumerate(cpulist),total=len(cpulist), desc=f"Reading cells") if(timer.verbose>=1) else enumerate(cpulist)
+            for i, icpu in iterobj:
                 cursor = _read_cell(icpu, snap_kwargs, amr_kwargs, legacy, cell=cell, nsize=sizes[i], cursor=cursor, address=None, shape=None)
             cell = cell[:cursor]
         else:
@@ -1320,7 +1329,7 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 filesize += getsize(self.get_path('amr', icpu))
                 filesize += getsize(self.get_path('hydro', icpu))
             timer.start('Reading %d AMR & hydro files (%s) in %s... ' % (cpulist.size, utool.format_bytes(filesize), self.path), 1)
-
+            nthread = min(nthread, cpulist.size)
             if(python):
                 cell = self.read_cell_py(cpulist, read_grav=read_grav, nthread=nthread, target_fields=target_fields, legacy=legacy)
             else:
@@ -1728,9 +1737,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         cpulist = self.get_involved_cpu(box=box)
         ind = np.isin(cpulist, self.cpulist_cell, assume_unique=True)
         if(not ind.all() ):
-            print(f"Extend CPU list...\n->{cpulist[~ind]}")
-            self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist, python=python, nthread=nthread, legacy=legacy)
-        cell = domain_slice(self.cell_data, cpulist, self.cpulist_cell, self.bound_cell)
+            if(timer.verbose>=1): print(f"Extend CPU list...\n->{cpulist[~ind]}")
+            self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist[~ind], python=python, nthread=nthread, legacy=legacy)
+        if( ind.all() & np.isin(self.cpulist_cell, cpulist).all() ):
+            cell = self.cell_data
+        else:
+            cell = domain_slice(self.cell_data, cpulist, self.cpulist_cell, self.bound_cell)
         mask = box_mask(get_vector(cell), box, size=self.cell_extra['dx'](cell))
         cell = cell[mask]
         return Cell(cell, self)
@@ -1762,9 +1774,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
             else:
                 self.read_ripses(target_fields=target_fields, cpulist=cpulist)
             if(domain_slicing):
-                timer.start('Domain Slicing...')
-                cell = domain_slice(self.cell_data, cpulist, self.cpulist_cell, self.bound_cell)
-                timer.record()
+                if( np.isin(cpulist, self.cpulist_cell).all() & np.isin(self.cpulist_cell, cpulist).all() ):
+                    cell = self.cell_data
+                else:
+                    timer.start('Domain Slicing...')
+                    cell = domain_slice(self.cell_data, cpulist, self.cpulist_cell, self.bound_cell)
+                    timer.record()
             else:
                 cell = self.cell_data
 
@@ -1787,9 +1802,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
         cpulist = self.get_involved_cpu(box=box)
         ind = np.isin(cpulist, self.cpulist_part, assume_unique=True)
         if(not ind.all() ):
-            print(f"Extend CPU list...\n->{cpulist[~ind]}")
+            if(timer.verbose>=1): print(f"Extend CPU list...\n->{cpulist[~ind]}")
             self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, python=python, legacy=legacy)
-        part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
+        if( ind.all() & np.isin(self.cpulist_part, cpulist).all() ):
+            part = self.part_data
+        else:
+            part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
         mask = box_mask(get_vector(part), box)
         part = part[mask]
         return Particle(part, self, ptype=pname)
@@ -1828,9 +1846,12 @@ dtype((numpy.record, [('x', '<f8'), ('y', '<f8'), ('z', '<f8'), ('rho', '<f8'), 
                 exact_box = False
             self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, python=python, legacy=legacy)
             if(domain_slicing):
-                timer.start('Domain Slicing...')
-                part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
-                timer.record()
+                if( np.isin(cpulist, self.cpulist_part).all() & np.isin(self.cpulist_part, cpulist).all() ):
+                    part = self.part_data
+                else:
+                    timer.start('Domain Slicing...')
+                    part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
+                    timer.record()
             else:
                 part = self.part_data
             if(self.box is not None):
@@ -2152,6 +2173,7 @@ def classify_part(part, pname, ptype=None):
         else:
             mask = False
     elif('id' in names):
+        print("Warning: No `family` or `epoch` field found, using id and mass instead.")
         # DM-only simulation
         if(pname == 'dm'):
             mask =  part['id'] > 0
@@ -2429,7 +2451,7 @@ def ckey2idx(amr_keys, nocts, levelmin, ndim=3):
 
 def domain_slice(array, cpulist, cpulist_all, bound):
     # array should already been aligned with bound
-    idxs = np.where(np.isin(cpulist_all, cpulist))[0]
+    idxs = np.where(np.isin(cpulist_all, cpulist, assume_unique=True))[0]
     doms = np.stack([bound[idxs], bound[idxs+1]], axis=-1)
     segs = doms[:, 1] - doms[:, 0]
 
