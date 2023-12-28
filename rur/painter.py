@@ -14,7 +14,7 @@ from itertools import repeat
 from PIL import Image
 from warnings import warn
 from rur.sci import geometry as geo
-import os
+import os, inspect
 from astropy.visualization import make_lupton_rgb
 from rur.config import default_path_in_repo, timer
 import matplotlib as mpl
@@ -200,7 +200,9 @@ def set_weights(mode, cell, unit, depth, weights=None, quantity=None):
     return quantity, weights
 
 def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True,
-           interp_order=0, weights=None, quantity=None, method='hist'):
+           interp_order=0, weights=None, quantity=None, method='hist', total=False):
+    if(total):
+        print("Warning!\n\t`total` is developed for testing purpose.\n\tIt just shows the total quantity in the image, not the average.")
     if(box is None and hasattr(cell, 'snap')):
         box = cell.snap.box
 
@@ -255,7 +257,7 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
                                       reso=binsize, lims=edge, weights=qm*wm)
 
         # weighted average map of quantities
-        hist_map = np.divide(hist_map, hist_weight, where=hist_weight!=0)
+        if(not total): hist_map = np.divide(hist_map, hist_weight, where=hist_weight!=0)
 
         if (ilvl < maxlvl):
             ibin = ilvl
@@ -268,13 +270,16 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
         # new depth
         depth_map_new = depth_map + add_depth
         mask_active = (hist_weight > 0) & (depth_map_new > 0)
-
-        image[mask_active] = (np.divide(image * depth_map + hist_map * add_depth, depth_map_new,
+        if(total):
+            image[mask_active] = image[mask_active] + hist_map[mask_active]
+        else:
+            image[mask_active] = (np.divide(image * depth_map + hist_map * add_depth, depth_map_new,
                                         where=mask_active))[mask_active]
         depth_map = depth_map_new
 
         if(ilvl < maxlvl):
             image = rescale(image, 2, mode='constant', order=interp_order)
+            if(total): image /= 4
             depth_map = rescale(depth_map, 2, mode='constant', order=interp_order)
 
     crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
@@ -473,7 +478,7 @@ def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, m
     return draw_image(image, extent=extent, **kwargs)
 
 def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, method='hist', x=None, smooth=16,
-            crho=False, angles=None, **kwargs):
+            crho=False, angles=None, order='ZXZ', **kwargs):
     if(box is None and isinstance(part, uri.Particle)):
         box = part.snap.box
 
@@ -483,7 +488,7 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
     if(angles is not None):
         focus = np.mean(box, axis=-1)
         x = x - focus
-        x = geo.euler_angle(x, angles) + focus
+        x = geo.euler_angle(x, angles, order=order) + focus
 
     box_proj = get_box_proj(box, proj)
 
@@ -531,11 +536,11 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
 
 
 def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=None, unit=None, method='hist',
-                 smooth=16, crho=False, angles=None, kwargs_partmap={}, **kwargs):
+                 smooth=16, crho=False, angles=None, order='ZXZ', kwargs_partmap={}, **kwargs):
     if(box is None and hasattr(part, 'snap')):
         box = part.snap.box
 
-    image = partmap(part, box, proj, shape, weights, unit, method, smooth=smooth, crho=crho, angles=angles, **kwargs_partmap)
+    image = partmap(part, box, proj, shape, weights, unit, method, smooth=smooth, crho=crho, angles=angles,order=order, **kwargs_partmap)
 
     box_proj = get_box_proj(box, proj)
 

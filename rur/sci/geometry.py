@@ -26,8 +26,8 @@ def align_to_vector(r, vector):
 
 def get_angles(coo):
     x, y, z = coo[..., 0], coo[..., 1], coo[..., 2]
-    phi = np.arctan2(x, y)
-    theta = np.arctan2(z, np.sqrt(x**2 + y**2))
+    phi = np.arctan2(y, x)
+    theta = np.arctan2(np.sqrt(x**2 + y**2), z)
     omega = np.zeros_like(theta)
     return np.stack([phi, theta, omega], axis=-1)
 

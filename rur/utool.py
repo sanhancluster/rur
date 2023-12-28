@@ -828,9 +828,12 @@ def project_data(data, normal, origin=np.array([0., 0., 0.]), prefix='', copy=Fa
 def rotate_data(data, angles, origin, prefix='', order='ZXZ', copy=False):
     # applies euler rotation for data
     pos = get_vector(data, prefix) - origin
-    pos_r = euler_angle(pos, angles, order) + origin
-    set_vector(data, pos_r, prefix=prefix, copy=copy)
-    return data
+    pos_r = euler_angle(pos, angles, order) + origin#+ euler_angle(origin, angles, order)
+    if(copy):
+        return set_vector(data, pos_r, prefix=prefix, copy=copy)
+    else:
+        set_vector(data, pos_r, prefix=prefix, copy=copy)
+        return data
 
 def weighted_std(values, weights, axis=0):
     """

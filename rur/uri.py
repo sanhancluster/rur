@@ -257,6 +257,7 @@ def _classify(pname:str, ids=None, epoch=None, m=None, family=None, sizeonly:boo
                 mask = (ids < 0) & (m > 0) & (epoch == 0)
             nsize = np.count_nonzero(mask)
         elif(ids is not None):
+            print("Warning: either `family` or `epoch` should be given to classify particles.")
             if(pname == 'dm'):
                 mask =  ids > 0
                 nsize = np.count_nonzero(mask)
@@ -293,7 +294,7 @@ def _calc_npart(fname:str, kwargs:dict, sizeonly=False):
                 f.skip_records(1) #lvl
                 epoch = f.read_reals(np.float64)
         result = _classify(pname, ids, epoch, m, family, sizeonly=sizeonly)
-    return result
+    return result[0], result[1], int(fname[-5:])
 
 def _read_part(fname:str, kwargs:dict, legacy:bool, part=None, mask=None, nsize=None, cursor=None, address=None, shape=None):
     pname, ids, epoch, m, family = None, None, None, None, None
@@ -315,19 +316,28 @@ def _read_part(fname:str, kwargs:dict, legacy:bool, part=None, mask=None, nsize=
         vx = readorskip_real(f, np.float64, 'vx', target_fields)
         vy = readorskip_real(f, np.float64, 'vy', target_fields)
         vz = readorskip_real(f, np.float64, 'vz', target_fields)
-        m = readorskip_real(f, np.float64, 'm', target_fields)
-        ids = readorskip_int(f, np.int32, 'id', target_fields)
+        if(pname is None):
+            m = readorskip_real(f, np.float64, 'm', target_fields)
+            ids = readorskip_int(f, np.int32, 'id', target_fields)
+        else:
+            m = f.read_reals(np.float64)
+            ids = f.read_ints(np.int32)
         level = readorskip_int(f, np.int32, 'level', target_fields)
         if(isfamily):
             family = f.read_ints(np.int8) # family
             tag = readorskip_int(f, np.int8, 'tag', target_fields) # tag
         if(isstar):
-            epoch = readorskip_real(f, np.float64, 'epoch', target_fields) # epoch
+            if(pname is None):
+                epoch = readorskip_real(f, np.float64, 'epoch', target_fields) # epoch
+            else:
+                epoch = f.read_reals(np.float64)
             metal = readorskip_real(f, np.float64, 'metal', target_fields)
         
         # Masking
         if(mask is None)or(nsize is None):
             mask, nsize = _classify(pname, ids, epoch, m, family)
+            if(isinstance(mask, np.ndarray)):
+                assert np.sum(mask)==nsize
         # Allocating
         if(legacy)or(address is None):
             if(part is None): part = np.empty(nsize, dtype=dtype)
@@ -914,7 +924,7 @@ class RamsesSnapshot(object):
             box = np.array(box)
             maxlvl = self.params['levelmax']
 
-            involved_cpu = get_cpulist(box, binlvl, maxlvl, self.bound_key, self.ndim, n_divide)
+            involved_cpu = get_cpulist(box, binlvl, maxlvl, self.bound_key, self.ndim, n_divide, ncpu=self.params['ncpu'])
         else:
             involved_cpu = np.arange(self.params['ncpu']) + 1
         return involved_cpu
@@ -946,6 +956,7 @@ class RamsesSnapshot(object):
         # 3) Check numbers of particles from txt (or from output file)
         allfiles = glob.glob(f"{self.snap_path}/output_{self.iout:05d}/part*out*")
         files = [fname for fname in allfiles if int(fname[-5:]) in cpulist]
+        files.sort()
         header = f"{self.snap_path}/output_{self.iout:05d}/header_{self.iout:05d}.txt"
         sinkinfo = f"{self.snap_path}/output_{self.iout:05d}/sink_{self.iout:05d}.info"
 
@@ -1008,8 +1019,20 @@ class RamsesSnapshot(object):
         # 4) Allocate base array
         dtype = self.part_dtype
         if target_fields is not None:
-            if 'cpu' not in target_fields:
+            if( 'cpu' not in target_fields ):
                 target_fields = np.append(target_fields, 'cpu')
+            # if(pname is not None):
+            #     # If `pname` is specified, you should include family(or m,epoch) to classify
+            #     if(isfamily):
+            #         if('family' not in target_fields):
+            #             target_fields = np.append(target_fields, 'family')
+            #     else:
+            #         if('m' not in target_fields):
+            #             target_fields = np.append(target_fields, 'm')
+            #         if('epoch' not in target_fields)and(isstar):
+            #             target_fields = np.append(target_fields, 'epoch')
+            #         if('id' not in target_fields):
+            #             target_fields = np.append(target_fields, 'id')
             dtype = [idtype for idtype in dtype if idtype[0] in target_fields]
         else:
             target_fields = [idtype[0] for idtype in dtype]
@@ -1017,6 +1040,8 @@ class RamsesSnapshot(object):
             "pname":pname, "isfamily":isfamily, "isstar":isstar, "chem":chem, "mode":mode,
             "target_fields":target_fields, "dtype":dtype}
 
+        if(timer.verbose>0):
+            print("Allocating Memory..."); ref = time.time()
         if(sequential):
             tracers = ["tracer","cloud_tracer","star_tracer","gas_tracer"]
             if(pname == 'star'):
@@ -1032,17 +1057,21 @@ class RamsesSnapshot(object):
             else:
                 raise ValueError(f"{pname} is currently not supported!")
             part = np.empty(size, dtype=dtype)
+            if(size==0): return part
         else:
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
                 results = pool.starmap(_calc_npart, [(fname,kwargs) for fname in files])
-            results = np.asarray(results, dtype=[("mask", object), ("size", int)])
+            results = np.asarray(results, dtype=[("mask", object), ("size", int), ("iout", int)])
             signal.signal(signal.SIGTERM, self.terminate)
+            argsort = np.argsort(results['iout'])
+            results = results[argsort]
             sizes = results['size']
             masks = results['mask']
             size = np.sum(sizes)
             cursors = np.cumsum(sizes)-sizes
             part = np.empty(size, dtype=dtype)
+            if(size==0): return part
             if(not self.alert):
                 atexit.register(self.flush, msg=True, parent='[Auto]')
                 signal.signal(signal.SIGINT, self.terminate)
@@ -1051,18 +1080,21 @@ class RamsesSnapshot(object):
             self.part_mem = shared_memory.SharedMemory(create=True, size=part.nbytes)
             self.memory.append(self.part_mem)
             part = np.ndarray(part.shape, dtype=np.dtype(dtype), buffer=self.part_mem.buf)
-                
+        if(timer.verbose>0): print(f"Done ({time.time()-ref:.3f} sec)")
+
         # 5) Read output part files
         if(sequential):
             cursor = 0
-            for fname in files:
+            iterobj = tqdm(files, desc=f"Reading parts") if(timer.verbose>=1) else files
+            for fname in iterobj:
                 cursor = _read_part(fname, kwargs, legacy, part=part, mask=None, nsize=None, cursor=cursor, address=None, shape=None)
             part = part[:cursor]
         else:
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(_read_part, (fname, kwargs, legacy, None, mask, size, cursor, self.part_mem.name, part.shape)) for fname,mask,size,cursor in zip(files,masks,sizes,cursors)]
-                for r in async_result:
+                iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading parts") if(timer.verbose>=1) else async_result
+                for r in iterobj:
                     r.get()
             signal.signal(signal.SIGTERM, self.terminate)
 
@@ -1096,19 +1128,22 @@ class RamsesSnapshot(object):
             for icpu in cpulist:
                 filesize += getsize(self.get_path('part', icpu))
             timer.start('Reading %d part files (%s) in %s... ' % (cpulist.size, utool.format_bytes(filesize), self.path), 1)
+            nthread = min(nthread, cpulist.size)
             if(python):
-                part = self.read_part_py(pname, cpulist, target_fields=target_fields, nthread=min(nthread, cpulist.size), legacy=legacy)
+                part = self.read_part_py(pname, cpulist, target_fields=target_fields, nthread=nthread, legacy=legacy)
             else:
                 progress_bar = cpulist.size > progress_bar_limit and timer.verbose >= 1
                 mode = self.mode
                 if mode == 'nc':
                     mode = 'y4'
-                readr.read_part(self.snap_path, self.iout, cpulist, mode, progress_bar, self.longint, min(nthread, cpulist.size))
+                readr.read_part(self.snap_path, self.iout, cpulist, mode, progress_bar, self.longint, nthread)
                 timer.record()
 
                 timer.start('Building table for %d particles... ' % readr.integer_table.shape[1], 1)
                 dtype = self.part_dtype
                 if(target_fields is not None):
+                    if('cpu' not in target_fields):
+                        target_fields = np.append(target_fields, 'cpu')
                     if(self.longint):
                         arr = [*readr.real_table, *readr.long_table, *readr.integer_table, *readr.byte_table]
                     else:
@@ -1205,6 +1240,10 @@ class RamsesSnapshot(object):
             formats.insert(-2, "f8")
             names.insert(-2, "pot")
         if target_fields is not None:
+            if 'cpu' not in target_fields:
+                target_fields = np.append(target_fields, 'cpu')
+            if 'level' not in target_fields:
+                target_fields = np.append(target_fields, 'level')
             target_idx = np.where(np.isin(names, target_fields))[0]
             formats = [formats[idx] for idx in target_idx]
             names = [names[idx] for idx in target_idx]
@@ -1213,6 +1252,8 @@ class RamsesSnapshot(object):
             dtype = np.format_parser(formats=formats, names=names, titles=None).dtype
 
         # 4) Calculate total number of cells
+        if(timer.verbose>0):
+            print("Allocating Memory..."); ref = time.time()
         if(sequential):
             ncell_tot = 0
             sizes = np.zeros(len(cpulist), dtype=np.int32)
@@ -1238,21 +1279,24 @@ class RamsesSnapshot(object):
             self.cell_mem = shared_memory.SharedMemory(create=True, size=cell.nbytes)
             self.memory.append(self.cell_mem)
             cell = np.ndarray(cell.shape, dtype=np.dtype(dtype), buffer=self.cell_mem.buf)
-                
+        if(timer.verbose>0): print(f"Done ({time.time()-ref:.3f} sec)")
+
         snap_kwargs = {
             'nhvar':nhvar, 'hydro_names':self.hydro_names, 'repo':self.snap_path, 'iout':self.iout,
             'skip_hydro':nhvar * 2**ndim, 'read_grav':read_grav, 'dtype':dtype, 'names':names}
         # 5) Read data
         if(sequential):
             cursor = 0
-            for i, icpu in enumerate(cpulist):
+            iterobj = tqdm(enumerate(cpulist),total=len(cpulist), desc=f"Reading cells") if(timer.verbose>=1) else enumerate(cpulist)
+            for i, icpu in iterobj:
                 cursor = _read_cell(icpu, snap_kwargs, amr_kwargs, legacy, cell=cell, nsize=sizes[i], cursor=cursor, address=None, shape=None)
             cell = cell[:cursor]
         else:
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(_read_cell, (icpu, snap_kwargs, amr_kwargs, legacy, None, size, cursor, self.cell_mem.name, cell.shape)) for icpu,size,cursor in zip(cpulist,sizes, cursors)]
-                for r in async_result:
+                iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading cells") if(timer.verbose>=1) else async_result
+                for r in iterobj:
                     r.get()
             signal.signal(signal.SIGTERM, self.terminate)
         return cell
@@ -1287,7 +1331,7 @@ class RamsesSnapshot(object):
                 filesize += getsize(self.get_path('amr', icpu))
                 filesize += getsize(self.get_path('hydro', icpu))
             timer.start('Reading %d AMR & hydro files (%s) in %s... ' % (cpulist.size, utool.format_bytes(filesize), self.path), 1)
-
+            nthread = min(nthread, cpulist.size)
             if(python):
                 cell = self.read_cell_py(cpulist, read_grav=read_grav, nthread=nthread, target_fields=target_fields, legacy=legacy)
             else:
@@ -1688,7 +1732,25 @@ class RamsesSnapshot(object):
         self.ref = np.concatenate(amr_refs)
         self.cpu = np.concatenate(amr_cpus)
 
-    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False, python=False, nthread=8, legacy=True):
+    def get_cell_instant(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False, python=True, nthread=8, legacy=False):
+        '''
+        Use only if you want to read part data from already loaded whole snapshot.
+        It will not affect attributes of `RamsesSnapshot` class if all CPUlist are satisfied.
+        '''
+        cpulist = self.get_involved_cpu(box=box)
+        ind = np.isin(cpulist, self.cpulist_cell, assume_unique=True)
+        if(not ind.all() ):
+            if(timer.verbose>=1): print(f"Extend CPU list...\n->{cpulist[~ind]}")
+            self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist[~ind], python=python, nthread=nthread, legacy=legacy)
+        if( ind.all() & np.isin(self.cpulist_cell, cpulist).all() ):
+            cell = self.cell_data
+        else:
+            cell = domain_slice(self.cell_data, cpulist, self.cpulist_cell, self.bound_cell)
+        mask = box_mask(get_vector(cell), box, size=self.cell_extra['dx'](cell))
+        cell = cell[mask]
+        return Cell(cell, self)
+
+    def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False, ripses=False, python=True, nthread=8, legacy=False):
         if(box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -1715,7 +1777,12 @@ class RamsesSnapshot(object):
             else:
                 self.read_ripses(target_fields=target_fields, cpulist=cpulist)
             if(domain_slicing):
-                cell = domain_slice(self.cell_data, cpulist, self.cpulist_cell, self.bound_cell)
+                if( np.isin(cpulist, self.cpulist_cell).all() & np.isin(self.cpulist_cell, cpulist).all() ):
+                    cell = self.cell_data
+                else:
+                    timer.start('Domain Slicing...')
+                    cell = domain_slice(self.cell_data, cpulist, self.cpulist_cell, self.bound_cell)
+                    timer.record()
             else:
                 cell = self.cell_data
 
@@ -1730,7 +1797,25 @@ class RamsesSnapshot(object):
             self.cell = cell
         return self.cell
 
-    def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None, python=False, nthread=8, legacy=True):
+    def get_part_instant(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None, python=True, nthread=8, legacy=False):
+        '''
+        Use only if you want to read part data from already loaded whole snapshot.
+        It will not affect attributes of `RamsesSnapshot` class if all CPUlist are satisfied.
+        '''
+        cpulist = self.get_involved_cpu(box=box)
+        ind = np.isin(cpulist, self.cpulist_part, assume_unique=True)
+        if(not ind.all() ):
+            if(timer.verbose>=1): print(f"Extend CPU list...\n->{cpulist[~ind]}")
+            self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, python=python, legacy=legacy)
+        if( ind.all() & np.isin(self.cpulist_part, cpulist).all() ):
+            part = self.part_data
+        else:
+            part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
+        mask = box_mask(get_vector(part), box)
+        part = part[mask]
+        return Particle(part, self, ptype=pname)
+
+    def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None, python=True, nthread=8, legacy=False):
         if(box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -1764,7 +1849,12 @@ class RamsesSnapshot(object):
                 exact_box = False
             self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, python=python, legacy=legacy)
             if(domain_slicing):
-                part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
+                if( np.isin(cpulist, self.cpulist_part).all() & np.isin(self.cpulist_part, cpulist).all() ):
+                    part = self.part_data
+                else:
+                    timer.start('Domain Slicing...')
+                    part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
+                    timer.record()
             else:
                 part = self.part_data
             if(self.box is not None):
@@ -1800,16 +1890,29 @@ class RamsesSnapshot(object):
             self.sink = sink
         return self.sink
 
-    def get_halos_cpulist(self, halos, radius=1., use_halo_radius=True, radius_name='r', n_divide=4):
+    def get_halos_cpulist(self, halos, radius=1., use_halo_radius=True, radius_name='r', n_divide=4, nthread=1):
         # returns cpulist that encloses given list of halos
         cpulist = []
-        for halo in halos:
+        def _ibox(halo, radius=1., use_halo_radius=True, radius_name='r'):
             if(use_halo_radius):
                 extent = halo[radius_name]*radius*2
             else:
                 extent = radius*2
-            box = get_box(get_vector(halo), extent)
-            cpulist.append(get_cpulist(box, None, self.levelmax, self.bound_key, self.ndim, n_divide))
+            return get_box(get_vector(halo), extent)
+        if(nthread==1):
+            for halo in halos:
+                box = _ibox(halo, radius=radius, use_halo_radius=use_halo_radius, radius_name=radius_name)
+                cpulist.append(get_cpulist(box, None, self.levelmax, self.bound_key, self.ndim, n_divide, ncpu=self.params['ncpu']))
+        else:
+            with Pool(processes=nthread) as pool:
+                async_result = [
+                    pool.apply_async(
+                                    get_cpulist,
+                                    (_ibox(halo, radius, use_halo_radius, radius_name), None, self.levelmax, self.bound_key, self.ndim, n_divide, self.params['ncpu'])
+                                    ) for halo in halos
+                                ]
+                for r in async_result:
+                    cpulist.append(r.get())
         return np.unique(np.concatenate(cpulist))
 
     def get_cpulist_from_part(self, ids, path_in_repo='part_cpumap', mode='init', filename='%s_cpumap_%05d.pkl'):
@@ -2075,6 +2178,7 @@ def classify_part(part, pname, ptype=None):
         else:
             mask = False
     elif('id' in names):
+        print("Warning: No `family` or `epoch` field found, using id and mass instead.")
         # DM-only simulation
         if(pname == 'dm'):
             mask =  part['id'] > 0
@@ -2288,7 +2392,7 @@ def time_series(repo, iouts, halo_table, mode='none', extent=None, unit=None):
         snaps.append(snap)
     return snaps
 
-def get_cpulist(box, binlvl, maxlvl, bound_key, ndim, n_divide):
+def get_cpulist(box, binlvl, maxlvl, bound_key, ndim, n_divide, ncpu=None):
     # get list of cpus involved in selected box.
     volume = np.prod([box[:, 1] - box[:, 0]])
     if (binlvl is None):
@@ -2316,12 +2420,13 @@ def get_cpulist(box, binlvl, maxlvl, bound_key, ndim, n_divide):
     key_range = np.stack([keys, keys + 1], axis=-1)
     key_range = key_range.astype('f8')
 
-    involved_cpu = []
-    for icpu_range, key in zip(
-            np.searchsorted(bound_key / 2. ** (ndim * (maxlvl - binlvl + 1)), key_range),
-            key_range):
-        involved_cpu.append(np.arange(icpu_range[0], icpu_range[1] + 1))
-    involved_cpu = np.unique(np.concatenate(involved_cpu)) + 1
+    involved_cpu = np.zeros(ncpu, dtype='?')
+    icpu_ranges = np.searchsorted(bound_key / 2. ** (ndim * (maxlvl - binlvl + 1)), key_range)
+    icpu_ranges = np.unique(icpu_ranges, axis=0)
+    for icpu_range in icpu_ranges:
+        involved_cpu[np.arange(icpu_range[0], icpu_range[1] + 1, dtype=int)] = True
+    involved_cpu = np.where(involved_cpu)[0] + 1
+
     if (timer.verbose >= 2):
         print("List of involved CPUs: ", involved_cpu)
     return involved_cpu
@@ -2351,7 +2456,7 @@ def ckey2idx(amr_keys, nocts, levelmin, ndim=3):
 
 def domain_slice(array, cpulist, cpulist_all, bound):
     # array should already been aligned with bound
-    idxs = np.where(np.isin(cpulist_all, cpulist))[0]
+    idxs = np.where(np.isin(cpulist_all, cpulist, assume_unique=True))[0]
     doms = np.stack([bound[idxs], bound[idxs+1]], axis=-1)
     segs = doms[:, 1] - doms[:, 0]
 
