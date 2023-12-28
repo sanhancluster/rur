@@ -1460,6 +1460,7 @@ class RamsesSnapshot(object):
 
 
     def read_sinkprop_info(self, path_in_repo='SINKPROPS', icoarse=None, max_icoarse_offset=1):
+        # reads header information from sinkprops file returns as dict
         info = dict()
         path, icoarse = self.check_sinkprop(path_in_repo=path_in_repo, icoarse=icoarse, max_icoarse_offset=max_icoarse_offset)
         filename = join(path, sinkprop_format.format(icoarse=icoarse))
@@ -2252,11 +2253,11 @@ def match_part_to_cell(part, cell, n_search=16):
 
     return idx_cell
 
-def match_tracer(tracer, cell, n_jobs=-1, min_dist_pc=1, use_cell_size=False):
+def match_tracer(tracer, cell, min_dist_pc=1, use_cell_size=False):
     # match MC gas tracer particles to cell
     timer.start("Matching %d tracers and %d cells..." % (tracer.size, cell.size), 1)
     tree = KDTree(tracer['pos'])
-    dists, idx_tracer = tree.query(cell['pos'], p=1, n_jobs=n_jobs)
+    dists, idx_tracer = tree.query(cell['pos'], p=1)
 
     if(use_cell_size):
         mask = dists < min_dist_pc*cell.snap.unit['pc']

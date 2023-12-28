@@ -1298,11 +1298,10 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
             if (age_cut is not None):
                 star = star[star['age', 'Gyr'] < age_cut]
             mags = phot.measure_magnitude(star, filter_name=phot_filter, total=False)
-            phot.absmag_to_mass()
             lums = 10**(-mags/2.5)
-            im = draw_partmap(lums, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
-                         weights=lums, unit='mag/arcsec2')
-            colorbar_label = 'Surface brightness [mag]'
+            im = draw_partmap(star, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
+                         weights=lums)
+            colorbar_label = 'Surface brightness\nmag'
             mode_label = 'Stars'
         elif (mode_now == 'sdss'):
             star = part['star']
@@ -1429,6 +1428,7 @@ def viewer(snap:uri.RamsesSnapshot, box=None, center=None, target=None, catalog=
 
     if (savefile is not None):
         save_figure(savefile)
+    return fig, axes
 
 def SDSS_rgb(star, filename=None, **kwargs):
     mags = phot.measure_magnitude(star, 'SDSS_g')
