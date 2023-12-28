@@ -12,7 +12,7 @@ from rur.config import Table, get_vector, Timer, alias_dict
 from collections.abc import Iterable
 from collections import defaultdict
 import warnings
-from numpy.lib.recfunctions import merge_arrays, drop_fields
+from numpy.lib import recfunctions as rf
 from IPython import get_ipython
 
 import pickle as pkl
@@ -1382,7 +1382,19 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
         iterator.close()
         return [output_arr[key] for key in keys_inv]
 
-def add_fields(table, dtype, fill_value=0, overwrite=True):
+def join_arrays(arrays):
+    # Same as rf.merge_arrays, but does not break nested dtype structures
+    # from https://stackoverflow.com/questions/5355744/numpy-joining-structured-arrays
+    sizes = np.array([a.itemsize for a in arrays])
+    offsets = np.r_[0, sizes.cumsum()]
+    n = len(arrays[0])
+    joint = np.empty((n, offsets[-1]), dtype=np.uint8)
+    for a, size, offset in zip(arrays, sizes, offsets):
+        joint[:,offset:offset+size] = a.view(np.uint8).reshape(n,size)
+    dtype = sum((a.dtype.descr for a in arrays), [])
+    return joint.ravel().view(dtype)
+
+def add_fields(table, dtype, fill_value=None, overwrite=True):
     # add field to an np.recarray / structured array or Table (and inherited classes, e.g. Cell, Particle, ...)
     if isinstance(table, Table):
         data = table.table
@@ -1391,12 +1403,15 @@ def add_fields(table, dtype, fill_value=0, overwrite=True):
     dtype = np.dtype(dtype)
     if(overwrite):
         names_to_drop = np.array(dtype.names)[np.isin(dtype.names, data.dtype.names)]
-        data = drop_fields(data, names_to_drop)
-
-    to_add = np.full(shape=data.shape, fill_value=fill_value, dtype=dtype)
-    data = merge_arrays([data, to_add], flatten=True, usemask=False)
+        data = rf.drop_fields(data, names_to_drop)
+    if fill_value is None:
+        to_add = np.zeros_like(data, dtype=dtype)
+    else:
+        to_add = np.full_like(data, fill_value=fill_value, dtype=dtype)
+    data = join_arrays([data, to_add])
 
     if isinstance(table, Table):
         return table.__copy__(data)
     else:
         return data
+
