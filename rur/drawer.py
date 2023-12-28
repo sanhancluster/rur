@@ -315,27 +315,41 @@ def cic_img(x, y, lims, reso=100, weights=None):
     # apply cloud-in-cell particle mesh algorithm
     if (np.isscalar(reso)):
         reso = np.repeat(reso, 2)
+
+    # get only finite values
     mask = np.isfinite(x) & np.isfinite(y)
+
+    # set up coordinate array with shape (n, 2)
     points = np.stack([x, y], axis=-1)[mask]
+
+    # set up weights
     if weights is None:
         weights = 1.
     elif isinstance(weights, Iterable):
         weights = np.array(weights)[mask]
 
-    range = lims
-    shape = reso
-    indices_float = (points - np.array(range)[:, 0]) / (np.array(range)[:, 1] - np.array(range)[:, 0]) * np.array(shape) + 0.5
+    # set up shapes and ranges
+    range_array = np.array(lims)
+    shape_array = np.array(reso)
 
-    dxs = np.concatenate(np.stack(np.mgrid[0:2, 0:2], axis=-1))[:, np.newaxis, :]
-    indices_int = np.floor(indices_float - dxs)
+    # set up dx array with shape (4, 2)
+    dxs = np.concatenate(np.stack(np.mgrid[0:2, 0:2], axis=-1))
 
-    offsets = indices_float - indices_int
-    areas = np.product(1-np.abs(offsets - 1), axis=-1)
+    # convert position onto float coordinate
+    indices_float = (points - range_array[:, 0]) / (range_array[:, 1] - range_array[:, 0]) * shape_array + 0.5
 
-    pool = np.zeros(shape, dtype='f8')
-    coords = np.concatenate(indices_int).astype(int)
-    mask = np.all((coords >= 0) & (coords < shape), axis=-1)
-    np.add.at(pool, (coords[mask, 0], coords[mask, 1]), (np.concatenate(areas * weights))[mask])
+    # create zero array
+    pool = np.zeros(shape_array, dtype='f8')
+
+    # apply cic  on 4-side (loop to save memory)
+    for dx in dxs:
+        indices_int = np.floor(indices_float - dx).astype(int)
+
+        offsets = indices_float - indices_int
+        areas = np.product(1-np.abs(offsets - 1), axis=-1)
+
+        mask = np.all((indices_int >= 0) & (indices_int < shape_array), axis=-1)
+        np.add.at(pool, (indices_int[mask, 0], indices_int[mask, 1]), (areas * weights)[mask])
     return pool
 
 def coo_img(lims, reso=100, axis=-1, ravel=False):
