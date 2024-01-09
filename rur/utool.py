@@ -21,6 +21,7 @@ import os
 from multiprocessing import Process, cpu_count, Manager
 from time import sleep
 
+
 def type_of_script():
     """
     Detects and returns the type of python kernel
@@ -35,10 +36,12 @@ def type_of_script():
     except:
         return 'terminal'
 
-if(type_of_script() == 'jupyter'):
+
+if (type_of_script() == 'jupyter'):
     from tqdm.notebook import tqdm
 else:
     from tqdm import tqdm
+
 
 # pickle load/save
 def uopen(path, mode):
@@ -47,72 +50,79 @@ def uopen(path, mode):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     return open(path, mode)
 
+
 def dump(data, path, msg=True, format='pkl'):
     t = Timer()
     path = os.path.expanduser(path)
 
-    if(format == 'pkl'):
+    if (format == 'pkl'):
         with uopen(path, 'wb') as opened:
             pkl.dump(data, opened, protocol=4)
 
-    elif(format == 'hdf5'):
+    elif (format == 'hdf5'):
         with h5py.File(path, 'w') as f:
             f.create_dataset('table', data=data)
 
     else:
         raise ValueError("Unknown format: %s" % format)
 
-    if(msg):
+    if (msg):
         filesize = os.path.getsize(path)
         print("File %s dump complete (%s): %.3f seconds elapsed" % (path, format_bytes(filesize), t.time()))
 
+
 def load(path, msg=True, format=None):
     t = Timer()
-    if(format is None):
+    if (format is None):
         ext = os.path.splitext(os.path.basename(path))[1]
         format = ext[1:]
     path = os.path.expanduser(path)
-    if(format == 'pkl'):
+    if (format == 'pkl'):
         with open(path, 'rb') as opened:
             data = pkl.load(opened, encoding='latin1')
-    elif(format == 'hdf5'):
+    elif (format == 'hdf5'):
         f = h5py.File(path, 'r')
         data = f['table']
     else:
         raise ValueError("Unknown format: %s" % format)
-    if(msg):
+    if (msg):
         filesize = os.path.getsize(path)
         print("File %s load complete (%s): %.3f seconds elapsed" % (path, format_bytes(filesize), t.time()))
     return data
 
+
 # Some RAMSES-related stuff
 dim_keys = ['x', 'y', 'z']
 
+
 def los(proj, ndim=3):
     # return line-of-sight dimension from given projection
-    if(len(proj) != ndim-1):
+    if (len(proj) != ndim - 1):
         raise ValueError('Invalid projection')
     dims = np.arange(ndim)
     return dims[np.isin(dims, proj, invert=True)][0]
 
+
 def set_vector(table, vector, prefix='', ndim=3, where=None, copy=False):
-    if(isinstance(table, Table)):
+    if (isinstance(table, Table)):
         table = table.table
-    if(copy):
+    if (copy):
         table = table.copy()
     for idim in range(ndim):
-        if(where is None):
-            table[prefix+dim_keys[idim]] = vector[..., idim]
+        if (where is None):
+            table[prefix + dim_keys[idim]] = vector[..., idim]
         else:
-            table[prefix+dim_keys[idim]][where] = vector[..., idim]
-    if(copy):
+            table[prefix + dim_keys[idim]][where] = vector[..., idim]
+    if (copy):
         return table
+
 
 def get_box(center, extent):
     center = np.array(center)
-    if(not np.isscalar(extent)):
+    if (not np.isscalar(extent)):
         extent = np.array(extent)
-    return np.stack([center-extent/2, center+extent/2], axis=-1)
+    return np.stack([center - extent / 2, center + extent / 2], axis=-1)
+
 
 def get_bounding_box(coo):
     # return bounding box from coordinates
@@ -124,36 +134,40 @@ def get_bounding_box(coo):
 def get_distance(a, b, prefix='', ndim=3):
     return rss(get_vector(a, prefix, ndim) - get_vector(b, prefix, ndim))
 
+
 def get_polar_coord(coo, pos=[0.5, 0.5, 0.5]):
-    coo = coo-np.array(pos)
+    coo = coo - np.array(pos)
     r = rss(coo, axis=-1)
-    theta = np.arccos(coo[:, 2]/r)
+    theta = np.arccos(coo[:, 2] / r)
     phi = np.arctan2(coo[:, 1], coo[:, 0])
 
     return np.stack([r, theta, phi], axis=-1)
 
 
 def shift(table, vec, ndim=3, periodic=True):
-    if(isinstance(table, Table)):
+    if (isinstance(table, Table)):
         table = table.table
     for idim in range(ndim):
         table[dim_keys[idim]] += vec[idim]
-        if(periodic):
+        if (periodic):
             table[dim_keys[idim]] %= 1
+
 
 def pairing(a, b, ignore=None):
     # cantor pairing function
     output = (a + b) * (a + b + 1) // 2 + b
-    if(ignore is not None):
+    if (ignore is not None):
         mask = (a == ignore) | (b == ignore)
         output[mask] = ignore
     return output
 
+
 # some custom array-related functions
 def bin_centers(start, end, num):
     # get center of num bins that divide the range equally
-    arr = np.linspace(start, end, num+1)
+    arr = np.linspace(start, end, num + 1)
     return (arr[1:] + arr[:-1]) / 2
+
 
 def append_rows(array, new_rows, idx=None):
     # Calculate the number of old and new rows
@@ -163,18 +177,20 @@ def append_rows(array, new_rows, idx=None):
     array.resize(len_array + len_new_rows, refcheck=False)
     # Write to the end of recarray
 
-    if(idx is None):
+    if (idx is None):
         array[-len_new_rows:] = new_rows
     else:
-        array[idx-len_array:] = array[idx:len_array]
-        array[idx:idx+len_new_rows] = new_rows
+        array[idx - len_array:] = array[idx:len_array]
+        array[idx:idx + len_new_rows] = new_rows
     return array
+
 
 def rank(arr):
     temp = np.argsort(arr)
     ranks = np.empty_like(temp)
     ranks[temp] = np.arange(arr.size)
     return ranks
+
 
 def expand_shape(arr, axes, ndim):
     # axis: array that has same size with current number of dimensions, positions of axis in the resulting array
@@ -196,14 +212,15 @@ def expand_shape(arr, axes, ndim):
 
 def make_broadcastable(arr_tuple, axes, ndim=None):
     # makes two arrays to be able to broadcast with each other
-    if(ndim is None):
+    if (ndim is None):
         axes_all = np.concatenate(axes)
         ndim = max(axes_all) + 1
 
     out = ()
     for arr, axis in zip(arr_tuple, axes):
-        out += (expand_shape(arr, axis, ndim), )
+        out += (expand_shape(arr, axis, ndim),)
     return out
+
 
 def find_intersect(x1, y1, x2, y2):
     """
@@ -213,10 +230,10 @@ def find_intersect(x1, y1, x2, y2):
     """
     res = y2 - np.interp(x2, x1, y1)
     mask = res > 0
-    if(np.all(mask)):
+    if (np.all(mask)):
         mean_ini = np.mean([[x1[0], y1[0]], [x2[0], y2[0]]], axis=0)
         return tuple(mean_ini)
-    if(np.all(~mask)):
+    if (np.all(~mask)):
         last_ini = np.mean([[x1[-1], y1[-1]], [x2[-1], y2[-1]]], axis=0)
         return tuple(last_ini)
 
@@ -230,6 +247,7 @@ def find_intersect(x1, y1, x2, y2):
 
     return tuple(coo)
 
+
 def intersection(x1, x2, x3, x4):
     a = x2 - x1
     b = x4 - x3
@@ -238,20 +256,22 @@ def intersection(x1, x2, x3, x4):
     x = x1 + a * np.dot(np.cross(c, b), np.cross(a, b)) / ss(np.cross(a, b))
     return x
 
+
 def bin_cut(arr, value, bins, return_centers=False, func=None):
     out = []
     binarr = bins[:-1], bins[1:]
     for bot, top in zip(*binarr):
-        cut = arr[(bot<=value) & (value<top)]
-        if(func is None):
+        cut = arr[(bot <= value) & (value < top)]
+        if (func is None):
             out.append(cut)
         else:
             out.append(func(cut))
-    if(not return_centers):
+    if (not return_centers):
         return out
     else:
         center = np.average(binarr, axis=0)
         return out, center
+
 
 def cartesian(*arrays):
     # cartesian product of arrays
@@ -259,8 +279,9 @@ def cartesian(*arrays):
     dtype = np.result_type(*arrays)
     arr = np.empty([len(a) for a in arrays] + [la], dtype=dtype)
     for i, a in enumerate(np.ix_(*arrays)):
-        arr[...,i] = a
+        arr[..., i] = a
     return arr.reshape(-1, la)
+
 
 def discrete_hist2d(shape, idx, use_long=False):
     if (use_long):
@@ -271,9 +292,10 @@ def discrete_hist2d(shape, idx, use_long=False):
     hist = np.reshape(hist, shape)
     return hist
 
+
 def set_bins(bins, lims=None, values=None):
-    if(isinstance(bins, int) and np.array(lims).ndim <= 1):
-        if(lims is None):
+    if (isinstance(bins, int) and np.array(lims).ndim <= 1):
+        if (lims is None):
             bins = np.quantile(values, np.linspace(0., 1., bins + 1))
 
             # Temp: add small offset at the end to include last sample
@@ -281,24 +303,25 @@ def set_bins(bins, lims=None, values=None):
             bins[0] -= (bins[1] - bins[0]) * 0.5
             return bins
         else:
-            return np.linspace(*lims, bins+1)
+            return np.linspace(*lims, bins + 1)
     else:
         bins = np.atleast_1d(bins)
-        if(isinstance(bins[0], int) or isinstance(bins[0], np.int64) and np.array(lims).ndim == 2):
+        if (isinstance(bins[0], int) or isinstance(bins[0], np.int64) and np.array(lims).ndim == 2):
             binarr = []
             bins = np.atleast_1d(bins) * np.array([1, 1])
             for lim, nbin in zip(lims, bins):
-                binarr.append(np.linspace(*lim, nbin+1))
+                binarr.append(np.linspace(*lim, nbin + 1))
             bins = binarr
             return bins
     return bins
 
+
 def digitize(points, bins, lims=None, single_idx=False):
-    #n-dimensional version of np.digitize, but returns 0:size instead of 1:size+1
+    # n-dimensional version of np.digitize, but returns 0:size instead of 1:size+1
     points = np.array(points)
     ndim = points.ndim
     bins = set_bins(bins, lims, points)
-    if(ndim == 1):
+    if (ndim == 1):
         return np.digitize(points, bins)
 
     points = points.T
@@ -307,10 +330,10 @@ def digitize(points, bins, lims=None, single_idx=False):
     for idim in range(len(bins)):
         bin = bins[idim]
         idx.append(np.digitize(points[idim], bin) - 1)
-        shape.append(len(bin)-1)
+        shape.append(len(bin) - 1)
     shape = np.array(shape)
     idx = np.array(idx)
-    if(single_idx):
+    if (single_idx):
         idx_single = np.empty(points.shape[-1], dtype=idx.dtype)
         min_mask = np.any(idx < 0, axis=0)
         max_mask = np.any(idx >= shape[:, np.newaxis], axis=0)
@@ -321,8 +344,10 @@ def digitize(points, bins, lims=None, single_idx=False):
         idx = idx_single
     return idx
 
+
 def add_dims(arr, ndim, axis=-1):
-    return np.expand_dims(arr, list(np.arange(axis, axis-ndim, -1)))
+    return np.expand_dims(arr, list(np.arange(axis, axis - ndim, -1)))
+
 
 class discrete_stat(object):
     """A class to manage discrete set of data y (e.g. binned data, etc...)
@@ -331,19 +356,21 @@ class discrete_stat(object):
     any idx outside (0, size) will be ignored
     this class only works with 1d discrete data. use inherited class to use it for higher dimensions.
     """
+
     def __init__(self, y, idx, grid_size=None, weights=None):
         # convert idx and y to numpy array
         y = np.array(y)
         idx = np.array(idx)
 
         # check dimensions and shapes
-        if(idx.ndim != 1):
+        if (idx.ndim != 1):
             raise ValueError("idx must have ndim==1 (received: idx.ndim=%d)" % idx.ndim)
-        if(y.shape[0] != idx.size):
-            raise ValueError("Size mismatch: %d != %d\ny must have same shape with idx at axis 0!" % (y.shape[0], idx.size))
+        if (y.shape[0] != idx.size):
+            raise ValueError(
+                "Size mismatch: %d != %d\ny must have same shape with idx at axis 0!" % (y.shape[0], idx.size))
 
         # automatically set grid_size
-        if(grid_size is None):
+        if (grid_size is None):
             grid_size = np.max(idx) + 1
 
         # set internal variables
@@ -387,11 +414,11 @@ class discrete_stat(object):
         if self.weights is not None:
             self.weights = self.weights[keys]
 
-        self.bounds = np.searchsorted(self.idx, np.arange(np.prod(self.grid_size)+1))
+        self.bounds = np.searchsorted(self.idx, np.arange(np.prod(self.grid_size) + 1))
         self.valid_slice = slice(self.bounds[0], self.bounds[-1])
 
     def apply_at_idx(self, value: np.ndarray, func=np.add, dtype=None, use_valid_slice=True):
-        if(dtype is None):
+        if (dtype is None):
             dtype = self.dtype
         value = np.atleast_1d(value)
         return_shape = (self.grid_size,) + value.shape[1:]
@@ -460,7 +487,7 @@ class discrete_stat(object):
             weights = weights[self.valid_slice]
 
         means = self.eval_mean()
-        to_add = weights*(y-means[idx])**2
+        to_add = weights * (y - means[idx]) ** 2
         return self.apply_at_idx(to_add, use_valid_slice=False) / self.eval('wsum')
 
     def eval_std(self):
@@ -477,36 +504,36 @@ class discrete_stat(object):
         means = self.eval('mean')
         stds = self.eval('std')
 
-        to_add = weights*((y-means[idx])/stds[idx])**k
+        to_add = weights * ((y - means[idx]) / stds[idx]) ** k
         moments = self.apply_at_idx(to_add, use_valid_slice=False) / self.eval('wsum')
 
         return moments
 
     def eval_skew(self):
-        if(self.cache['skew'] is None):
+        if (self.cache['skew'] is None):
             self.cache['skew'] = self.eval('mom', k=3)
         return self.cache['skew']
 
     def eval_kurt(self):
-        if(self.cache['kurt'] is None):
+        if (self.cache['kurt'] is None):
             self.cache['kurt'] = self.eval('mom', k=4)
         return self.cache['kurt']
 
     def eval_median(self, *args, **kwargs):
-        if(self.cache['med'] is None):
+        if (self.cache['med'] is None):
             self.cache['med'] = self.eval('quant', 0.5, *args, **kwargs)
         return self.cache['med']
 
     def eval_quantile(self, q, use_weights=None):
         y = self.y
         use_weights = use_weights and self.weights is not None
-        if(use_weights):
+        if (use_weights):
             weights = np.broadcast_to(self.weights, y.shape)
         slices = [slice(low, upp) for low, upp in zip(self.bounds[:-1], self.bounds[1:])]
         out = []
         for sl in slices:
-            if(sl.stop - sl.start > 0):
-                if(use_weights):
+            if (sl.stop - sl.start > 0):
+                if (use_weights):
                     qua = np.empty(np.prod(self.value_shape))
                     for sidx in range(qua.size):
                         target_value = y[(sl,) + np.unravel_index(sidx, self.value_shape)]
@@ -530,10 +557,10 @@ class discrete_stat(object):
         bins_arr = np.array(bins_arr)
 
         nvar = shape[1]
-        pdf = np.zeros((bins_arr.shape[-1]-1,)+shape, dtype='f8')
+        pdf = np.zeros((bins_arr.shape[-1] - 1,) + shape, dtype='f8')
 
         for i in range(nvar):
-            idx_pdf = np.digitize(y[:, i], bins=bins_arr[i])-1
+            idx_pdf = np.digitize(y[:, i], bins=bins_arr[i]) - 1
             np.add.at(pdf[..., i], (idx_pdf, idx), weights[..., 0])
         return pdf
 
@@ -575,11 +602,12 @@ class discrete_stat(object):
             'med': self.eval_median,
         }
 
+
 class binned_stat(discrete_stat):
     def __init__(self, x, y, bins, lims=None, weights=None):
         self.bins = set_bins(bins, lims, y)
         idx = digitize(x, self.bins, lims, single_idx=True)
-        self.grid_shape = tuple([len(bin)-1 for bin in self.bins])
+        self.grid_shape = tuple([len(bin) - 1 for bin in self.bins])
         grid_size = np.prod(self.grid_shape)
 
         super().__init__(y, idx, grid_size, weights)
@@ -587,6 +615,7 @@ class binned_stat(discrete_stat):
     def __call__(self, mode, *args, **kwargs):
         out = super().__call__(mode, *args, **kwargs)
         return np.reshape(out, tuple(self.grid_shape) + out.shape[1:], order='F')
+
 
 class kde_stat(object):
 
@@ -596,7 +625,7 @@ class kde_stat(object):
         self.points = np.atleast_2d(points)
         self.tree_data = KDTree(self.coord)
         self.tree_points = KDTree(self.coord)
-        self.shape = points.shape[:1]+value.shape[1:]
+        self.shape = points.shape[:1] + value.shape[1:]
 
         if not self.coord.size > 1:
             raise ValueError("`dataset` input should have multiple elements.")
@@ -607,19 +636,18 @@ class kde_stat(object):
         else:
             self.weights = np.ones(self.n) / self.n
 
-
         # compute the normalised residuals
         self.chi2 = cdist(points, self.coord) ** 2
         self.bandwidth = bandwidth
-        self.norm_factor = (2*np.pi*bandwidth**2)**-0.5
-        self.kde_weights = np.exp(-.5 * self.chi2/bandwidth**2) * self.weights / self._norm_factor
+        self.norm_factor = (2 * np.pi * bandwidth ** 2) ** -0.5
+        self.kde_weights = np.exp(-.5 * self.chi2 / bandwidth ** 2) * self.weights / self._norm_factor
         # compute the pdf
         self.weights_sums = np.sum(self.kde_weights, axis=-1)
 
         self.clear()
 
     def kernel(self, dist):
-        return self.norm_factor * np.exp(-0.5*dist**2/self.bandwidth**2)
+        return self.norm_factor * np.exp(-0.5 * dist ** 2 / self.bandwidth ** 2)
 
     def clear(self):
         self.sum = None
@@ -637,7 +665,7 @@ class kde_stat(object):
 
     def eval_mean(self):
         if self.mean is None:
-            self.mean = self.eval_sum()/self.weights_sums
+            self.mean = self.eval_sum() / self.weights_sums
         return self.mean
 
     def eval_var(self):
@@ -646,7 +674,6 @@ class kde_stat(object):
 
     def eval_std(self):
         pass
-
 
     __call__ = evaluate
 
@@ -664,7 +691,7 @@ def k_partitioning(centers_init, points, weights,
         np.add.at(sums, idx_closest, weights)
 
         idx_min = np.argmin(sums)
-        pidx_max = np.argmax(dists*sums[idx_closest])
+        pidx_max = np.argmax(dists * sums[idx_closest])
         centers[idx_min] = points[pidx_max]
 
         return centers
@@ -680,16 +707,16 @@ def k_partitioning(centers_init, points, weights,
         sums = np.zeros(centers.shape[0], dtype='f8')
         np.add.at(sums, idx_closest, weights)
 
-        multiplier = ((sums[idx]/(np.sum(sums)/centers.shape[0]))**gamma)
-        idx_assign = idx[np.arange(points.shape[0]), np.argmin(dists*multiplier, axis=-1)]
+        multiplier = ((sums[idx] / (np.sum(sums) / centers.shape[0])) ** gamma)
+        idx_assign = idx[np.arange(points.shape[0]), np.argmin(dists * multiplier, axis=-1)]
 
         vectors = np.zeros(centers.shape, dtype='f8')
-        np.add.at(vectors, idx_assign, expand_shape(weights, [0], 2)*points)
+        np.add.at(vectors, idx_assign, expand_shape(weights, [0], 2) * points)
 
         sums = np.zeros(centers.shape[0], dtype='f8')
         np.add.at(sums, idx_assign, weights)
 
-        centers[sums>0] = (vectors[sums>0]/expand_shape(sums[sums>0], [0], 2))
+        centers[sums > 0] = (vectors[sums > 0] / expand_shape(sums[sums > 0], [0], 2))
         return centers
 
     def perturb(centers):
@@ -701,9 +728,9 @@ def k_partitioning(centers_init, points, weights,
         np.add.at(sums, idx_closest, weights)
 
         mdists = np.zeros(centers.shape[0], dtype='f8')
-        np.add.at(mdists, idx_closest, weights*np.sqrt(np.sum((points-centers[idx_closest])**2, axis=-1)))
-        mdists = mdists/sums
-        mdists[sums==0] = 0.
+        np.add.at(mdists, idx_closest, weights * np.sqrt(np.sum((points - centers[idx_closest]) ** 2, axis=-1)))
+        mdists = mdists / sums
+        mdists[sums == 0] = 0.
 
         offset = np.random.normal(size=centers.shape, scale=1.)
         centers += offset * expand_shape(mdists, [0], 2) * scale
@@ -712,49 +739,50 @@ def k_partitioning(centers_init, points, weights,
 
     centers_min = centers_init
     sums_min = voronoi_binning(centers_min, points)
-    std_min = np.std(sums_min)/np.mean(sums_min)
+    std_min = np.std(sums_min) / np.mean(sums_min)
 
     for niter in range(iterations):
-        if(niter > 0):
+        if (niter > 0):
             centers = perturb(centers_min)
         else:
             centers = centers_min
 
         sums = voronoi_binning(centers, points)
-        std = np.std(sums)/np.mean(sums)
+        std = np.std(sums) / np.mean(sums)
 
         nfail = 0
         centers_new = centers
-        while(nfail<fail_threshold[1]):
+        while (nfail < fail_threshold[1]):
             centers_new = relax(centers_new)
-            while(True):
+            while (True):
                 sums_new = voronoi_binning(centers_new, points)
-                std_new = np.std(sums_new)/np.mean(sums_new)
-                if(np.all(sums_new > 0.)):
+                std_new = np.std(sums_new) / np.mean(sums_new)
+                if (np.all(sums_new > 0.)):
                     break
                 centers_new = replace(centers_new)
-                if(verbose):
+                if (verbose):
                     print('replace', std_new)
 
-            if(std_new < std):
-                if(std_new > std*(1-fail_threshold[0])):
+            if (std_new < std):
+                if (std_new > std * (1 - fail_threshold[0])):
                     nfail += 1
                 centers = centers_new
                 std = std_new
-                if(verbose):
+                if (verbose):
                     print('iter', std)
             else:
                 nfail += 1
 
-        if(std < std_min):
+        if (std < std_min):
             std_min = std
             centers_min = centers
-            if(verbose):
+            if (verbose):
                 print('best', std)
-            if(std_min < target_std):
+            if (std_min < target_std):
                 break
 
     return centers_min, std_min
+
 
 def voronoi_binning(centers, points, weights=1., n_jobs=-1):
     idx_closest = find_closest(centers, points, n_jobs=n_jobs)
@@ -764,40 +792,45 @@ def voronoi_binning(centers, points, weights=1., n_jobs=-1):
 
     return sums
 
+
 def find_closest(centers, points, n_jobs=-1):
     tree = KDTree(centers)
     idx_closest = tree.query(points, k=1)[1]
     return idx_closest
 
+
 def format_bytes(size, format='{:#.4g}'):
     power = 1024
     n = 0
-    power_labels = {0 : '', 1: 'Ki', 2: 'Mi', 3: 'Gi', 4: 'Ti', 5: 'Pi'}
+    power_labels = {0: '', 1: 'Ki', 2: 'Mi', 3: 'Gi', 4: 'Ti', 5: 'Pi'}
     while size > power:
         size /= power
         n += 1
-    return (format.format(size)) + ' ' + power_labels[n]+'B'
+    return (format.format(size)) + ' ' + power_labels[n] + 'B'
 
-#not working for now
+
+# not working for now
 def ugenfromtxt(fname, comments='#', delimeter=' ', skip_header=0, dtype_int='i4', dtype_float='f8', *kwargs):
     with open(fname) as fi:
         fi.readline(skip_header)
-        while(True):
+        while (True):
             line = fi.readline()
-            if(not line.startswith('#')):
+            if (not line.startswith('#')):
                 break
         elements = line.split(delimeter)
         dtype = []
         for element in elements:
-            if(isint(element)):
+            if (isint(element)):
                 dtype.append(dtype_int)
-            elif(isfloat(element)):
+            elif (isfloat(element)):
                 dtype.append(dtype_float)
             else:
                 dtype.append('U%d' % len(element))
     print(dtype)
 
-    np.genfromtxt(fname, dtype=dtype, comments=comments, delimiter=delimeter, skip_header=skip_header, names=True, *kwargs)
+    np.genfromtxt(fname, dtype=dtype, comments=comments, delimiter=delimeter, skip_header=skip_header, names=True,
+                  *kwargs)
+
 
 def in_hull(p, hull):
     """
@@ -809,10 +842,11 @@ def in_hull(p, hull):
     will be computed
     """
     from scipy.spatial import Delaunay
-    if not isinstance(hull,Delaunay):
+    if not isinstance(hull, Delaunay):
         hull = Delaunay(hull)
 
-    return hull.find_simplex(p)>=0
+    return hull.find_simplex(p) >= 0
+
 
 def project_data(data, normal, origin=np.array([0., 0., 0.]), prefix='', copy=False):
     """
@@ -825,15 +859,17 @@ def project_data(data, normal, origin=np.array([0., 0., 0.]), prefix='', copy=Fa
     set_vector(data, pos_r, prefix=prefix, copy=copy)
     return data
 
+
 def rotate_data(data, angles, origin, prefix='', order='ZXZ', copy=False):
     # applies euler rotation for data
     pos = get_vector(data, prefix) - origin
-    pos_r = euler_angle(pos, angles, order) + origin#+ euler_angle(origin, angles, order)
-    if(copy):
+    pos_r = euler_angle(pos, angles, order) + origin  # + euler_angle(origin, angles, order)
+    if (copy):
         return set_vector(data, pos_r, prefix=prefix, copy=copy)
     else:
         set_vector(data, pos_r, prefix=prefix, copy=copy)
         return data
+
 
 def weighted_std(values, weights, axis=0):
     """
@@ -843,8 +879,9 @@ def weighted_std(values, weights, axis=0):
     """
     average = np.average(values, weights=weights, axis=axis)
     # Fast and numerically precise:
-    variance = np.average((values-average)**2, weights=weights, axis=axis)
+    variance = np.average((values - average) ** 2, weights=weights, axis=axis)
     return np.sqrt(variance)
+
 
 class dtfe(object):
 
@@ -853,17 +890,17 @@ class dtfe(object):
         if not self.dataset.size > 1:
             raise ValueError("`dataset` input should have multiple elements.")
         self.n, self.d = self.dataset.shape
-        #center = np.median(self.dataset, axis=0)
-        center=0
+        # center = np.median(self.dataset, axis=0)
+        center = 0
 
-        self.tri=Delaunay(self.dataset-center, qhull_options='')
+        self.tri = Delaunay(self.dataset - center, qhull_options='')
 
         simplices = self.tri.simplices
         vertices = self.dataset[simplices]
 
         matrices = np.insert(vertices, 2, 1., axis=-1)
         matrices = np.swapaxes(matrices, -1, -2)
-        tri_areas = np.abs(det(matrices)) / np.math.factorial(self.d+1)
+        tri_areas = np.abs(det(matrices)) / np.math.factorial(self.d + 1)
 
         hull_areas = np.zeros(self.n, dtype='f8')
         np.add.at(hull_areas, simplices, np.expand_dims(tri_areas, -1))
@@ -891,7 +928,9 @@ class dtfe(object):
 
     __call__ = evaluate
 
-def metropolis_hastings(loglike, params_ini, bandwidth, return_like=False, burn_in=10, n_points=100, n_sample=10000, show_progress=False):
+
+def metropolis_hastings(loglike, params_ini, bandwidth, return_like=False, burn_in=10, n_points=100, n_sample=10000,
+                        show_progress=False):
     n_pars = len(params_ini)
     loglike_ini = loglike(*params_ini)
     params_arr = np.tile(params_ini, (n_points, 2, 1))
@@ -900,14 +939,14 @@ def metropolis_hastings(loglike, params_ini, bandwidth, return_like=False, burn_
     n_iter = np.zeros(n_points, 'i8')
     mask_burn = np.full(n_points, False)
 
-    if(return_like):
-        params_out = np.zeros((n_sample, n_pars+1))
+    if (return_like):
+        params_out = np.zeros((n_sample, n_pars + 1))
     else:
         params_out = np.zeros((n_sample, n_pars))
     n_fill = 0
-    if(show_progress):
+    if (show_progress):
         iterator = tqdm(total=n_sample)
-    while(n_fill < n_sample):
+    while (n_fill < n_sample):
         offset = np.random.normal(scale=bandwidth, size=(n_points, n_pars))
 
         params_arr[:, 1] = params_arr[:, 0] + offset
@@ -922,19 +961,20 @@ def metropolis_hastings(loglike, params_ini, bandwidth, return_like=False, burn_
         n_iter[mask] += 1
 
         mask_burn = mask_burn | (n_iter > burn_in) & (loglike_mean - loglike_arr[:, 0] > 0.)
-        loglike_mean[mask] = (loglike_mean[mask] * (burn_in-1) +  loglike_arr[mask, 0])/burn_in
+        loglike_mean[mask] = (loglike_mean[mask] * (burn_in - 1) + loglike_arr[mask, 0]) / burn_in
 
         mask = mask & mask_burn
-        n_add = np.minimum(np.sum(mask), n_sample-n_fill)
-        params_out[n_fill:n_fill+n_add, :n_pars] = params_arr[mask, 0][:n_add]
-        if(return_like):
-            params_out[n_fill:n_fill+n_add, -1] = loglike_arr[mask, 0][:n_add]
+        n_add = np.minimum(np.sum(mask), n_sample - n_fill)
+        params_out[n_fill:n_fill + n_add, :n_pars] = params_arr[mask, 0][:n_add]
+        if (return_like):
+            params_out[n_fill:n_fill + n_add, -1] = loglike_arr[mask, 0][:n_add]
         n_fill += n_add
-        if(show_progress):
+        if (show_progress):
             iterator.update(n_add)
-    if(show_progress):
+    if (show_progress):
         iterator.close()
     return params_out
+
 
 class gaussian_kde(object):
     """Representation of a kernel-density estimate using Gaussian kernels.
@@ -1223,7 +1263,6 @@ class gaussian_kde(object):
         self._norm_factor = np.sqrt(np.linalg.det(2 * np.pi * self.covariance))  # * self.n
 
 
-
 class gaussian_kde_tree(object):
     # input: array or list with (n, d) shape
 
@@ -1233,7 +1272,7 @@ class gaussian_kde_tree(object):
             raise ValueError("`dataset` input should have multiple elements.")
         self.n, self.d = self.dataset.shape
 
-        if(weights is None):
+        if (weights is None):
             self.weights = np.full(dataset.size, 1)
         else:
             self.weights = weights
@@ -1243,14 +1282,13 @@ class gaussian_kde_tree(object):
 
         self.tree = Tree(self.dataset, leafsize=16, compact_nodes=False, balanced_tree=False)
 
-
     def evaluate(self, points):
         points = np.atleast_2d(points)
 
         # compute the normalised residuals
         distances, indices = self.tree.query(points, self.nsearch)
-        normpdf = lambda x, b: (2*np.pi*b**2)**-(0.5*self.d)*np.exp(-0.5*(x/b)**2)
-        bandwidth = distances[:, -1]/np.sqrt(self.nsearch)*self.smooth_factor
+        normpdf = lambda x, b: (2 * np.pi * b ** 2) ** -(0.5 * self.d) * np.exp(-0.5 * (x / b) ** 2)
+        bandwidth = distances[:, -1] / np.sqrt(self.nsearch) * self.smooth_factor
 
         if self.weights is not None:
             weights = self.weights[indices]
@@ -1298,8 +1336,10 @@ def weighted_quantile(values, quantiles, sample_weight=None,
         weighted_quantiles /= np.sum(sample_weight)
     return np.interp(quantiles, weighted_quantiles, values)
 
+
 def weighted_median(values, *args, **kwargs):
     return weighted_quantile(values, quantiles=0.5, *args, **kwargs)
+
 
 def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, ncols_tqdm=None,
               direct_input=True, priorities=None, kwargs_dict=None):
@@ -1323,16 +1363,16 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
     list that stores returned value of each function result.
 
     """
-    if(n_proc is None):
+    if (n_proc is None):
         n_proc = cpu_count()
 
-    if(kwargs_dict is None):
+    if (kwargs_dict is None):
         kwargs_dict = {}
 
     def worker(param_slice, idx_slice, output_arr):
         output_slice = []
         for param in param_slice:
-            if(direct_input):
+            if (direct_input):
                 output_slice.append(func(*param, **kwargs_dict))
             else:
                 output_slice.append(func(param, **kwargs_dict))
@@ -1350,7 +1390,7 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
     manager = Manager()
     output_arr = manager.list([None, ] * output_size)
 
-    if(priorities is not None):
+    if (priorities is not None):
         keys = np.argsort(priorities)
         keys_inv = np.argsort(keys)
     else:
@@ -1363,7 +1403,7 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
     iterator = tqdm(head_idxs, ncols=ncols_tqdm)
     try:
         for head_idx in iterator:
-            idx_slice = slice(head_idx, np.minimum(head_idx+n_chunk, output_size))
+            idx_slice = slice(head_idx, np.minimum(head_idx + n_chunk, output_size))
             wait = 0.
             while (len(procs) >= n_proc):
                 sleep(wait)
@@ -1385,6 +1425,7 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
         iterator.close()
         return [output_arr[key] for key in keys_inv]
 
+
 def join_arrays(arrays):
     # Same as rf.merge_arrays, but does not break nested dtype structures
     # from https://stackoverflow.com/questions/5355744/numpy-joining-structured-arrays
@@ -1393,9 +1434,10 @@ def join_arrays(arrays):
     n = len(arrays[0])
     joint = np.empty((n, offsets[-1]), dtype=np.uint8)
     for a, size, offset in zip(arrays, sizes, offsets):
-        joint[:,offset:offset+size] = a.view(np.uint8).reshape(n,size)
+        joint[:, offset:offset + size] = a.view(np.uint8).reshape(n, size)
     dtype = sum((a.dtype.descr for a in arrays), [])
     return joint.ravel().view(dtype)
+
 
 def add_fields(table, dtype, fill_value=None, overwrite=True):
     # add field to an np.recarray / structured array or Table (and inherited classes, e.g. Cell, Particle, ...)
@@ -1404,7 +1446,7 @@ def add_fields(table, dtype, fill_value=None, overwrite=True):
     else:
         data = table
     dtype = np.dtype(dtype)
-    if(overwrite):
+    if (overwrite):
         names_to_drop = np.array(dtype.names)[np.isin(dtype.names, data.dtype.names)]
         data = rf.drop_fields(data, names_to_drop)
     if fill_value is None:
@@ -1417,4 +1459,3 @@ def add_fields(table, dtype, fill_value=None, overwrite=True):
         return table.__copy__(data)
     else:
         return data
-
