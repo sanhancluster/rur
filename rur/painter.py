@@ -14,7 +14,7 @@ from itertools import repeat
 from PIL import Image
 from warnings import warn
 from rur.sci import geometry as geo
-import os, inspect
+import os
 from astropy.visualization import make_lupton_rgb
 from rur.config import default_path_in_repo, timer
 import matplotlib as mpl
@@ -65,15 +65,15 @@ def get_box_proj(box, proj):
 
 
 def set_bins(known_lvls, minlvl, maxlvl, box_proj, shape):
-    if (minlvl is None):
+    if minlvl is None:
         minlvl = np.min(known_lvls)
     else:
         known_lvls = known_lvls[known_lvls >= minlvl]
         minlvl = np.max([minlvl, np.min(known_lvls)])
 
-    if (maxlvl is None):
+    if maxlvl is None:
         maxlvl = np.max(known_lvls)
-        if (shape is not None):
+        if shape is not None:
             pixlvl = np.max(-np.log2((box_proj[:, 1] - box_proj[:, 0]) / np.array(shape)))
             maxlvl = np.min([maxlvl, int(pixlvl) + 1])
     else:
@@ -87,7 +87,7 @@ def set_bins(known_lvls, minlvl, maxlvl, box_proj, shape):
     basebin = edgeidx[:, 1] - edgeidx[:, 0]
     edge = mingrid[edgeidx]
 
-    if (timer.verbose >= 2):
+    if timer.verbose >= 2:
         print('box', list(box_proj))
         print('edge', list(edge))
         print('basebin', basebin)
@@ -97,14 +97,14 @@ def set_bins(known_lvls, minlvl, maxlvl, box_proj, shape):
 
 
 def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, subpx_crop=True):
-    if (box is None and isinstance(cell, uri.Cell)):
+    if box is None and isinstance(cell, uri.Cell):
         box = cell.snap.box
 
     lvl = cell['level']
 
     box_proj = get_box_proj(box, proj)
 
-    if (np.isscalar(shape)):
+    if np.isscalar(shape):
         shape = np.repeat(shape, 2)
 
     known_lvls = np.unique(lvl)
@@ -112,12 +112,12 @@ def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, sub
 
     known_lvls = np.arange(minlvl, maxlvl + 1)
 
-    if (timer.verbose >= 1):
+    if timer.verbose >= 1:
         print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl),
               (basebin * 2. ** (maxlvl - minlvl)).astype(int))
     timer.start('Drawing Refinement Level Map... ', 1)
 
-    if (shape is None):
+    if shape is None:
         shape = basebin * 2 ** (maxlvl - minlvl)
 
     image = np.zeros(basebin)
@@ -137,19 +137,19 @@ def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, sub
         np.divide(hist_map, hist_num, out=hist_map, where=hist_num != 0)
         image = np.nanmax([image, hist_map], axis=0)
 
-        if (ilvl < maxlvl):
+        if ilvl < maxlvl:
             image = rescale(image, 2, order=0)
 
     crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
-    if (subpx_crop):
+    if subpx_crop:
         image = crop_float(image, crop_range, output_shape=shape)
     else:
         image = crop(image, crop_range)
-        if (shape is not None):
+        if shape is not None:
             image = resize(image, shape, mode='constant')
 
     timer.record()
-    if (timer.verbose >= 1):
+    if timer.verbose >= 1:
         print("Cropped Image Size: ", image.shape)
 
     return image.T
@@ -168,38 +168,38 @@ def draw_lvlmap(cell, box=None, proj=[0, 1], shape=None, minlvl=None, maxlvl=Non
 
 
 def set_weights(mode, cell, unit, depth, weights=None, quantity=None):
-    if (mode == 'v'):
+    if mode == 'v':
         # averge mass-weighted velocity along LOS
         weights = cell['rho']
-    elif (mode == 'T'):
+    elif mode == 'T':
         # averge mass-weighted temperature along LOS
         weights = cell['rho']
-    elif (mode == 'metal'):
+    elif mode == 'metal':
         # averge mass-weighted metallicity along LOS
         weights = cell['rho']
-    elif (mode == 'mach'):
+    elif mode == 'mach':
         # averge mass-weighted mach number along LOS
         weights = cell['rho']
-    elif (mode == 'vel'):
+    elif mode == 'vel':
         # averge mass-weighted velocity along LOS
         weights = cell['rho']
         quantity = rss(cell[mode, unit])
-    elif (mode == 'dust'):
+    elif mode == 'dust':
         # average dust density along LOS
         weights = cell['rho']
-    elif (mode == 'refmask'):
+    elif mode == 'refmask':
         # cumulative refinement paramster along LOS
         weights = np.full(cell.size, 1)
-    elif (mode == 'rho'):
+    elif mode == 'rho':
         # average density along LOS
         weights = np.full(cell.size, 1)
-    elif (mode == 'crho'):
+    elif mode == 'crho':
         # column density along LOS
         weights = np.full(cell.size, 1)
         quantity = cell['rho', unit] * depth
-    elif (mode != 'custom'):
+    elif mode != 'custom':
         weights = np.full(cell.size, 1)
-    if (quantity is None and mode != 'custom'):
+    if quantity is None and mode != 'custom':
         quantity = cell[mode, unit]
 
     return quantity, weights
@@ -207,20 +207,21 @@ def set_weights(mode, cell, unit, depth, weights=None, quantity=None):
 
 def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True,
            interp_order=0, weights=None, quantity=None, method='hist', total=False):
-    if (total):
+    if total:
         print(
-            "Warning!\n\t`total` is developed for testing purpose.\n\tIt just shows the total quantity in the image, not the average.")
-    if (box is None and hasattr(cell, 'snap')):
+            "Warning!\n\t`total` is developed for testing purpose.\n\tIt just shows the total quantity in the image, "
+            "not the average.")
+    if box is None and hasattr(cell, 'snap'):
         box = cell.snap.box
 
     lvl = cell['level']
 
     box_proj = get_box_proj(box, proj)
 
-    if (np.isscalar(shape)):
+    if np.isscalar(shape):
         shape = np.repeat(shape, 2)
 
-    if (shape is not None):
+    if shape is not None:
         shape = np.array(shape)
 
     known_lvls = np.unique(lvl)
@@ -228,12 +229,12 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
 
     known_lvls = np.arange(minlvl, np.max(known_lvls) + 1)
 
-    if (timer.verbose >= 1):
+    if timer.verbose >= 1:
         print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl),
               (basebin * 2. ** (maxlvl - minlvl)).astype(int))
     timer.start('Drawing gas map... ', 1)
 
-    if (shape is None):
+    if shape is None:
         shape = basebin * 2 ** (maxlvl - minlvl)
 
     image = np.zeros(basebin)
@@ -254,22 +255,23 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
         binsize = basebin * 2 ** (binlvl - minlvl)
 
         # convert coordinates to map
-        if (method == 'hist'):
+        if method == 'hist':
             hist_weight = np.histogram2d(xm[:, proj[0]], xm[:, proj[1]], bins=binsize, range=edge, weights=wm)[0]
             hist_map = np.histogram2d(xm[:, proj[0]], xm[:, proj[1]],
                                       bins=binsize, range=edge, weights=qm * wm)[0]
-        elif (method == 'cic'):
+        elif method == 'cic':
             # apply cic when measuring density map, only useful when the line of view is not aligned to x, y, z axis.
             hist_weight = dr.cic_img(xm[:, proj[0]], xm[:, proj[1]], reso=binsize, lims=edge, weights=wm)
             hist_map = dr.cic_img(xm[:, proj[0]], xm[:, proj[1]],
-                                      reso=binsize, lims=edge, weights=qm * wm)
+                                  reso=binsize, lims=edge, weights=qm * wm)
         else:
             raise ValueError("Unknown gasmap method:", method)
 
         # weighted average map of quantities
-        if (not total): hist_map = np.divide(hist_map, hist_weight, where=hist_weight != 0)
+        if not total:
+            hist_map = np.divide(hist_map, hist_weight, where=hist_weight != 0)
 
-        if (ilvl < maxlvl):
+        if ilvl < maxlvl:
             ibin = ilvl
         else:
             ibin = ilvl * 3 - maxlvl * 2
@@ -280,32 +282,34 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
         # new depth
         depth_map_new = depth_map + add_depth
         mask_active = (hist_weight > 0) & (depth_map_new > 0)
-        if (total):
+        if total:
             image[mask_active] = image[mask_active] + hist_map[mask_active]
         else:
             image[mask_active] = (np.divide(image * depth_map + hist_map * add_depth, depth_map_new,
                                             where=mask_active))[mask_active]
         depth_map = depth_map_new
 
-        if (ilvl < maxlvl):
+        if ilvl < maxlvl:
             image = rescale(image, 2, mode='constant', order=interp_order)
-            if (total): image /= 4
+            if total:
+                image /= 4
             depth_map = rescale(depth_map, 2, mode='constant', order=interp_order)
 
     crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
-    if (subpx_crop):
+    if subpx_crop:
         image = crop_float(image, crop_range, output_shape=shape)
     else:
         image = crop(image, crop_range)
-        if (shape is not None):
+        if shape is not None:
             image = resize(image, shape)
 
     timer.record()
     return image.T
 
+
 def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho', unit=None, minlvl=None, maxlvl=None,
                 subpx_crop=True, interp_order=0, weights=None, quantity=None, method='hist', **kwargs):
-    if (box is None and hasattr(cell, 'snap')):
+    if box is None and hasattr(cell, 'snap'):
         box = cell.snap.box
 
     image = gasmap(cell, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl,
@@ -320,16 +324,16 @@ def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho',
 
 def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None,
               subpx_crop=True):
-    if (box is None and hasattr(tracer_part, 'snap')):
+    if box is None and hasattr(tracer_part, 'snap'):
         box = tracer_part.snap.box
 
     lvl = tracer_part['level']
     box_proj = get_box_proj(box, proj)
 
-    if (np.isscalar(shape)):
+    if np.isscalar(shape):
         shape = np.repeat(shape, 2)
 
-    if (shape is not None):
+    if shape is not None:
         shape = np.array(shape)
 
     known_lvls = np.unique(lvl)
@@ -337,11 +341,11 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
 
     known_lvls = np.arange(minlvl, np.max(known_lvls) + 1)
 
-    if (timer.verbose >= 1):
+    if timer.verbose >= 1:
         print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl), basebin * 2 ** (maxlvl - minlvl))
     timer.start('Drawing tracer map... ', 1)
 
-    if (shape is None):
+    if shape is None:
         shape = basebin * 2 ** (maxlvl - minlvl)
 
     image = np.zeros(basebin)
@@ -357,7 +361,7 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
 
         xm = get_vector(cell_lvl)
         qm = cell_lvl['m', unit] / 0.5 ** (binlvl * 2)
-        if (mode == 'crho'):
+        if mode == 'crho':
             qm *= depth
 
         # convert coordinates to map
@@ -366,16 +370,16 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
         ibin = ilvl - binlvl
         image += hist_map * 0.5 ** ibin
 
-        if (ilvl < maxlvl):
+        if ilvl < maxlvl:
             image = rescale(image, 2, mode='constant', order=0)
     image /= depth
 
     crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
-    if (subpx_crop):
+    if subpx_crop:
         image = crop_float(image, crop_range, output_shape=shape)
     else:
         image = crop(image, crop_range)
-        if (shape is not None):
+        if shape is not None:
             image = resize(image, shape)
 
     timer.record()
@@ -384,7 +388,7 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
 
 def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, mode='rho', unit=None, minlvl=None,
                    maxlvl=None, subpx_crop=True, **kwargs):
-    if (box is None and hasattr(tracer_part, 'snap')):
+    if box is None and hasattr(tracer_part, 'snap'):
         box = tracer_part.snap.box
 
     image = tracermap(tracer_part, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl,
@@ -399,13 +403,13 @@ def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, m
 
 def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, method='hist', x=None, smooth=16,
             crho=False, angles=None, order='ZXZ', **kwargs):
-    if (box is None and isinstance(part, uri.Particle)):
+    if box is None and isinstance(part, uri.Particle):
         box = part.snap.box
 
     # Compute the column density map along the LOS
-    if (x is None):
+    if x is None:
         x = get_vector(part)
-    if (angles is not None):
+    if angles is not None:
         focus = np.mean(box, axis=-1)
         x = x - focus
         x = geo.euler_angle(x, angles, order=order) + focus
@@ -416,39 +420,39 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
     los = dims[np.isin(dims, proj, invert=True, assume_unique=True)][0]
     depth = np.diff(box[los])
 
-    if (np.isscalar(shape)):
+    if np.isscalar(shape):
         shape = np.repeat(shape, 2)
     shape = np.array(shape)
 
-    if (weights is None):
+    if weights is None:
         weights = part['m']
 
     px_area = np.multiply(*((box_proj[:, 1] - box_proj[:, 0]) / shape))
 
-    if (part is not None):
+    if part is not None:
         timer.start('Computing particle map of %d particles... ' % part.size, 1)
 
-    if (method == 'hist'):
+    if method == 'hist':
         image = np.histogram2d(x[:, proj[0]], x[:, proj[1]], bins=shape, range=box_proj, weights=weights, **kwargs)[0]
         image /= px_area
-    elif (method == 'gaussian'):
+    elif method == 'gaussian':
         image = dr.gauss_img(x[:, proj[0]], x[:, proj[1]], reso=shape, lims=box_proj, weights=weights, **kwargs)
         image /= px_area
-    elif (method == 'kde'):
+    elif method == 'kde':
         image = dr.kde_img(x[:, proj[0]], x[:, proj[1]], reso=shape, lims=box_proj, weights=weights, tree=True,
                            **kwargs)
-    elif (method == 'dtfe'):
+    elif method == 'dtfe':
         image = dr.dtfe_img(x[:, proj[0]], x[:, proj[1]], reso=shape, lims=box_proj, weights=weights, smooth=smooth)
-    elif (method == 'cic'):
+    elif method == 'cic':
         image = dr.cic_img(x[:, proj[0]], x[:, proj[1]], reso=shape, lims=box_proj, weights=weights)
         image /= px_area
     else:
         raise ValueError('Unknown estimator.')
 
-    if (not crho):
+    if not crho:
         image /= depth
 
-    if (unit is not None):
+    if unit is not None:
         image /= part.snap.unit[unit]
 
     timer.record()
@@ -458,7 +462,7 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
 
 def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=None, unit=None, method='hist',
                  smooth=16, crho=False, angles=None, order='ZXZ', kwargs_partmap={}, **kwargs):
-    if (box is None and hasattr(part, 'snap')):
+    if box is None and hasattr(part, 'snap'):
         box = part.snap.box
 
     image = partmap(part, box, proj, shape, weights, unit, method, smooth=smooth, crho=crho, angles=angles, order=order,
@@ -506,15 +510,15 @@ def draw_image(image, extent=None, vmin=None, vmax=None, qscale=3., normmode='lo
 def save_image(image, fname, cmap=dr.ccm.laguna, vmin=None, vmax=None, qscale=3., normmode='log',
                nanzero=False, make_dir=False, grayscale=False, img_mode='RGB', bit=8):
     fname = os.path.expanduser(fname)
-    if (make_dir):
+    if make_dir:
         os.makedirs(os.path.dirname(fname), exist_ok=True)
 
     image = norm(image, vmin, vmax, qscale, mode=normmode, nanzero=nanzero)
-    if (not grayscale and len(image.shape) < 3):
+    if not grayscale and len(image.shape) < 3:
         image = cmap(image)
-    if (bit == 16):
+    if bit == 16:
         im = Image.fromarray(np.uint16(image * 65535))
-    elif (bit == 8):
+    elif bit == 8:
         im = Image.fromarray(np.uint8(image * 255))
     else:
         raise ValueError("Unknown bit size")
@@ -523,7 +527,7 @@ def save_image(image, fname, cmap=dr.ccm.laguna, vmin=None, vmax=None, qscale=3.
 
 def save_figure(fname, make_dir=True, **kwargs):
     fname = os.path.expanduser(fname)
-    if (make_dir):
+    if make_dir:
         os.makedirs(os.path.dirname(fname), exist_ok=True)
     plt.savefig(fname, **kwargs)
 
@@ -539,33 +543,33 @@ def draw_contour(image, extent, vmin=None, vmax=None, qscale=None, normmode='log
 
 def draw_points(points, box=None, proj=[0, 1], color=None, label=None, fontsize=None, fontcolor=None, s=None, **kwargs):
     x = get_vector(points)
-    if (box is None and hasattr(points, 'snap')):
+    if box is None and hasattr(points, 'snap'):
         box = points.snap.box
     else:
         box = default_box
     mask = uri.box_mask(x, box)
     x = x[mask]
 
-    if (isinstance(s, Iterable)):
+    if isinstance(s, Iterable):
         s = np.array(s)[mask]
 
     plt.scatter(x[:, proj[0]], x[:, proj[1]], color=color, zorder=50, s=s, **kwargs)
 
-    if (label is not None):
+    if label is not None:
         label = np.array(label)
-        if (not isinstance(label, Iterable)):
+        if not isinstance(label, Iterable):
             label = repeat(label)
         else:
             label = np.array(label)[mask]
 
-        if (fontsize is not None and not isinstance(fontsize, Iterable)):
+        if fontsize is not None and not isinstance(fontsize, Iterable):
             fontsize = repeat(fontsize)
         else:
             fontsize = np.array(fontsize)[mask]
         ax = plt.gca()
-        if (fontcolor is None):
+        if fontcolor is None:
             fontcolor = color
-        if (isinstance(fontcolor, str) or not isinstance(fontcolor, Iterable)):
+        if isinstance(fontcolor, str) or not isinstance(fontcolor, Iterable):
             fontcolor = repeat(fontcolor)
         else:
             fontcolor = np.array(fontcolor)[mask]
@@ -577,10 +581,10 @@ def draw_points(points, box=None, proj=[0, 1], color=None, label=None, fontsize=
 
 def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_range=None, zorder=100,
                labels=None, fontsize=10, fontcolor='lightyellow', **kwargs):
-    if (box is None and isinstance(smbh, uri.Particle)):
+    if box is None and isinstance(smbh, uri.Particle):
         box = smbh.snap.box
         mass = smbh['m', 'Msol']
-        if (mass_range is None):
+        if mass_range is None:
             m_max = np.max(mass)
             m_min = np.min(mass)
         else:
@@ -589,7 +593,7 @@ def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_ran
 
         mass_scale = norm(mass, m_min, m_max)
 
-        ss = (mass_scale) ** 2 * s + 1
+        ss = mass_scale ** 2 * s + 1
     else:
         ss = np.repeat(10, smbh.size)
     box_proj = get_box_proj(box, proj)
@@ -598,7 +602,7 @@ def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_ran
     mask = uri.box_mask(poss, box)
     smbh = smbh[mask]
 
-    if (cmap is not None):
+    if cmap is not None:
         colors = cmap(mass_scale)
         color = colors
     plt.scatter(poss[:, proj[0]], poss[:, proj[1]], s=ss, color=color, zorder=zorder, **kwargs)
@@ -606,7 +610,7 @@ def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_ran
     plt.xlim(box_proj[0])
     plt.ylim(box_proj[1])
 
-    if (labels is not None):
+    if labels is not None:
         labels = np.array(labels)[mask]
         ax = plt.gca()
         for i, pos, label, s in zip(np.arange(smbh.size), poss[mask], labels, ss[mask]):
@@ -622,18 +626,18 @@ def draw_halos(halos, box=None, ax=None, proj=[0, 1], mass_range=None, cmap=plt.
     if ax is None:
         ax = plt.gca()
 
-    if (not isinstance(halos, Iterable)):
+    if not isinstance(halos, Iterable):
         halos = np.array([halos], dtype=halos.dtype)
     mask = uri.box_mask(get_vector(halos), box=box)
 
-    if (labels is None):
+    if labels is None:
         labels = np.full(halos.size, None)
-    if (not isinstance(extents, Iterable)):
+    if not isinstance(extents, Iterable):
         extents = np.full(halos.size, extents)
-    if (not isinstance(radius, Iterable)):
+    if not isinstance(radius, Iterable):
         radius = np.full(halos.size, radius)
 
-    if (colors is None or isinstance(colors, Iterable)):
+    if colors is None or isinstance(colors, Iterable):
         colors = repeat(colors)
 
     halos = np.array(halos)[mask]
@@ -646,34 +650,34 @@ def draw_halos(halos, box=None, ax=None, proj=[0, 1], mass_range=None, cmap=plt.
         mass_range = np.log10(np.array([np.min(halos['mvir']), np.max(halos['mvir'])]))
 
     for halo, label, extent, color in zip(halos, labels, extents, colors):
-        if (color is not None):
+        if color is not None:
             color_cmp = color
         else:
             color_cmp = cmap((np.log10(halo['mvir']) - mass_range[0]) / (mass_range[1] - mass_range[0]))
         x, y = halo[proj_keys[0]], halo[proj_keys[1]]
-        if (size_key is not None):
+        if size_key is not None:
             r = halo[size_key]
         else:
             r = radius
-        if (extent is not None):
+        if extent is not None:
             r = extent / 2
-        if (shape == 'circle'):
+        if shape == 'circle':
             ax.add_artist(
-                plt.Circle([x, y], radius=r, linewidth=0.5, edgecolor=color_cmp, facecolor='none', zorder=10, **kwargs))
-        elif (shape == 'pentagon'):
+                plt.Circle((x, y), radius=r, linewidth=0.5, edgecolor=color_cmp, facecolor='none', zorder=10, **kwargs))
+        elif shape == 'pentagon':
             ax.add_artist(
-                RegularPolygon([x, y], 5, radius=r, linewidth=0.5, edgecolor=color_cmp, facecolor='none', zorder=10,
+                RegularPolygon((x, y), 5, radius=r, linewidth=0.5, edgecolor=color_cmp, facecolor='none', zorder=10,
                                **kwargs))
-        elif (shape == 'square'):
+        elif shape == 'square':
             ax.add_artist(
-                Rectangle([x - r, y - r], r * 2, r * 2, linewidth=0.5, edgecolor=color_cmp, facecolor='none', zorder=10,
+                Rectangle((x - r, y - r), r * 2, r * 2, linewidth=0.5, edgecolor=color_cmp, facecolor='none', zorder=10,
                           **kwargs))
-        if (label is not None):
+        if label is not None:
             ax.text(x, y - r * 1.1, label, color=color_cmp, ha='center', va='top', fontsize=fontsize)
 
     timer.record()
 
-    if (box is not None):
+    if box is not None:
         ax.set_xlim(box[proj[0]])
         ax.set_ylim(box[proj[1]])
 
@@ -682,7 +686,7 @@ def draw_grid(cell, box=None, ax=None, proj=[0, 1], minlvl=None, maxlvl=None, co
               draw_threshold=0, **kwargs):
     if ax is None:
         ax = plt.gca()
-    if (box is None and isinstance(cell, uri.Cell)):
+    if box is None and isinstance(cell, uri.Cell):
         box = cell.snap.box
 
     lvl = cell['level']
@@ -694,7 +698,7 @@ def draw_grid(cell, box=None, ax=None, proj=[0, 1], minlvl=None, maxlvl=None, co
 
     known_lvls = np.arange(minlvl, maxlvl + 1)
 
-    if (timer.verbose >= 1):
+    if timer.verbose >= 1:
         print('MinLvl = %d, MaxLvl = %d, Initial Image Size: ' % (minlvl, maxlvl), basebin * 2 ** (maxlvl - minlvl))
     timer.start('Drawing grids... ', 1)
 
@@ -719,14 +723,14 @@ def draw_grid(cell, box=None, ax=None, proj=[0, 1], minlvl=None, maxlvl=None, co
         coords = mesh[hist_map > draw_threshold] - size / 2
         progress = (ilvl - minlvl) / (maxlvl - minlvl)
         alpha = (1. - progress) / 2 + 0.5
-        if (cmap is not None):
+        if cmap is not None:
             color = cmap(progress)
 
         for xy in coords:
             ax.add_patch(Rectangle(xy, size, size, edgecolor=color, facecolor='None', linewidth=linewidth, alpha=alpha,
                                    zorder=100, **kwargs))
 
-    if (box is not None):
+    if box is not None:
         ax.set_xlim(box_proj[0])
         ax.set_ylim(box_proj[1])
 
@@ -734,7 +738,7 @@ def draw_grid(cell, box=None, ax=None, proj=[0, 1], minlvl=None, maxlvl=None, co
 def draw_vector(pos, vec, box=None, ax=None, proj=[0, 1], length=None, **kwargs):
     if ax is None:
         ax = plt.gca()
-    if (length is not None):
+    if length is not None:
         vec = vec / utool.rss(vec) * length
 
     origin = pos[proj]
@@ -743,11 +747,12 @@ def draw_vector(pos, vec, box=None, ax=None, proj=[0, 1], length=None, **kwargs)
     # ax.arrow(*origin, *direc, **kwargs)
     ax.annotate(s='', xy=tuple(origin + direc), xytext=tuple(origin), arrowprops=dict(arrowstyle='->'), **kwargs)
 
-    if (box is not None):
+    if box is not None:
         ax.set_xlim(box[proj[0]])
         ax.set_ylim(box[proj[1]])
 
 
+"""
 def draw_mergertree(tree, root):
     brches = np.unique(tree['brch_id'])
 
@@ -761,6 +766,7 @@ def draw_mergertree(tree, root):
             search_prog(prog)
 
     search_prog(root, 0)
+"""
 
 
 def draw_mergertree_space(tree, box=None, proj=[0, 1], mass_range=None, alpha=0.3):
@@ -783,7 +789,7 @@ def draw_mergertree_space(tree, box=None, proj=[0, 1], mass_range=None, alpha=0.
         mass_range = np.log10(np.array([np.min(tree['mvir']), np.max(tree['mvir'])]))
 
     for brch_id in brches:
-        if (brch_id == main_brch_id):
+        if brch_id == main_brch_id:
             continue
         halos = tree[tree['brch_id'] == brch_id]
         halos = np.sort(halos, order='scale')
@@ -793,10 +799,10 @@ def draw_mergertree_space(tree, box=None, proj=[0, 1], mass_range=None, alpha=0.
         maxmass = np.log10(np.max(halos['mvir']))
         halos = halos[np.log10(halos['mvir']) >= maxmass - 1]
 
-        if (maxmass < mass_range[0]):
+        if maxmass < mass_range[0]:
             continue
 
-        if (np.sum(desc_mask) > 0):
+        if np.sum(desc_mask) > 0:
             desc = tree[desc_mask]
             halos = np.concatenate([halos, desc])
 
@@ -862,16 +868,16 @@ def composite_image(images, cmaps, weights=None, vmins=None, vmaxs=None, qscales
 
     nimg = len(images)
 
-    if (vmins is None):
+    if vmins is None:
         vmins = np.full(nimg, None)
-    if (vmaxs is None):
+    if vmaxs is None:
         vmaxs = np.full(nimg, None)
-    if (isinstance(qscales, float)):
+    if isinstance(qscales, float):
         qscales = np.full(nimg, qscales)
-    if (normmodes is None):
+    if normmodes is None:
         normmodes = np.full(nimg, 'log')
 
-    if (timer.verbose >= 2):
+    if timer.verbose >= 2:
         print('vmins:', vmins)
         print('vmaxs:', vmaxs)
 
@@ -895,10 +901,10 @@ class ZeroLogNorm(mpl.colors.LogNorm):
 
 
 def get_norm(vmin=None, vmax=None, qscale=3., mode='log', clip=True):
-    if (qscale is None):
-        if (vmin is not None):
+    if qscale is None:
+        if vmin is not None:
             qscale = np.log10(vmax - vmin)
-    if (vmin is None):
+    if vmin is None:
         vmin = 10. ** (np.log10(vmax) - qscale)
 
     if mode in ['linear', 'lin', 'norm']:
@@ -912,45 +918,45 @@ def get_norm(vmin=None, vmax=None, qscale=3., mode='log', clip=True):
 def norm(v, vmin=None, vmax=None, qscale=3., mode='log', nanzero=False):
     # vmin overrides qscale.
     v = v.copy()
-    if (vmax is None):
+    if vmax is None:
         vmax = np.nanmax(v)
-    if (qscale is None):
-        if (vmin is not None):
+    if qscale is None:
+        if vmin is not None:
             qscale = np.log10(vmax - vmin)
         else:
             qscale = np.log10(vmax) - np.log10(np.nanmin(v[v > 0]))
-    if (vmin is None):
+    if vmin is None:
         vmin = 10. ** (np.log10(vmax) - qscale)
 
-    if (mode == 'log'):
+    if mode == 'log':
         v[v < vmin] = vmin
         v = np.log10(v / vmin) / np.log10(vmax / vmin)
-    elif (mode == 'linear'):
+    elif mode == 'linear':
         v = (v - vmin) / (vmax - vmin)
 
-    elif (mode == 'asinh'):
+    elif mode == 'asinh':
         asinh = lambda x: np.arcsinh(10 * x) / 3
         v = asinh((v - vmin) / (vmax - vmin))
 
-    elif (mode == 'sinh'):
+    elif mode == 'sinh':
         sinh = lambda x: np.sinh(3 * x) / 10
         v = sinh((v - vmin) / (vmax - vmin))
 
-    elif (mode == 'sqrt'):
+    elif mode == 'sqrt':
         sqrt = lambda x: np.sqrt(x)
         v = sqrt((v - vmin) / (vmax - vmin))
 
-    elif (mode == 'pow'):
+    elif mode == 'pow':
         a = 1000
         pow = lambda x: (a ** x - 1) / a
         v = pow((v - vmin) / (vmax - vmin))
 
-    if (timer.verbose >= 2):
+    if timer.verbose >= 2:
         print('vmin: %f' % vmin)
         print('vmax: %f' % vmax)
         print('qscale: %f' % qscale)
 
-    if (not nanzero):
+    if not nanzero:
         v[np.isnan(v)] = 0
     return v
 
@@ -972,7 +978,7 @@ def set_ticks_unit(snap, proj=[0, 1], unit='kpc', nticks=4, centered=True):
     xr = np.array(box_proj[0])
     yr = np.array(box_proj[1])
 
-    if (centered):
+    if centered:
         xc = np.mean(xr)
         yc = np.mean(yr)
     else:
@@ -1002,17 +1008,17 @@ def get_tickvalues(range, nticks=4):
     order_int = int(np.floor(order))
     res = order - order_int
     ticksize = 10 ** order_int
-    if (0.3 <= res < 0.4):
+    if 0.3 <= res < 0.4:
         ticksize *= 2
-    elif (0.4 <= res < 0.7):
+    elif 0.4 <= res < 0.7:
         ticksize *= 2.5
         order_int -= 1
-    elif (0.7 <= res):
+    elif 0.7 <= res:
         ticksize *= 5
 
     ticks = (np.arange(range[0] // ticksize, range[1] // ticksize, 1) + 1) * ticksize
     ticks = np.round(ticks, -order_int)
-    if (order_int >= 0):
+    if order_int >= 0:
         ticks = ticks.astype(int)
     return ticks
 
@@ -1020,16 +1026,16 @@ def get_tickvalues(range, nticks=4):
 def quick_target_box(snap: uri.RamsesSnapshot, center=None, target=None, catalog=None, source='GalaxyMaker',
                      rank=None, rank_order=None, id=None, id_name='id', radius=None, radius_unit='kpc', drag_part=True):
     # complex parameter handling comes here...
-    if (radius is None):
+    if radius is None:
         radius = 10.
-    if (radius_unit in snap.unit):
+    if radius_unit in snap.unit:
         radius = radius * snap.unit[radius_unit]
-    elif (target is not None and radius_unit in target.dtype.names):
+    elif target is not None and radius_unit in target.dtype.names:
         radius = radius * target[radius_unit]
     elif radius_unit is not None:
         warn("Unknown radius_unit, assuming as code unit...")
 
-    if (center is not None):
+    if center is not None:
         # if center is specified, use it
         pass
     elif (rank is None and id is None and target is None
@@ -1037,16 +1043,16 @@ def quick_target_box(snap: uri.RamsesSnapshot, center=None, target=None, catalog
         # if there is predefined box in snap, use it
         pass
     else:
-        if (target is None):
+        if target is None:
             # if target is not specified, get one from catalog using rank / id
-            if (catalog is None):
+            if catalog is None:
                 # if catalog is not specified, get it using source
-                if (source == 'GalaxyMaker'):
+                if source == 'GalaxyMaker':
                     catalog = uhmi.HaloMaker.load(snap, path_in_repo=default_path_in_repo['GalaxyMaker'], galaxy=True,
                                                   double_precision=True)
-                elif (source == 'SINKPROPS'):
+                elif source == 'SINKPROPS':
                     catalog = snap.read_sinkprop(drag_part=drag_part)
-                elif (source == 'sink'):
+                elif source == 'sink':
                     snap.get_sink(all=True)
                     catalog = snap.sink.table
                 else:
@@ -1056,12 +1062,12 @@ def quick_target_box(snap: uri.RamsesSnapshot, center=None, target=None, catalog
                 rank = 1
 
             catalog = np.sort(catalog, order=rank_order)
-            if (id is not None):
+            if id is not None:
                 # use id if specified
                 target = catalog[catalog[id_name] == id]
-                if (target.size == 0):
+                if target.size == 0:
                     raise ValueError("No target found with the matching id")
-                elif (target.size > 1):
+                elif target.size > 1:
                     # print("Multiple targets with same id are selected, using rank to select 1 target")
                     target = catalog[catalog[id_name] == id][-rank]
                 else:
@@ -1121,7 +1127,7 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
         else:
             cell_method = 'hist'
 
-    if (isinstance(mode, Iterable)):
+    if isinstance(mode, Iterable):
         npans = len(mode)
     else:
         npans = proj.shape[0]
@@ -1163,7 +1169,7 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
         'sdss': None,
     }
 
-    if (box is not None):
+    if box is not None:
         # if box is specified, use it
         snap.box = box
     else:
@@ -1214,27 +1220,27 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
         proj_now = proj[ipan]
         mode_now = mode[ipan]
 
-        if (vmaxs is not None):
+        if vmaxs is not None:
             vmax = vmaxs[ipan]
         else:
             vmax = vmax_dict[mode_now]
 
-        if (qscales is not None):
+        if qscales is not None:
             qscale = qscales[ipan]
         else:
             qscale = qscale_dict[mode_now]
 
-        if (mode_now == 'star'):
+        if mode_now == 'star':
             star = part['star']
-            if (age_cut is not None):
+            if age_cut is not None:
                 star = star[star['age', 'Gyr'] < age_cut]
             im = draw_partmap(star, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
                               unit='Msol/pc2')
             colorbar_label = 'Stellar density\nM$_{\odot}$ pc$^{-2}$'
             mode_label = 'Stars'
-        elif (mode_now == 'phot'):
+        elif mode_now == 'phot':
             star = part['star']
-            if (age_cut is not None):
+            if age_cut is not None:
                 star = star[star['age', 'Gyr'] < age_cut]
             mags = phot.measure_magnitude(star, filter_name=phot_filter, total=False)
             lums = 10 ** (-mags / 2.5)
@@ -1242,7 +1248,7 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
                               weights=lums)
             colorbar_label = 'Surface brightness\nmag'
             mode_label = 'Stars'
-        elif (mode_now == 'sdss'):
+        elif mode_now == 'sdss':
             star = part['star']
             filters = ['SDSS_i', 'SDSS_r', 'SDSS_g']
             images = []
@@ -1256,28 +1262,28 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
             rgb = make_lupton_rgb(*images, Q=10, stretch=0.5)
             im = draw_image(rgb, extent=np.concatenate(snap.box[proj_now]))
             mode_label = 'SDSS'
-        elif (mode_now == 'dm'):
+        elif mode_now == 'dm':
             dm = part['dm']
             im = draw_partmap(dm, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
                               unit='Msol/pc2')
             mode_label = 'DM'
             colorbar_label = 'DM density [M$_{\odot}$ pc$^{-2}$]'
-        elif (mode_now == 'gas' or mode_now == 'rho'):
+        elif mode_now == 'gas' or mode_now == 'rho':
             im = draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='crho', cmap=ccm.hesperia,
                              interp_order=interp_order, unit='Msol/pc2', method=cell_method)
             mode_label = 'Gas - Density'
             colorbar_label = 'Gas density [M$_{\odot}$ pc$^{-2}$]'
-        elif (mode_now == 'temp' or mode_now == 'T'):
+        elif mode_now == 'temp' or mode_now == 'T':
             im = draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='T', cmap=ccm.hesperia,
                              unit='K', method=cell_method)
             mode_label = 'Gas - Temperature'
             colorbar_label = 'Gas temperature [K]'
-        elif (mode_now == 'dust'):
+        elif mode_now == 'dust':
             im = draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='dust', cmap=ccm.lacerta,
                              interp_order=interp_order, method=cell_method)
             mode_label = 'Gas - Dust'
             colorbar_label = 'Dust fraction'
-        elif (mode_now == 'metal'):
+        elif mode_now == 'metal':
             im = draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='metal', cmap=ccm.lacerta,
                              interp_order=interp_order, method=cell_method)
             mode_label = 'Gas - Metallicity'
@@ -1286,65 +1292,65 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
             raise ValueError('Unknown mode: ', mode_now)
 
         ax_label = ''
-        if (show_smbh[ipan]):
-            if (smbh_labels[ipan]):
+        if show_smbh[ipan]:
+            if smbh_labels[ipan]:
                 labels = ['%.2f' % m for m in np.log10(smbh['m', 'Msol'])]
             else:
                 labels = None
             draw_smbhs(smbh, proj=proj_now, labels=labels, color='gray',
                        fontsize=fontsize, mass_range=[4, 8], facecolor='none', s=100)
 
-        if (axis):
+        if axis:
             plt.axis('on')
             set_ticks_unit(snap, proj_now, 'kpc')
-        if (ipan == 0):
-            if (target is not None):
+        if ipan == 0:
+            if target is not None:
                 ax_label += 'ID = %d\n' % target['id']
-                if (source == 'SINKPROPS'):
+                if source == 'SINKPROPS':
                     ax_label += 'log M$_{\\bullet}$ = %.2f' % np.log10(target['m'] / snap.unit['Msol'])
                     ax_label += '\n'
-                elif (source == 'GalaxyMaker'):
+                elif source == 'GalaxyMaker':
                     ax_label += 'log M$_{gal}$ = %.2f' % np.log10(target['m'])
                     ax_label += '\n'
 
             ax_label2 = ''
             for prop in props:
-                if (prop == 'contam'):
+                if prop == 'contam':
                     dm = part['dm']
                     contam = np.sum(dm[dm['m'] > np.min(dm['m']) * 2]['m']) / np.sum(dm['m'])
                     f1 = contam
-                    if (contam > 0):
+                    if contam > 0:
                         ax_label2 += '\nf$_{low}$ = %.2f' % f1
-                if (prop == 'fedd' and sink.size > 0):
-                    if (source in ['SINKPROPS', 'sink']):
+                if prop == 'fedd' and sink.size > 0:
+                    if source in ['SINKPROPS', 'sink']:
                         mms = sink[sink['id'] == target['id']]
                     else:
                         mms = sink[np.argmax(sink['m'])]
                     f1 = mms['dM'] / mms['dMEd']
                     ax_label2 += '\nf$_{\\rm{Edd}}$ = %.3f' % f1
-                if (prop == 'sfr'):
+                if prop == 'sfr':
                     f1 = np.sum(star[star['age', 'Myr'] < 100]['m', 'Msol'] / 1E8)
                     ax_label2 += '\nSFR$_{100 \\rm{Myr}}$ = %.2f' % f1
             dr.axlabel(ax_label2, 'right bottom', color='white', fontsize=fontsize, linespacing=1.5)
 
-        if (mode_now in ['star', 'phot', 'sdss']):
+        if mode_now in ['star', 'phot', 'sdss']:
             ax_label += 'log M$_*$ = %.2f\n' % np.log10(np.sum(star['m', 'Msol']))
-        elif (mode_now in ['dm']):
+        elif mode_now in ['dm']:
             ax_label += 'log M$_{DM}$ = %.2f\n' % np.log10(np.sum(dm['m', 'Msol']))
-        elif (mode_now in ['gas', 'rho']):
+        elif mode_now in ['gas', 'rho']:
             ax_label += 'log M$_{gas}$ = %.2f\n' % np.log10(np.sum(cell['m', 'Msol']))
 
         dr.axlabel(ax_label, 'left top', color='white', fontsize=fontsize, linespacing=1.5)
-        if (mode_label is not None):
+        if mode_label is not None:
             dr.axlabel(mode_label + ('\nz = %.3f' % snap.z), 'right top', color='white', fontsize=fontsize,
                        linespacing=1.5)
 
-        if (ruler):
+        if ruler:
             radius_in_unit = (snap.box[proj_now[0], 1] - snap.box[proj_now[0], 0]) * 0.5 / snap.unit[radius_unit]
-            if (ruler_size_in_radius_unit is None):
+            if ruler_size_in_radius_unit is None:
                 ruler_size_in_radius_unit = int(radius_in_unit / 2.5)
             bar_length = 0.5 / radius_in_unit * ruler_size_in_radius_unit
-            rect = Rectangle([0.075, 0.1], bar_length, 0.02, transform=plt.gca().transAxes, color='white', zorder=100)
+            rect = Rectangle((0.075, 0.1), bar_length, 0.02, transform=plt.gca().transAxes, color='white', zorder=100)
             plt.gca().add_patch(rect)
             plt.text(0.075 + bar_length / 2, 0.08, '%g %s' % (ruler_size_in_radius_unit, radius_unit), ha='center',
                      va='top', color='white', transform=plt.gca().transAxes, fontsize=8)
@@ -1365,12 +1371,12 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
             cbar.set_label(label=colorbar_label, size=fontsize)
     plt.subplots_adjust(**subplots_adjust_kw)
 
-    if (savefile is not None):
+    if savefile is not None:
         save_figure(savefile)
     return fig, axes
 
 
-def SDSS_rgb(star, filename=None, **kwargs):
+def sdss_rgb(star, filename=None, **kwargs):
     mags = phot.measure_magnitude(star, 'SDSS_g')
     lums = 10 ** (-mags / 2.5)
     g = partmap(star, weights=lums, **kwargs)
