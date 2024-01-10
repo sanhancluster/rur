@@ -1,4 +1,4 @@
-
+import os
 from os.path import join, exists, getsize
 from numpy.core.records import fromarrays as fromarrays
 
@@ -1972,12 +1972,13 @@ class RamsesSnapshot(object):
 
                 print('---------------------------------------------')
 
-                print('Number of       star particles: %d with total mass of %.3e Msol, Min. particle mass: %.3e Msol' % (star.size, star_tot, star_min))
+                print('Number of       star particles: %d with total mass of %.3e Msol, Min. particle mass: %.3e Msol, Max.particle mass:' % (star.size, star_tot, star_min))
                 if(star.size>0):
                     sfr100 = np.sum(star[star['age', 'Myr']<100]['m', 'Msol'])/1E8
                     sfr10 = np.sum(star[star['age', 'Myr']<10]['m', 'Msol'])/1E7
                     sfr1 = np.sum(star[star['age', 'Myr']<1]['m', 'Msol'])/1E6
                     print('SFR within the box (last 100, 10, 1Myr): %.3e, %.3e %.3e Msol/yr' % (sfr100, sfr10, sfr1))
+                    print('Max. stellar velocity: %.3e km/s', np.max(utool.rss(star['vel', 'km/s'])))
 
                 if(smbh.size>0):
                     smbh_tot = np.sum(smbh['m', 'Msol'])
@@ -1999,6 +2000,9 @@ class RamsesSnapshot(object):
             print('Total gas mass: %.3e Msol' % gas_tot)
             print('Max. gas density    : %.3e H/cc' % np.max(self.cell['rho', 'H/cc']))
             print('Max. gas temperature: %.3e K' % np.max(self.cell['T', 'K']))
+            print('Max. gas sound speed: %.3e km/s', np.max(cell['cs', 'km/s']))
+            print('Max. gas velocity   : %.3e km/s', np.max(utool.rss(cell['vel', 'km/s'])))
+
             if('refmask' in cell.dtype.names):
                 contam = 1.-np.sum(cell[cell['refmask']>0.01]['m'])/np.sum(cell['m'])
                 if(contam>0.):
@@ -2008,7 +2012,6 @@ class RamsesSnapshot(object):
             print('Baryonic fraction: %.3f' % ((gas_tot+star_tot+smbh_tot) / (dm_tot+gas_tot+star_tot+smbh_tot)))
 
     def write_contam_part(self, mdm_cut):
-        import os
         self.clear()
         self.get_part(box=default_box, pname='dm', target_fields=['x', 'y', 'z', 'm', 'cpu'])
         part = self.part

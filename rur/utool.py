@@ -764,7 +764,7 @@ def voronoi_binning(centers, points, weights=1., n_jobs=-1):
 
     return sums
 
-def find_closest(centers, points, n_jobs=-1):
+def find_closest(centers, points):
     tree = KDTree(centers)
     idx_closest = tree.query(points, k=1)[1]
     return idx_closest
