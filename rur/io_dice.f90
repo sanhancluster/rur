@@ -37,28 +37,74 @@ MODULE io_dice
     REAL(KIND=4), DIMENSION(:), ALLOCATABLE :: g_mm
     INTEGER(KIND=4), DIMENSION(:), ALLOCATABLE :: g_id, g_type 
 CONTAINS
+
     SUBROUTINE read_gadget(fname)
 
     IMPLICIT NONE
     CHARACTER(1000), INTENT(IN) :: fname
 
     !! LOCAL VARIABLES
-    logical :: ok
-    INTEGER :: dummy_int, blck_size, head_blck, np, ntype, i0, i1, i
+    INTEGER :: jump_blck, stat, dummy_int, blck_size, np, i0, i1, i
+    INTEGER :: head_blck,pos_blck,vel_blck,id_blck,mass_blck,u_blck,metal_blck,age_blck
     CHARACTER(LEN=4) :: blck_name
+    character(len=4)::ic_head_name  = 'HEAD'
+    character(len=4)::ic_pos_name   = 'POS '
+    character(len=4)::ic_vel_name   = 'VEL '
+    character(len=4)::ic_id_name    = 'ID  '
+    character(len=4)::ic_mass_name  = 'MASS'
+    character(len=4)::ic_u_name     = 'U   '
+    character(len=4)::ic_metal_name = 'Z   '
+    character(len=4)::ic_age_name   = 'AGE '
 
 
     TYPE(htype) :: header
 
     OPEN(unit=10, file=TRIM(fname), status='old', form='unformatted', action='read', access='stream')
-
+    head_blck  = -1
+    pos_blck   = -1
+    vel_blck   = -1
+    id_blck    = -1
+    mass_blck  = -1
+    jump_blck = 1
+    do while(.true.)
     !! READ HEADER
+        read(10,POS=jump_blck,iostat=stat) dummy_int
+        if(stat /= 0) exit
+        read(10,POS=jump_blck+sizeof(dummy_int),iostat=stat) blck_name
+        if(stat /= 0) exit
+        read(10,POS=jump_blck+sizeof(dummy_int)+sizeof(blck_name),iostat=stat) dummy_int
+        if(stat /= 0) exit
+        read(10,POS=jump_blck+2*sizeof(dummy_int)+sizeof(blck_name),iostat=stat) dummy_int
+        if(stat /= 0) exit
+        read(10,POS=jump_blck+3*sizeof(dummy_int)+sizeof(blck_name),iostat=stat) blck_size
+        if(stat /= 0) exit
 
-    READ(10,POS=1+sizeof(dummy_int)) blck_name
-    READ(10,POS=1+sizeof(dummy_int)+sizeof(blck_name)) dummy_int
-    READ(10,POS=1+2*sizeof(dummy_int)+sizeof(blck_name)) dummy_int
-    READ(10,POS=1+3*sizeof(dummy_int)+sizeof(blck_name)) blck_size
-    head_blck = 1+sizeof(blck_name)+4*sizeof(dummy_int)
+        if(blck_name .eq. ic_head_name) then
+            head_blck  = int(jump_blck+sizeof(blck_name)+4*sizeof(dummy_int))
+        endif
+        if(blck_name .eq. ic_pos_name) then
+            pos_blck   = int(jump_blck+sizeof(blck_name)+4*sizeof(dummy_int))
+        endif
+        if(blck_name .eq. ic_vel_name) then
+            vel_blck  = int(jump_blck+sizeof(blck_name)+4*sizeof(dummy_int))
+        endif
+        if(blck_name .eq. ic_id_name) then
+            id_blck    = int(jump_blck+sizeof(blck_name)+4*sizeof(dummy_int))
+        endif
+        if(blck_name .eq. ic_mass_name) then
+            mass_blck  = int(jump_blck+sizeof(blck_name)+4*sizeof(dummy_int))
+        endif
+        if(blck_name .eq. ic_u_name) then
+            u_blck     = int(jump_blck+sizeof(blck_name)+4*sizeof(dummy_int))
+        endif
+        if(blck_name .eq. ic_metal_name) then
+            metal_blck = int(jump_blck+sizeof(blck_name)+4*sizeof(dummy_int))
+        endif
+        if(blck_name .eq. ic_age_name) then
+            age_blck   = int(jump_blck+sizeof(blck_name)+4*sizeof(dummy_int))
+        endif
+        jump_blck = int(jump_blck+blck_size+sizeof(blck_name)+5*sizeof(dummy_int))
+    ENDDO
 
     READ(10,POS=head_blck) header%npart,header%mass,header%time,header%redshift, &
          header%flag_sfr,header%flag_feedback,header%nparttotal, &
@@ -68,17 +114,17 @@ CONTAINS
          header%flag_entropy_instead_u, header%flag_doubleprecision, &
          header%flag_ic_info, header%lpt_scalingfactor
 
-    !PRINT *, header%mass
-
     !! READ PART
     np = sum(header%npart)
 
     CALL read_gadget_allocate(np)
 
-    READ(10) pos
-    READ(10) vel
-    READ(10) id
-    READ(10) mm
+    READ(10,POS=pos_blck) pos
+    READ(10,POS=vel_blck) vel
+    READ(10,POS=id_blck) id
+    READ(10,POS=mass_blck) mm
+    CLOSE(10)
+
     CLOSE(10)
 
     i0 = 1
