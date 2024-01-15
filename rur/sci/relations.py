@@ -1,56 +1,82 @@
 import numpy as np
 from scipy.interpolate import interp2d
 from scipy.interpolate import interp1d
+import warnings
 
-# galaxy-BH mass relation
+def check_range(x, range):
+    if np.any(x <= range[0]) or np.any(x >= range[1]):
+        warnings.warn("Value exceeded allowed range: %s" % str(range), UserWarning)
+
 def mgal_mbh(tag, logscale=False):
+    # galaxy-BH mass relation
     try:
         params_dict = {
             'RV15a': [1.05, 1E11, 7.45],  # Reines & Volonteri 2015 (AGNs)
             'RV15b': [1.40, 1E11, 8.95],  # Reines & Volonteri 2015 (E/CBs)
             'BM19': [1.64, 1E11, 7.88],  # Baron & Ménard 2019 (All?)
-            'S20a': [1.64, 1, -10.29],  # Suh 2020 (All)
-            'S20b': [0.78, 1, -0.33],  # Suh 2020 (High-z AGNs)
-            'Z23': [0.98, 1, -1.92],  # Zhang 2023 (z~2 Type I AGNs)
+            'S20a': [1.64, 1, -10.29],  # Suh+ 2020 (All)
+            'S20b': [0.78, 1, -0.33],  # Suh+ 2020 (High-z AGNs)
+            'Z23': [0.98, 1, -1.92],  # Zhang+ 2023 (z~2 Type I AGNs)
 
         }
     except KeyError:
         raise ValueError("Available tags: RV15a, RV15b, BM19, S20a, S20b")
     params = params_dict[tag]
+
     if not logscale:
         return lambda mgal: 10**(params[0]*np.log10(mgal/params[1])+params[2])
     else:
-        return lambda mgal: (params[0]*np.log10(mgal/params[1])+params[2])
+        return lambda mgal: params[0]*np.log10(10**mgal/params[1])+params[2]
 
-# sigma*-BH mass relation
-def sigma_mbh(tag, z=0):
+def sigma_mbh(tag, logscale=False):
+    # sigma*-BH mass relation
     params_dict = {
-        'G09': [8.12, 4.24],  # Gultekin 09,
+        'G09': [8.12, 4.24],  # Gultekin 09
         'K13': [8.49, 4.377],  # Kormendy 13
-        'M13': [8.32, 5.64],  # McConnel+ 13
+        'M13': [8.32, 5.64],  # McConnel& Ma 13
     }
 
-    def robertson(z):
-        # Robertson et al. 2006
+    def msig(sig, params):
+        if logscale:
+            sig = 10**sig
+        mbh = params[0] + params[1] * np.log10(sig / 200)
+        if not logscale:
+            mbh = 10**mbh
+        return mbh
+
+    def robertson(sig, z=0):
+        # Robertson+ 06
         zarr = [0, 2, 3, 6]
         params = [[8.01, 7.83, 7.72, 7.44], [3.87, 4.10, 4.02, 3.62]]
         interp = interp1d(zarr, np.array(params))
-        return interp(z)
+        params = interp(z)
+        return msig(sig, params)
 
-    if(tag == 'R06'):
-        params = robertson(z)
+    def shen(sig, z=0):
+        # Shen+ 15
+        zarr = [0.26, 0.53, 0.70, 0.84]
+        params = [[8.324, 8.372, 8.388, 8.364], [1.695, 1.592, 1.199, 0.960]]
+        interp = interp1d(zarr, np.array(params))
+        params = interp(z)
+        return msig(sig, params)
+
+
+    if tag == 'R06':
+        return robertson
+    if tag == 'S15':
+        return shen
     else:
         params = params_dict[tag]
-    return lambda sig: 10 ** (params[0] + params[1] * np.log10(sig / 200))
+        return lambda sig: msig(sig, params)
 
 def mgal_mdmh(tag):
     # stellar to halo mass ratio
     def guo(m, c=0.129, m_0=10 ** 11.4, alpha=0.926, beta=0.261, gamma=2.440):
-        # from Guo et al. (2010)
+        # Guo+ 10
         return c * ((m / m_0) ** -alpha + (m / m_0) ** beta) ** (-gamma)
 
     def moster(m, z=0.):
-        #  Stellar-to-halo mass relation from Moster et al. (2010)
+        #   Moster+ 10
         table = np.array(
             [
                 (0.0, 11.88, 0.02, 0.0282, 0.0005, 1.06, 0.05, 0.05, 0.56, 0.00),
@@ -73,7 +99,7 @@ def mgal_mdmh(tag):
         return 2 * mm0 * ((m / m1) ** -beta + (m / m1) ** gamma) ** -1
 
     def behroozi(mh, z):
-        #  Stellar-to-halo mass relation from Behroozi et al. (2013)
+        #  Behroozi+ 13
         exp = np.exp
         logmh = np.log10(mh)
         a = 1. / (1. + z)
@@ -103,7 +129,7 @@ def mgal_mdmh(tag):
         raise ValueError("Available tags: B13 (Behroozi+ 13), M10 (Moster+ 10), G10 (Guo+ 10)")
 
 
-class mgal_size:
+def mgal_size(tag='V14'):
     # mass-size relation
     def V14(self, mlog, z=0, shape='circular', radius_type=1, gal_type='late', return_error=False): # van der Wel+ 2014 (SDSS)
         if(shape == 'circular'):
@@ -153,18 +179,110 @@ class mgal_size:
                 return out, err
             else:
                 return out
+    if tag == 'V14':
+        return V14
 
-class mgal_sfr:
+def mgal_sfr(tag='W12'):
     # star formation main sequence
-    @staticmethod
-    def W14(logm, z=0): # Whitaker+ 2014
+    def W12(logm, z=0): # Whitaker+ 12
         alpha = 0.70 - 0.13 * z
         beta = 0.38 + 1.14 * z - 0.19 * z**2
         log_sfr = alpha * (logm - 10.5) + beta
         return log_sfr
 
-class gmf:
+    def W14(logm, z=0):
+        params_arr = np.array([
+            [-27.40, -26.03, -24.04, -19.99],
+            [5.02, 4.62, 4.17, 3.44],
+            [-0.22, -0.19, -0.16, -0.13],
+        ])
+        z_arr = [0.75, 1.25, 1.75, 2.25]
+
+        table = np.rec.fromarrays([
+        ], dtype=[('z', 'f8'), ('a', 'f8'),
+                  ('b', 'f8'), ('c', 'f8')])
+
+        a = np.interp(z, table['z'], params_arr[0])
+        b = np.interp(z, table['z'], params_arr[1])
+        c = np.interp(z, table['z'], params_arr[2])
+        return a + b * logm + c * logm**2
+
+    if tag == 'W12':
+        return W12
+    elif tag == 'W14':
+        return W14
+
+
+def gmf():
     # galaxy mass function
-    @staticmethod
     def schechter(m, ms, phi, alpha):
         return np.log(10) * phi * 10**((m-ms) * (1+alpha)) * np.exp(-10**(m - ms))
+
+
+def gpm(m, params):
+    z0, m0, gamma = params
+    return z0+np.log10(1-10**(-(m/m0)**gamma))
+
+def mzr_12OH(tag):
+    def T04(logm): # Tremonti+ 04, z=0
+        return -1.492 + 1.847*logm - 0.08026*logm**2
+
+    def E06(logm): # Erb+ 06
+        mzr_E06 = np.rec.fromarrays([np.array([0.71, 1.5, 2.6, 4.1, 10.5]) * 1E10,
+                                     np.array([0.17, 0.3, 0.4, 0.6, 5.4]) * 1E10,
+                                     [8.33, 8.42, 8.46, 8.52, 8.58],
+                                     [0.07, 0.06, 0.06, 0.06, 0.06],
+                                     [0.07, 0.05, 0.05, 0.05, 0.04]],
+                                    dtype=[('m', 'f8'), ('merr', 'f8'),
+                                           ('OH12', 'f8'), ('OH12uerr', 'f8'), ('OH12lerr', 'f8')])
+        return np.interp(mzr_E06['m'], 10**logm, mzr_E06['OH12'])
+
+    def S14(logm):
+        mzr_S14 = np.rec.fromarrays([[8.87, 9.34, 9.69, 9.87, 10.11, 10.37, 10.66, 11.19],
+                                     [8.20, 8.23, 8.31, 8.35, 8.38, 8.47, 8.51, 8.65]],
+                                    dtype=[('m', 'f8'), ('OH12', 'f8')])
+        return np.interp(mzr_S14['m'], 10 ** logm, mzr_S14['OH12'])
+
+    def S06(logm, t_H): # Salvaglio+ 06
+        dlogm = -2.0436 * np.log10(t_H) + 2.2223
+        return -2.4412 + 2.1026 * (logm - dlogm) - 0.09649 * (logm - dlogm)**2
+
+    def W14(logm, z): # Wuyts+ 14
+        check_range(z, [0., 2.3])
+        def gpm(m, params):
+            z0, m0, gamma = params
+            return z0 + np.log10(1 - 10 ** (-(m / m0) ** gamma))
+
+        table = [[8.69, 8.8, 8.7], [9.02, 10.2, 10.5], [0.4, 0.4, 0.5]]
+        zarr = [0, 0.9, 2.3]
+        z0 = np.interp(z, zarr, table[0])
+        m0 = 10**np.interp(z, zarr, table[1])
+        gamma = np.interp(z, zarr, table[2])
+
+        return gpm(10**logm, (z0, m0, gamma))
+
+    def S21(logm, z): # Sanders+ 21
+        check_range(z, [2.3, 3.3])
+        check_range(logm, [9., 11.])
+        table = np.array(
+            [(2.3, 0.30, 8.51),
+             (3.3, 0.29, 8.41)],
+            dtype=[('z', 'f8'), ('gamma', 'f8'), ('Z10', 'f8')]
+        )
+        gamma = np.interp(z, table['z'], table['gamma'])
+        Z10 = np.interp(z, table['z'], table['Z10'])
+        return gamma * (logm-10) + Z10
+
+
+    if tag == 'T04':
+        return T04
+    elif tag == 'S14':
+        return S14
+    elif tag == 'E06':
+        return E06
+    elif tag == 'S06':
+        return S06
+    elif tag == 'W14':
+        return W14
+    elif tag == 'S21':
+        return S21

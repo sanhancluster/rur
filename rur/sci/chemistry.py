@@ -13,6 +13,8 @@ solar_frac = {
     'Si': 0.04570737,
     'S' : 0.02126050,
     'Fe': 0.08884559,
+    'metal': 0.808391,
+    'metal_all': 1.34,
 }
 solar_abundance = solar_frac
 
