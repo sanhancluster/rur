@@ -889,6 +889,10 @@ class RamsesSnapshot(object):
         if (self.mode == 'nh2') & (self.iout < 60):
             self.hydro_names = hydro_names['y3']
             self.part_dtype = part_dtype['y3']
+        elif(self.mode == 'y4')&(self.iout<60):
+            self.mode = 'y3'
+            self.hydro_names = hydro_names['y3']
+            self.part_dtype = part_dtype['y3']
 
         if (self.classic_format):
             opened.readline()
