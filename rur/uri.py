@@ -709,6 +709,7 @@ class RamsesSnapshot(object):
             self.alert = False
             signal.signal(signal.SIGINT, signal.SIG_DFL)
             signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
 
     def __del__(self):
         atexit.unregister(self.flush)
