@@ -418,11 +418,16 @@ def _calc_ncell(fname: str, amr_kwargs: dict):
     with FortranFile(fname, mode='r') as f:
         f.skip_records(21)
         numbl = f.read_ints()
+        f.skip_records(3)
+        if(nboundary>0):
+            numbb = f.read_ints()
+            f.skip_records(2)
         ngridfile = np.empty((ncpu + nboundary, nlevelmax), dtype='i4')
         for ilevel in range(nlevelmax):
-            ngridfile[:, ilevel] = numbl[ncpu * ilevel: ncpu * (ilevel + 1)]
-        f.skip_records(7)
-        if nboundary > 0: f.skip_records(3)
+            ngridfile[:ncpu, ilevel] = numbl[ncpu * ilevel: ncpu * (ilevel + 1)]
+            if(nboundary>0):
+                ngridfile[ncpu:ncpu+nboundary, ilevel]=numbb[nboundary*ilevel : nboundary*(ilevel+1)]
+        f.skip_records(4)
         levels, cpus = np.where(ngridfile.T > 0)
         for ilevel, jcpu in zip(levels, cpus + 1):
             f.skip_records(3)
@@ -478,9 +483,12 @@ def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, legacy: bool, cel
     f_amr = FortranFile(amr_fname, mode='r')
     f_amr.skip_records(21)
     numbl = f_amr.read_ints()
-    ngridfile = numbl.reshape(nlevelmax, ncpu + nboundary).T
-    f_amr.skip_records(7)
-    if nboundary > 0: f_amr.skip_records(3)
+    f_amr.skip_records(3)
+    if nboundary>0:
+        numbb=f_amr.read_ints()
+        f_amr.skip_records(2)
+    ngridfile = np.vstack((numbl.reshape(nlevelmax, ncpu).T, numbb.reshape(nlevelmax, nboundary).T))
+    f_amr.skip_records(4)
     if (cursor is None): cursor = 0
     if (legacy) or (address is None):
         if (cell is None): cell = np.empty(nsize, dtype=dtype)
@@ -1062,18 +1070,6 @@ class RamsesSnapshot(object):
         if target_fields is not None:
             if ('cpu' not in target_fields):
                 target_fields = np.append(target_fields, 'cpu')
-            # if(pname is not None):
-            #     # If `pname` is specified, you should include family(or m,epoch) to classify
-            #     if(isfamily):
-            #         if('family' not in target_fields):
-            #             target_fields = np.append(target_fields, 'family')
-            #     else:
-            #         if('m' not in target_fields):
-            #             target_fields = np.append(target_fields, 'm')
-            #         if('epoch' not in target_fields)and(isstar):
-            #             target_fields = np.append(target_fields, 'epoch')
-            #         if('id' not in target_fields):
-            #             target_fields = np.append(target_fields, 'id')
             dtype = [idtype for idtype in dtype if idtype[0] in target_fields]
         else:
             target_fields = [idtype[0] for idtype in dtype]
