@@ -450,7 +450,7 @@ class HaloMaker:
         if(target_fields is None): target_fields = dtype.names
         else:
             ind = np.isin(dtype.names, target_fields, assume_unique=True)
-            dtype = np.dtype([idt for idt, iid in zip(dtype.descr, ind) if(iid)]+[('hmid', 'i4'), ('timstep', 'i4')])
+            dtype = np.dtype([idt for idt, iid in zip(dtype.descr, ind) if(iid)]+[('hmid', 'i4'), ('timestep', 'i4')])
         if(snaps.iout_avail is None): snaps.read_iout_avail()
         fout = snaps.iout_avail[-1]['iout']
         fsnap = snaps.get_snap(fout)
