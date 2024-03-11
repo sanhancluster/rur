@@ -161,9 +161,10 @@ class TimeSeries(object):
 
     def clear(self):
         # Later: need to load all **opened** snaps and clear them manually
-
-        self.snaps = None
-        self.basesnap = None
+        for iout in self.snaps.keys():
+            self.snaps[iout].clear()
+        self.snaps = {}
+        self.basesnap.clear()
 
 
 RamsesRepo = TimeSeries
