@@ -151,79 +151,41 @@ output_regex = r'output_(?P<iout>\d{5})'
 output_glob = 'output_[0-9][0-9][0-9][0-9][0-9]'
 sinkprop_glob = 'sink_[0-9][0-9][0-9][0-9][0-9].dat'
 
-info_format = {
-    'ng': 'info.txt',
-}
-info_format.update(dict.fromkeys(
-    ['nh', 'nh_dm_only', 'none', 'hagn', 'yzics', 'yzics_dm_only', 'iap', 'gem', 'fornax', 'y2', 'y3', 'y4', 'nc',
-     'nh2', 'dm_only'], 'info_{snap.iout:05d}.txt'))
 
-data_format = {
-    'ng': '{{type}}.out{{icpu:05d}}',
-}
 
 sinkprop_format = 'sink_{icoarse:05d}.dat'
 
-data_format.update(dict.fromkeys(
-    ['nh', 'nh_dm_only', 'none', 'hagn', 'yzics', 'yzics_dm_only', 'iap', 'gem', 'fornax', 'y2', 'y3', 'y4', 'nc',
-     'nh2', 'dm_only'], '{{type}}_{snap.iout:05d}.out{{icpu:05d}}'))
-
 default = [('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
 
-# columns for particle table, see readr.f90
-part_dtype = {
-    'dm_only': default + [('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
+desc2dtype = {
+    'position_x':'x', 'position_y':'y', 'position_z':'z',
+    'velocity_x':'vx', 'velocity_y':'vy', 'velocity_z':'vz',
+    'mass':'m',
+    'identity':'id', 'levelp':'level',
+    'family':'family', 'tag':'tag',
+    'birth_time':'epoch', 'metallicity':'metal', 'initial_mass':'m0',
+    'chem_H':'H', 'chem_O':'O', 'chem_Fe':'Fe',
+    'chem_Mg':'Mg', 'chem_C':'C', 'chem_N':'N',
+    'chem_Si':'Si', 'chem_S':'S', 'chem_D':'D',
+    'birth_density':'rho0', 'partp':'partp',
+    'density':'rho', 'pressure':'P', 'thermal_pressure':'P',
+    'dust_bin01':'d1', 'dust_bin02':'d2', 'dust_bin03':'d3', 'dust_bin04':'d4',
+    'refinement_scalar':'refmask', 'scalar_15':'sigma'
+}
 
-    'yzics': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
-    'hagn': default + [('epoch', 'f8'), ('metal', 'f8'), ('H', 'f8'), ('O', 'f8'), ('Fe', 'f8'), ('C', 'f8'),
-                       ('N', 'f8'), ('Mg', 'f8'), ('Si', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
-    'yzics_dm_only': default + [('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
+desc2dtype_sink = {
+    'identity':'id', 'mass':'m',
+    'position_x':'x', 'position_y':'y', 'position_z':'z',
+    'velocity_x':'vx', 'velocity_y':'vy', 'velocity_z':'vz',
+    'birth_time':'tform', 'dMsmbh':'dM', 'dMBH_coarse':'dMBH', 'dMEd_coarse':'dMEd',
+    'Esave':'Esave', 'jsink_x':'jx', 'jsink_y':'jy', 'jsink_z':'jz',
+    'spin_x':'sx', 'spin_y':'sy', 'spin_z':'sz', 'spin_magnitude':'spinmag'
+}
 
-    'nh': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
-    'nh_dm_only': default + [('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
-
-    'none': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('family', 'i1'),
-                       ('tag', 'i1')],
-    'iap': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('family', 'i1'),
-                      ('tag', 'i1')],
-    'gem': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('family', 'i1'),
-                      ('tag', 'i1')],
-    'fornax': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'),
-                         ('family', 'i1'), ('tag', 'i1')],
-    'y2': default + [('epoch', 'f8'), ('metal', 'f8'), ('m0', 'f8'),
-                     ('H', 'f8'), ('O', 'f8'), ('Fe', 'f8'), ('Mg', 'f8'),
-                     ('C', 'f8'), ('N', 'f8'), ('Si', 'f8'), ('S', 'f8'),
-                     ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('partp', 'i4'),
-                     ('family', 'i1'), ('tag', 'i1')],
-    'y3': default + [('epoch', 'f8'), ('metal', 'f8'), ('m0', 'f8'),
-                     ('H', 'f8'), ('O', 'f8'), ('Fe', 'f8'), ('Mg', 'f8'),
-                     ('C', 'f8'), ('N', 'f8'), ('Si', 'f8'), ('S', 'f8'),
-                     ('rho0', 'f8'),
-                     ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('partp', 'i4'),
-                     ('family', 'i1'), ('tag', 'i1')],
-    'y4': default + [('epoch', 'f8'), ('metal', 'f8'), ('m0', 'f8'),
-                     ('H', 'f8'), ('O', 'f8'), ('Fe', 'f8'), ('Mg', 'f8'),
-                     ('C', 'f8'), ('N', 'f8'), ('Si', 'f8'), ('S', 'f8'), ('D', 'f8'),
-                     ('rho0', 'f8'),
-                     ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('partp', 'i4'),
-                     ('family', 'i1'), ('tag', 'i1')],
-    'nh2': default + [('epoch', 'f8'), ('metal', 'f8'), ('m0', 'f8'),
-                      ('H', 'f8'), ('O', 'f8'), ('Fe', 'f8'), ('Mg', 'f8'),
-                      ('C', 'f8'), ('N', 'f8'), ('Si', 'f8'), ('S', 'f8'), ('D', 'f8'),
-                      ('rho0', 'f8'),
-                      ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('partp', 'i4'),
-                      ('family', 'i1'), ('tag', 'i1')],
-    'nc': default + [('epoch', 'f8'), ('metal', 'f8'), ('m0', 'f8'),
-                     ('H', 'f8'), ('O', 'f8'), ('Fe', 'f8'), ('Mg', 'f8'),
-                     ('C', 'f8'), ('N', 'f8'), ('Si', 'f8'), ('S', 'f8'), ('D', 'f8'),
-                     ('rho0', 'f8'),
-                     ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('partp', 'i4'),
-                     ('family', 'i1'), ('tag', 'i1')],
-
-    'gem_longint': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i8'), ('level', 'i4'), ('cpu', 'i4'),
-                              ('family', 'i1'), ('tag', 'i1')],
-
-    'ng': default + [('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
+format_f2py = {
+    'd':'f8',
+    'i':'i4',
+    'b':'i1'
 }
 
 sink_prop_dtype_drag = [
@@ -285,26 +247,6 @@ iout_avail_dtype = [('iout', 'i4'), ('aexp', 'f8'), ('age', 'f8'), ('icoarse', '
 
 icoarse_avail_dtype = [('icoarse', 'i4'), ('aexp', 'f8'), ('age', 'f8'), ('time', 'f8')]
 
-# columns for hydro quantity table, all float64, see readr.f90
-hydro_names = {
-    'dm_only': ['rho', 'vx', 'vy', 'vz', 'P'],
-    'nh': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],
-    'nh_dm_only': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],
-    'hagn': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'H', 'O', 'Fe', 'C', 'N', 'Mg', 'Si'],
-    'yzics': ['rho', 'vx', 'vy', 'vz', 'P', 'metal'],
-    'yzics_dm_only': ['rho', 'vx', 'vy', 'vz', 'P', 'metal'],
-    'none': ['rho', 'vx', 'vy', 'vz', 'P'],
-    'iap': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],
-    'gem': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'dust', 'refmask'],
-    'fornax': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'dust', 'refmask'],
-    'y2': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'dust', 'refmask'],
-    'y3': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'refmask'],
-    'y4': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'refmask'],
-    'nh2': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'refmask'],
-    'nc': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'd1', 'd2', 'd3',
-           'd4', 'refmask', 'sigma'],
-    'ng': ['rho', 'vx', 'vy', 'vz', 'P'],
-}
 
 part_family = {
     'cloud_tracer': -3,
