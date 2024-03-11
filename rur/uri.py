@@ -161,9 +161,10 @@ class TimeSeries(object):
 
     def clear(self):
         # Later: need to load all **opened** snaps and clear them manually
-
-        self.snaps = None
-        self.basesnap = None
+        for iout in self.snaps.keys():
+            self.snaps[iout].clear()
+        self.snaps = {}
+        self.basesnap.clear()
 
 
 RamsesRepo = TimeSeries
@@ -705,10 +706,11 @@ class RamsesSnapshot(object):
             except:
                 pass
         if (self.alert):
-            atexit.unregister(self.flush)
+            # atexit.unregister(self.flush)
             self.alert = False
             signal.signal(signal.SIGINT, signal.SIG_DFL)
             signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
 
     def __del__(self):
         atexit.unregister(self.flush)
@@ -1025,13 +1027,13 @@ class RamsesSnapshot(object):
                                 nsink_tot = f.read_ints(np.int32)[0]
                 else:  # (NH)
                     if (sequential):
-                        npart_tot = int(f.readline());
+                        npart_tot = int(f.readline())
                         f.readline()
-                        ndm_tot = int(f.readline());
+                        ndm_tot = int(f.readline())
                         f.readline()
-                        nstar_tot = int(f.readline());
+                        nstar_tot = int(f.readline())
                         f.readline()
-                        nsink_tot = int(f.readline());
+                        nsink_tot = int(f.readline())
                         f.readline()
                         ncloud_tot = nsink_tot * 2109
                         ntracer_tot = 0
@@ -1080,7 +1082,7 @@ class RamsesSnapshot(object):
             "target_fields": target_fields, "dtype": dtype}
 
         if (timer.verbose > 0):
-            print("Allocating Memory...");
+            print("Allocating Memory...")
             ref = time.time()
         if (sequential):
             tracers = ["tracer", "cloud_tracer", "star_tracer", "gas_tracer"]
@@ -1228,15 +1230,15 @@ class RamsesSnapshot(object):
                             i = 0
                             # Long/Int table
                             if (idx + 1 > arrs[0].shape[1]):
-                                idx -= arrs[0].shape[1];
+                                idx -= arrs[0].shape[1]
                                 i += 1
                                 # Int/byte
                                 if (idx + 1 > arrs[1].shape[1]):
-                                    idx -= arrs[1].shape[1];
+                                    idx -= arrs[1].shape[1]
                                     i += 1
                                     # byte
                                     if (idx + 1 > arrs[2].shape[1]):
-                                        idx -= arrs[2].shape[1];
+                                        idx -= arrs[2].shape[1]
                                         i += 1
                             names[key] = arrs[i][:, idx]
                         ids = names.pop('id', None)
@@ -1303,7 +1305,7 @@ class RamsesSnapshot(object):
 
         # 4) Calculate total number of cells
         if (timer.verbose > 0):
-            print("Allocating Memory...");
+            print("Allocating Memory...")
             ref = time.time()
         if (sequential):
             ncell_tot = 0
@@ -2864,7 +2866,7 @@ def quad_to_f16(by):
     for raw in np.reshape(by, (-1, 16)):
         asint.append(int.from_bytes(raw, byteorder='little'))
     asint = np.array(asint)
-    sign = (np.float128(-1.0)) ** np.float128(asint >> 127);
-    exponent = ((asint >> 112) & 0x7FFF) - 16383;
+    sign = (np.float128(-1.0)) ** np.float128(asint >> 127)
+    exponent = ((asint >> 112) & 0x7FFF) - 16383
     significand = np.float128((asint & ((1 << 112) - 1)) | (1 << 112))
     return sign * significand * 2.0 ** np.float128(exponent - 112)
