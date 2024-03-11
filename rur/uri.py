@@ -436,7 +436,7 @@ def _calc_ncell(fname: str, amr_kwargs: dict):
     return ncell
 
 
-def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, legacy: bool, cell=None, nsize=None, cursor=None,
+def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, cell=None, nsize=None, cursor=None,
                address=None, shape=None):
     # 0) From snapshot
     nhvar = snap_kwargs['nhvar']
@@ -485,7 +485,7 @@ def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, legacy: bool, cel
         ngridfile = numbl.reshape(nlevelmax, ncpu).T
     f_amr.skip_records(4)
     if (cursor is None): cursor = 0
-    if (legacy) or (address is None):
+    if (address is None):
         if (cell is None): cell = np.empty(nsize, dtype=dtype)
         pointer = cell[cursor:cursor + nsize].view() if (sequential) else cell
         icursor = 0 if (sequential) else cursor
@@ -566,8 +566,8 @@ def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, legacy: bool, cel
     if (read_grav): f_grav.close()
     if (sequential):
         return cursor
-    if (legacy):
-        return cell[:cursor]
+    # if (legacy):
+    #     return cell[:cursor]
     exist.close()
 
 
@@ -1279,8 +1279,7 @@ class RamsesSnapshot(object):
             if (timer.verbose >= 1):
                 print('CPU list already satisfied.')
 
-    def read_cell_py(self, cpulist: Iterable, target_fields: Iterable = None, nthread: int = 8, read_grav: bool = False,
-                     legacy: bool = False):
+    def read_cell_py(self, cpulist: Iterable, target_fields: Iterable = None, nthread: int = 8, read_grav: bool = False):
         # 1) Read AMR params
         sequential = nthread == 1
         fname = f"{self.snap_path}/output_{self.iout:05d}/amr_{self.iout:05d}.out00001"
@@ -1360,14 +1359,14 @@ class RamsesSnapshot(object):
             iterobj = tqdm(enumerate(cpulist), total=len(cpulist), desc=f"Reading cells") if (
                         timer.verbose >= 1) else enumerate(cpulist)
             for i, icpu in iterobj:
-                cursor = _read_cell(icpu, snap_kwargs, amr_kwargs, legacy, cell=cell, nsize=sizes[i], cursor=cursor,
+                cursor = _read_cell(icpu, snap_kwargs, amr_kwargs, cell=cell, nsize=sizes[i], cursor=cursor,
                                     address=None, shape=None)
             cell = cell[:cursor]
         else:
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(_read_cell, (
-                icpu, snap_kwargs, amr_kwargs, legacy, None, size, cursor, self.cell_mem.name, cell.shape)) for
+                icpu, snap_kwargs, amr_kwargs, None, size, cursor, self.cell_mem.name, cell.shape)) for
                                 icpu, size, cursor in zip(cpulist, sizes, cursors)]
                 iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading cells") if (
                             timer.verbose >= 1) else async_result
@@ -1376,7 +1375,7 @@ class RamsesSnapshot(object):
             signal.signal(signal.SIGTERM, self.terminate)
         return cell
 
-    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, python=True, nthread=8, legacy=False):
+    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, python=True, nthread=8):
         """Reads amr data from current box.
 
         Parameters
@@ -1410,8 +1409,7 @@ class RamsesSnapshot(object):
                 1)
             nthread = min(nthread, cpulist.size)
             if (python):
-                cell = self.read_cell_py(cpulist, read_grav=read_grav, nthread=nthread, target_fields=target_fields,
-                                         legacy=legacy)
+                cell = self.read_cell_py(cpulist, read_grav=read_grav, nthread=nthread, target_fields=target_fields)
             else:
                 if (nthread > 1):
                     warnings.warn(
@@ -1815,7 +1813,7 @@ class RamsesSnapshot(object):
         self.cpu = np.concatenate(amr_cpus)
 
     def get_cell_instant(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None,
-                         read_grav=False, ripses=False, python=True, nthread=8, legacy=False):
+                         read_grav=False, ripses=False, python=True, nthread=8):
         '''
         Use only if you want to read part data from already loaded whole snapshot.
         It will not affect attributes of `RamsesSnapshot` class if all CPUlist are satisfied.
@@ -1825,7 +1823,7 @@ class RamsesSnapshot(object):
         if (not ind.all()):
             if (timer.verbose >= 1): print(f"Extend CPU list...\n->{cpulist[~ind]}")
             self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist[~ind], python=python,
-                           nthread=nthread, legacy=legacy)
+                           nthread=nthread)
         if (ind.all() & np.isin(self.cpulist_cell, cpulist).all()):
             cell = self.cell_data
         else:
@@ -1835,7 +1833,7 @@ class RamsesSnapshot(object):
         return Cell(cell, self)
 
     def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False,
-                 ripses=False, python=True, nthread=8, legacy=False):
+                 ripses=False, python=True, nthread=8):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -1859,7 +1857,7 @@ class RamsesSnapshot(object):
                 exact_box = False
             if (not ripses):
                 self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist, python=python,
-                               nthread=nthread, legacy=legacy)
+                               nthread=nthread)
             else:
                 self.read_ripses(target_fields=target_fields, cpulist=cpulist)
             if (domain_slicing):
@@ -1884,7 +1882,7 @@ class RamsesSnapshot(object):
         return self.cell
 
     def get_part_instant(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None,
-                         pname=None, python=True, nthread=8, legacy=False):
+                         pname=None, python=True, nthread=8):
         '''
         Use only if you want to read part data from already loaded whole snapshot.
         It will not affect attributes of `RamsesSnapshot` class if all CPUlist are satisfied.
@@ -1893,8 +1891,7 @@ class RamsesSnapshot(object):
         ind = np.isin(cpulist, self.cpulist_part, assume_unique=True)
         if (not ind.all()):
             if (timer.verbose >= 1): print(f"Extend CPU list...\n->{cpulist[~ind]}")
-            self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, python=python,
-                           legacy=legacy)
+            self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, python=python)
         if (ind.all() & np.isin(self.cpulist_part, cpulist).all()):
             part = self.part_data
         else:
@@ -1904,7 +1901,7 @@ class RamsesSnapshot(object):
         return Particle(part, self, ptype=pname)
 
     def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None,
-                 python=True, nthread=8, legacy=False):
+                 python=True, nthread=8):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -1937,8 +1934,7 @@ class RamsesSnapshot(object):
             else:
                 domain_slicing = True
                 exact_box = False
-            self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, python=python,
-                           legacy=legacy)
+            self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, python=python)
             if (domain_slicing):
                 if (np.isin(cpulist, self.cpulist_part).all() & np.isin(self.cpulist_part, cpulist).all()):
                     part = self.part_data
