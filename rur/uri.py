@@ -500,7 +500,7 @@ def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, cell=None, nsize=
     # Loop over levels
     for ilevel in range(nlevelmax):
         ncpu_befo = icpu - 1
-        ncpu_afte = ncpu - icpu
+        ncpu_afte = ncpu + nboundary - icpu
         ncache_befo = np.count_nonzero(ngridfile[:ncpu_befo, ilevel])
         ncache = ngridfile[icpu - 1, ilevel]
         ncache_afte = np.count_nonzero(ngridfile[icpu:, ilevel])
@@ -1727,7 +1727,7 @@ class RamsesSnapshot(object):
 
         return sink
     
-    def clear_shm(clean=True):
+    def clear_shm(self, clean=True):
         shms = glob.glob(f'/dev/shm/rur*')
         if(len(shms)>0):
             shms = [shm.split('/')[-1] for shm in shms]
