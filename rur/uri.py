@@ -567,8 +567,6 @@ def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, cell=None, nsize=
     if (read_grav): f_grav.close()
     if (sequential):
         return cursor
-    # if (legacy):
-    #     return cell[:cursor]
     exist.close()
 
 
@@ -923,7 +921,7 @@ class RamsesSnapshot(object):
         count = 0
         while(exists(f"/dev/shm/{fname}")):
             count += 1
-            fname = f"rur_{kind}_{self.mode}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S')}_{count}"
+            fname = f"rur_{kind}_{self.mode}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S')}r{count}"
         return fname
 
     def read_params(self, snap):
