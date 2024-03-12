@@ -18,6 +18,7 @@ import numpy as np
 import warnings
 import glob
 import re
+import datetime
 from copy import deepcopy
 from multiprocessing import Pool, shared_memory
 import atexit, signal
@@ -916,6 +917,15 @@ class RamsesSnapshot(object):
                 hydro_names = hydro_names + chem
         return hydro_names, chem
 
+    def make_shm_name(self, kind):
+        now = datetime.datetime.now()
+        fname = f"rur_{kind}_{self.mode}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S')}"
+        count = 0
+        while(exists(f"/dev/shm/{fname}")):
+            count += 1
+            fname = f"rur_{kind}_{self.mode}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S')}_{count}"
+        return fname
+
     def read_params(self, snap):
 
         opened = open(self.info_path, mode='r')
@@ -1136,7 +1146,7 @@ class RamsesSnapshot(object):
                 signal.signal(signal.SIGINT, self.terminate)
                 signal.signal(signal.SIGPIPE, self.terminate)
                 self.alert = True
-            self.part_mem = shared_memory.SharedMemory(create=True, size=part.nbytes)
+            self.part_mem = shared_memory.SharedMemory(name=self.make_shm_name('part'),create=True, size=part.nbytes)
             self.memory.append(self.part_mem)
             part = np.ndarray(part.shape, dtype=np.dtype(dtype), buffer=self.part_mem.buf)
         if (timer.verbose > 0): print(f"Done ({time.time() - ref:.3f} sec)")
@@ -1194,6 +1204,7 @@ class RamsesSnapshot(object):
                 'Reading %d part files (%s) in %s... ' % (cpulist.size, utool.format_bytes(filesize), self.path), 1)
             nthread = min(nthread, cpulist.size)
             if (python):
+                self.clear_shm(clean=False)
                 part = self.read_part_py(pname, cpulist, target_fields=target_fields, nthread=nthread)
             else:
                 progress_bar = cpulist.size > progress_bar_limit and timer.verbose >= 1
@@ -1345,7 +1356,7 @@ class RamsesSnapshot(object):
                 signal.signal(signal.SIGINT, self.terminate)
                 signal.signal(signal.SIGPIPE, self.terminate)
                 self.alert = True
-            self.cell_mem = shared_memory.SharedMemory(create=True, size=cell.nbytes)
+            self.cell_mem = shared_memory.SharedMemory(name=self.make_shm_name('cell'), create=True, size=cell.nbytes)
             self.memory.append(self.cell_mem)
             cell = np.ndarray(cell.shape, dtype=np.dtype(dtype), buffer=self.cell_mem.buf)
         if (timer.verbose > 0): print(f"Done ({time.time() - ref:.3f} sec)")
@@ -1409,6 +1420,7 @@ class RamsesSnapshot(object):
                 1)
             nthread = min(nthread, cpulist.size)
             if (python):
+                self.clear_shm(clean=False)
                 cell = self.read_cell_py(cpulist, read_grav=read_grav, nthread=nthread, target_fields=target_fields)
             else:
                 if (nthread > 1):
@@ -1714,6 +1726,28 @@ class RamsesSnapshot(object):
             utool.dump(sink, cache_file, format=cache_format)
 
         return sink
+    
+    def clear_shm(clean=True):
+        shms = glob.glob(f'/dev/shm/rur*')
+        if(len(shms)>0):
+            shms = [shm.split('/')[-1] for shm in shms]
+            olds = []
+            for shm in shms:
+                _, _, _, fuid, fdate, _ = shm.split('_')
+                if(f'u{os.getuid()}' == fuid):
+                    date_diff = datetime.datetime.now() - datetime.datetime.strptime(fdate, '%Y%m%d')
+                    if(date_diff.days>=7):
+                        olds.append(shm)
+            if(len(olds)>0):
+                total_size = np.sum([os.path.getsize(f"/dev/shm/{shm}") for shm in olds])
+                if(not clean): print(f"Warning! Found {len(olds)} old shared memory ({total_size/(1024**3):.2f} GB)")
+                for old in olds:
+                    if(not clean): print(f" > `/dev/shm/{old}`")
+                    else:
+                        size = os.path.getsize(f"/dev/shm/{old}")/(1024**3)
+                        os.remove(f"/dev/shm/{old}")
+                        print(f"Removed: `/dev/shm/{old}` ({size:.2f} GB)")
+                if(not clean): print("\nIf you want to remove them, run `snap.clear_shm()`")
 
     def clear(self, part=True, cell=True):
         """Clear exsisting cache from snapshot data.
