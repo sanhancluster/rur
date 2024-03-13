@@ -318,7 +318,7 @@ def _read_part(fname: str, kwargs: dict, part=None, mask=None, nsize=None, curso
     with FortranFile(f"{fname}", mode='r') as f:
         # Read data
         f.skip_records(2)
-        npart = f.read_ints(np.int32)
+        npart, = f.read_ints(np.int32)
         f.skip_records(5)
         x = readorskip_real(f, np.float64, 'x', target_fields)
         y = readorskip_real(f, np.float64, 'y', target_fields)
