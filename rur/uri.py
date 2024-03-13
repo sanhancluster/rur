@@ -363,12 +363,12 @@ def _read_part(fname: str, kwargs: dict, part=None, mask=None, nsize=None, curso
         if ('vy' in target_fields): pointer['vy'] = vy[mask]
         if ('vz' in target_fields): pointer['vz'] = vz[mask]
         if ('m' in target_fields): pointer['m'] = m[mask]
-        if ('epoch' in target_fields): pointer['epoch'] = epoch[mask]
-        if ('metal' in target_fields): pointer['metal'] = metal[mask]
+        if ('epoch' in target_fields)and(isstar): pointer['epoch'] = epoch[mask]
+        if ('metal' in target_fields)and(isstar): pointer['metal'] = metal[mask]
         if ('id' in target_fields): pointer['id'] = ids[mask]
         if ('level' in target_fields): pointer['level'] = level[mask]
-        if ('family' in target_fields): pointer['family'] = family[mask]
-        if ('tag' in target_fields): pointer['tag'] = tag[mask]
+        if ('family' in target_fields)and(isfamily): pointer['family'] = family[mask]
+        if ('tag' in target_fields)and(isfamily): pointer['tag'] = tag[mask]
         newtypes = ["m0", "rho0", "partp"] + chem
         if True in np.isin(newtypes, target_fields):
             if('m0' in part_dtype.names):
@@ -1105,7 +1105,7 @@ class RamsesSnapshot(object):
             dtype = [idtype for idtype in dtype if idtype[0] in target_fields]
         else:
             target_fields = [idtype[0] for idtype in dtype]
-        
+
         kwargs = {
             "pname": pname, "isfamily": isfamily, "isstar": isstar, "chem": chem, "part_dtype": part_dtype,
             "target_fields": target_fields, "dtype": dtype}
@@ -2326,7 +2326,9 @@ def classify_part(part, pname, ptype=None):
         else:
             mask = False
     elif ('id' in names):
-        print("Warning: No `family` or `epoch` field found, using id and mass instead.")
+        warnings.warn(
+                        f"No `family` or `epoch` field found, using `id` and `mass` instead.",
+                        UserWarning)
         # DM-only simulation
         if (pname == 'dm'):
             mask = part['id'] > 0
