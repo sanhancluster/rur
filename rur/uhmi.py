@@ -468,7 +468,7 @@ class HaloMaker:
 
         part = np.empty(np.sum(hals['nparts']), dtype=dtype)
         shmname = 'galaxy' if(galaxy) else 'halo'
-        fsnap.part_mem = shared_memory.SharedMemory(name=snap.make_shm_name(shmname), create=True, size=part.nbytes)
+        fsnap.part_mem = shared_memory.SharedMemory(name=fsnap.make_shm_name(shmname), create=True, size=part.nbytes)
         fsnap.memory.append(fsnap.part_mem)
         part = np.ndarray(part.shape, dtype=dtype, buffer=fsnap.part_mem.buf)
 
