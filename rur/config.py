@@ -283,9 +283,9 @@ yr = 3.154E7
 G_const = 6.673E-8  # Gravitational constant in
 c_const = 2.99792458E10  # Speed of light
 sigma_T = 6.6524E-25  # Thomson cross section
-k_B = 1.38064852E-16  # Boltzmann constant
-m_H = 1.6737236E-24  # hydrogen atomic mass
-
+k_B = 1.38062000E-16  # Boltzmann constant (RAMSES:cooling_module.f90)
+m_H = 1.6600000E-24  # hydrogen atomic mass (RAMSES:cooling_module.f90)
+XH = 0.76 # hydrogen mass fraction (RAMSES:cooling_module.f90)
 # others
 gamma = 1.6666667
 
@@ -344,7 +344,7 @@ def set_custom_units(snap):
 
         # Density
         'g/cc': 1E0 / d,
-        'H/cc': m_H / d,
+        'H/cc': m_H / d / XH,
         'Msol/Mpc3': Msol / Mpc ** 3 / d,
         'Msol/kpc3': Msol / kpc ** 3 / d,
 
