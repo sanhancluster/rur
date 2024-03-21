@@ -1731,7 +1731,8 @@ class RamsesSnapshot(object):
             shms = [shm.split('/')[-1] for shm in shms]
             olds = []
             for shm in shms:
-                _, _, _, fuid, fdate, _ = shm.split('_')
+                try: _, _, _, fuid, fdate, _ = shm.split('_')
+                except: _, _, _, fuid, fdate, _, _ = shm.split('_')
                 if(f'u{os.getuid()}' == fuid):
                     date_diff = datetime.datetime.now() - datetime.datetime.strptime(fdate, '%Y%m%d')
                     if(date_diff.days>=7):
