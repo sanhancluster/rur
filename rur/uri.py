@@ -917,11 +917,11 @@ class RamsesSnapshot(object):
 
     def make_shm_name(self, kind):
         now = datetime.datetime.now()
-        fname = f"rur_{kind}_{self.mode}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S')}"
+        fname = f"rur_{kind}_{self.mode}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S_%f')}"
         count = 0
         while(exists(f"/dev/shm/{fname}")):
+            fname = f"rur_{kind}_{self.mode}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S_%f')}r{count}"
             count += 1
-            fname = f"rur_{kind}_{self.mode}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S')}r{count}"
         return fname
 
     def read_params(self, snap):
