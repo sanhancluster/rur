@@ -419,7 +419,8 @@ class HaloMaker:
                     raise TypeError("`hals` should be either array of `int` or `structured array`!")
 
         part = np.empty(np.sum(hals['nparts']), dtype=dtype)
-        snap.part_mem = shared_memory.SharedMemory(create=True, size=part.nbytes)
+        shmname = 'galaxy' if(galaxy) else 'halo'
+        snap.part_mem = shared_memory.SharedMemory(name=snap.make_shm_name(shmname), create=True, size=part.nbytes)
         snap.memory.append(snap.part_mem)
         part = np.ndarray(part.shape, dtype=dtype, buffer=snap.part_mem.buf)
 
@@ -466,7 +467,8 @@ class HaloMaker:
         
 
         part = np.empty(np.sum(hals['nparts']), dtype=dtype)
-        fsnap.part_mem = shared_memory.SharedMemory(create=True, size=part.nbytes)
+        shmname = 'galaxy' if(galaxy) else 'halo'
+        fsnap.part_mem = shared_memory.SharedMemory(name=fsnap.make_shm_name(shmname), create=True, size=part.nbytes)
         fsnap.memory.append(fsnap.part_mem)
         part = np.ndarray(part.shape, dtype=dtype, buffer=fsnap.part_mem.buf)
 

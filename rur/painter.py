@@ -75,7 +75,8 @@ def set_bins(known_lvls, minlvl, maxlvl, box_proj, shape):
         maxlvl = np.max(known_lvls)
         if shape is not None:
             pixlvl = np.max(-np.log2((box_proj[:, 1] - box_proj[:, 0]) / np.array(shape)))
-            maxlvl = np.min([maxlvl, int(pixlvl) + 1])
+            # maxlvl = np.min([maxlvl, int(pixlvl) + 1])
+            maxlvl = max( np.min([maxlvl, int(pixlvl) + 1]), minlvl ) # <------ Should be checked!!!
     else:
         maxlvl = np.min([maxlvl, np.max(known_lvls)])
 
