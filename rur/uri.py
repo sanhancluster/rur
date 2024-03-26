@@ -990,7 +990,15 @@ class RamsesSnapshot(object):
         else:
             self.params['star'] = True
         part_dtype, chem = self.part_desc()
-        hydro_names, chem = self.hydro_desc()
+        hydro_names, hchem = self.hydro_desc()
+        if(not np.array_equal(chem, hchem)):
+            scalars = [it for it in hydro_names if(it[:6]=='scalar')]
+            warnings.warn(f"\nChemical elements are not in agreement!\n\t`{chem}` from part\n\t`{hchem}` from hydro", UserWarning, stacklevel=2)
+            if(len(scalars) == len(chem)):
+                hydro_names = [it for it in hydro_names if(it not in scalars)]
+                warnings.warn(f"\n`{scalars}`\nis found in hydro descriptor\nThese will be considered to\n`{chem}`", UserWarning, stacklevel=2)
+            else:
+                warnings.warn(f"\n`{scalars}`\nis found in hydro descriptor\nThese will be ignored", UserWarning, stacklevel=2)
         self.part_dtype = part_dtype
         self.hydro_names = hydro_names
         self.chem = chem
