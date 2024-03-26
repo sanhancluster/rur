@@ -450,6 +450,11 @@ contains
             nint = 4
             nbyte = 2
             nchem = 9
+        elseif(mode == 'y5') then ! New RAMSES version that includes family, tag, 9 chems, stellar densities
+            nreal = 2*ndim + 14
+            nint = 3
+            nbyte = 2
+            nchem = 9
         end if
 
         if(longint) then
@@ -518,7 +523,7 @@ contains
                 ! Add CPU information
                 integer_table(pint, npart_c:npart_c+npart-1) = icpu
             elseif(mode == 'iap' .or. mode == 'gem' .or. mode == 'none' .or. mode == 'fornax' &
-                & .or. mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc' .or. mode=='nh2') then
+                & .or. mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc' .or. mode=='nh2' .or. mode=='y5') then
                 ! family, tag
                 read(part_n) byte_table(1, npart_c:npart_c+npart-1)
                 read(part_n) byte_table(2, npart_c:npart_c+npart-1)
@@ -527,7 +532,7 @@ contains
                 if(nstar > 0 .or. nsink > 0) then
                     read(part_n) real_table(2*ndim+2, npart_c:npart_c+npart-1)
                     read(part_n) real_table(2*ndim+3, npart_c:npart_c+npart-1)
-                    if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode=='nc' .or. mode=='nh2') then
+                    if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode=='nc' .or. mode=='nh2' .or. mode=='y5') then
                         ! Initial mass
                         read(part_n) real_table(2*ndim+4, npart_c:npart_c+npart-1)
                         ! Chemical elements
@@ -535,7 +540,7 @@ contains
                             read(part_n) real_table(2*ndim+4+j, npart_c:npart_c+npart-1)
                         end do
                     end if
-                    if(mode == 'y3' .or. mode == 'y4' .or. mode=='nc' .or. mode=='nh2') then
+                    if(mode == 'y3' .or. mode == 'y4' .or. mode=='nc' .or. mode=='nh2' .or. mode=='y5') then
                         ! Stellar densities at formation
                         read(part_n) real_table(2*ndim+nchem+5, npart_c:npart_c+npart-1)
                     end if
@@ -592,7 +597,7 @@ contains
             nint = 1
         end if
         if(mode == 'fornax') nreal = nreal + 1
-        if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc') nreal = nreal + 4
+        if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc' .or. mode=='y5') nreal = nreal + 4
         allocate(real_table(1:nreal, 1:nsink))
         allocate(integer_table(1:nint, 1:nsink))
 
@@ -605,7 +610,7 @@ contains
             read(sink_n) real_table(ireal, :)
             ireal = ireal + 1
         end do
-        if(mode == 'fornax' .or. mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc') then
+        if(mode == 'fornax' .or. mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc' .or. mode=='y5') then
             read(sink_n) real_table(ireal, :)
             ireal = ireal + 1
         end if
@@ -623,7 +628,7 @@ contains
                 ireal = ireal + 1
             end do
         end if
-        if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc') then
+        if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode == 'nc' .or. mode=='y5') then
             do i=1,3
                 read(sink_n) real_table(ireal, :)
                 ireal = ireal + 1

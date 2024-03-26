@@ -1587,7 +1587,7 @@ class RamsesSnapshot(object):
             dtype = sink_prop_dtype
         if (self.mode == 'fornax'):
             dtype = sink_prop_dtype_drag_fornax
-        if (self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4' or self.mode == 'nc'):
+        if (self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4' or self.mode == 'nc' or self.mode == 'y5'):
             dtype = sink_prop_dtype_drag_y2
 
         path, icoarse = self.check_sinkprop(path_in_repo=path_in_repo, icoarse=icoarse,
@@ -1672,7 +1672,7 @@ class RamsesSnapshot(object):
             dtype = sink_prop_dtype
         if (self.mode == 'fornax'):
             dtype = sink_prop_dtype_drag_fornax
-        if (self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4' or self.mode == 'nc'):
+        if (self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4' or self.mode == 'nc' or self.mode == 'y5'):
             dtype = sink_prop_dtype_drag_y2
         if (arrs[0].shape[1] + arrs[1].shape[1] != len(dtype)):
             readr.close()
@@ -2020,16 +2020,16 @@ class RamsesSnapshot(object):
             print('---------------------------------------------')
             print('Total  number of particles: %d' % part.size)
             dm = part['dm']
+            if(dm.size > 0):
+                dm_tot = np.sum(dm['m', 'Msol'])
+                dm_min = np.min(dm['m', 'Msol'])
 
-            dm_tot = np.sum(dm['m', 'Msol'])
-            dm_min = np.min(dm['m', 'Msol'])
+                print('Number of     DM particles: %d with total mass of %.3e Msol, Min. particle mass: %.3e Msol' % (
+                dm.size, dm_tot, dm_min))
 
-            print('Number of     DM particles: %d with total mass of %.3e Msol, Min. particle mass: %.3e Msol' % (
-            dm.size, dm_tot, dm_min))
-
-            contam = np.sum(dm[dm['m'] > np.min(dm['m'])]['m'] * 1.01) / np.sum(dm['m'])
-            if (contam > 0.0):
-                print('DM Contamination fraction within the box: %.3f %%' % (contam * 100))
+                contam = np.sum(dm[dm['m'] > np.min(dm['m'])]['m'] * 1.01) / np.sum(dm['m'])
+                if (contam > 0.0):
+                    print('DM Contamination fraction within the box: %.3f %%' % (contam * 100))
 
             tracer = part['tracer']
 
