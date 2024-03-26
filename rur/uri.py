@@ -995,7 +995,7 @@ class RamsesSnapshot(object):
             scalars = [it for it in hydro_names if(it[:6]=='scalar')]
             warnings.warn(f"\nChemical elements are not in agreement!\n\t`{chem}` from part\n\t`{hchem}` from hydro", UserWarning, stacklevel=2)
             if(len(scalars) == len(chem)):
-                hydro_names = [it for it in hydro_names if(it not in scalars)]
+                hydro_names = [it if(it not in scalars) else chem[int(it[-2:])-1] for it in hydro_names]
                 warnings.warn(f"\n`{scalars}`\nis found in hydro descriptor\nThese will be considered to\n`{chem}`", UserWarning, stacklevel=2)
             else:
                 warnings.warn(f"\n`{scalars}`\nis found in hydro descriptor\nThese will be ignored", UserWarning, stacklevel=2)
