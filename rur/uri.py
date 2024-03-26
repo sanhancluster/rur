@@ -1735,6 +1735,7 @@ class RamsesSnapshot(object):
     
     def clear_shm(self, clean=True):
         shms = glob.glob(f'/dev/shm/rur*')
+        kmps = glob.glob(f'/dev/shm/__KMP*_{os.getuid()}')
         if(len(shms)>0):
             shms = [shm.split('/')[-1] for shm in shms]
             olds = []
@@ -1755,6 +1756,23 @@ class RamsesSnapshot(object):
                         os.remove(f"/dev/shm/{old}")
                         print(f"Removed: `/dev/shm/{old}` ({size:.2f} GB)")
                 if(not clean): print("\nIf you want to remove them, run `snap.clear_shm()`")
+        if(len(kmps)>0):
+            olds = []
+            for kmp in kmps:
+                date_diff = datetime.datetime.now()-datetime.datetime.fromtimestamp(os.path.getmtime(kmp))
+                if(date_diff.days>=7):
+                    olds.append(kmp)
+            if(len(olds)>0):
+                print(f" > Found {len(olds)} old KMP files (`/dev/shm/__KMP*_{os.getuid()}`)")
+                if(clean):
+                    size = 0
+                    for old in olds:
+                        size = os.path.getsize(kmp)/(1024**2)
+                        os.remove(old); size += size
+                    print(f"{len(olds)} files removed ({size:.2f} MB)")
+                else:
+                    print("\nIf you want to remove them, run `snap.clear_shm()`")
+
 
     def clear(self, part=True, cell=True):
         """Clear exsisting cache from snapshot data.
