@@ -606,8 +606,12 @@ class discrete_stat(object):
 class binned_stat(discrete_stat):
     def __init__(self, x, y, bins, lims=None, weights=None):
         self.bins = set_bins(bins, lims, y)
+        self.bins = np.array(self.bins)
         idx = digitize(x, self.bins, lims, single_idx=True)
-        self.grid_shape = tuple([len(bin) - 1 for bin in self.bins])
+        if self.bins.ndim > 1:
+            self.grid_shape = tuple([len(bin) - 1 for bin in self.bins])
+        else:
+            self.grid_shape = (self.bins.size,)
         grid_size = np.prod(self.grid_shape)
 
         super().__init__(y, idx, grid_size, weights)

@@ -35,7 +35,8 @@ def get_macc(tl, mseed=None):
     return np.cumsum(excess + tl['dM'])
 
 def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_params=dict(),
-                       smooth=1, eagn_T=0.05, vlines=[], title=None, savefile=None, lw_small=0.7):
+                       smooth=1, eagn_T=0.05, vlines=[], title=None, savefile=None, lw_small=0.7, ylims=None,
+                       eddington_cap=True, show_macc=True, show_bondi=True):
     """
     Available modes = ['mass', 'velocity', 'density', 'accretion_rate', 'eddington_rate', 'spin', 'epsilon', 'energy',
                  'tot_energy']
@@ -80,11 +81,19 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
 
     for irow, mode in enumerate(modes):
         plt.sca(axes[irow])
+
         if mode in ['mass', 'm', 'mbh']:
             yarr = np.log10(tl['m'] * unit_to_Msol)
-            draw(xarr, yarr, **plot_params)
+            draw(xarr, yarr, **plot_params, label='M$_{\\rm BH}$')
+
+            yarr = np.log10(get_macc(tl, mseed=None) * unit_to_Msol)
+            if show_macc:
+                draw(xarr, yarr, **plot_params, label='M$_{\\rm acc}$', alpha=0.5, lw=0.5)
+
             plt.ylabel('log M$_{BH}$\n(M$_\odot$)')
-            # plt.ylim(5, 9)
+            plt.ylim(np.log10(np.min(tl['m']) * unit_to_Msol)-0.02, None)
+            plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
+
         elif mode in ['velocity', 'vel', 'v']:
             draw(xarr, np.log10(tl['v_avgptr'] * unit_to_kms), lw=lw_small, label='v$_{gas}$')
             draw(xarr, np.log10(tl['c_avgptr'] * unit_to_kms), lw=lw_small, label='c$_{gas}$', color='r')
@@ -120,10 +129,11 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
             Mdot = tl['dM'] * unit_to_Msol / dt_yr / (1-tl['eps_sink'])
             Macc = tl['Mdot'] * unit_to_Msol / unit_to_yr
             Medd = tl['Medd'] * unit_to_Msol / unit_to_yr
-            draw(xarr, np.log10(Mdot), lsmooth=True, lw=lw_small, label='$\dotM_{BH}$')
-            draw(xarr, np.log10(Macc), lsmooth=True, lw=lw_small, label='$\dotM_{Bon}$')
-            draw(xarr, np.log10(Medd), lsmooth=True, lw=lw_small, label='$\dotM_{Edd}$')
-            plt.ylabel('log M$_{acc}$\n(M$_{\odot}$/yr)')
+            draw(xarr, np.log10(Mdot), lsmooth=True, lw=lw_small, label='$\\dot M_{BH}$')
+            if show_bondi:
+                draw(xarr, np.log10(Macc), lsmooth=True, lw=lw_small, label='$\\dot M_{Bon}$')
+            draw(xarr, np.log10(Medd), lsmooth=True, lw=lw_small, label='$\\dot M_{Edd}$')
+            plt.ylabel('log M$_{acc}$\n(M$_{\\odot}$/yr)')
             plt.ylim(-5, 2)
             plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
 
@@ -131,13 +141,16 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
             Mdot = tl['dM'] * unit_to_Msol / dt_yr / (1-tl['eps_sink'])
             Macc = tl['Mdot'] * unit_to_Msol / unit_to_yr
             Medd = tl['Medd'] * unit_to_Msol / unit_to_yr
-            draw(xarr, np.log10(np.minimum(Mdot / Medd, 1)), lsmooth=True, label='f$_{acc}$')
-            plt.plot(xarr, np.log10(np.minimum(Mdot / Medd, 1)), color='k', alpha=0.3, lw=lw_small, zorder=-1)
+            draw(xarr, np.log10(Mdot / Medd), lsmooth=True, label='f$_{acc}$')
+            plt.plot(xarr, np.log10(Mdot / Medd), color='k', alpha=0.3, lw=lw_small, zorder=-1)
+            if show_bondi:
+                plt.plot(xarr, np.log10(Macc / Medd), color='orange', alpha=0.5, lw=lw_small, zorder=-1, label='f$_{Bon}$')
             #plt.plot(xarr, np.log10(np.minimum(Macc / Medd, 1)), label='f$_{Bon}$')
             plt.axhline(-2, color='gray', lw=0.5)
+            plt.axhline(0, color='k', ls='--', lw=0.5)
             plt.ylabel('log f$_{Edd}$')
-            plt.ylim(-4, 0.05)
-            #plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
+            plt.ylim(-3, 3)
+            plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
 
         elif mode in ['spin', 'spin_parameter']:
             plt.plot(xarr, np.log10(1-np.abs(tl['spinmag'])), label='Mdot')
@@ -160,8 +173,11 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
         elif mode in ['energy', 'feedback', 'EAGN', 'eagn']:
             # draw(xarr, np.log10(np.minimum(tl['Mdot']/tl['Medd'], 1)), label='Mdot')
             eff = eff_mad(tl['spinmag'])
-            ek = (np.minimum(tl['Mdot'], tl['Medd']) * eff) * (tl['Mdot'] / tl['Medd'] < 0.01)
-            et = (np.minimum(tl['Mdot'], tl['Medd']) * tl['eps_sink']) * (tl['Mdot'] / tl['Medd'] > 0.01) * eagn_T
+            mdot = tl['Mdot']
+            if(eddington_cap):
+                mdot = np.minimum(mdot, tl['Medd'])
+            ek = (mdot * eff) * (tl['Mdot'] / tl['Medd'] < 0.01)
+            et = (mdot * tl['eps_sink']) * (tl['Mdot'] / tl['Medd'] > 0.01) * eagn_T
             # stat = utool.binned_stat(ages_sink, np.stack([et, ek], axis=-1) * (unit_m / unit_t * 29979245800**2), bins=age_bin)
             ek *= (unit_m / unit_t * c_const ** 2)
             et *= (unit_m / unit_t * c_const ** 2)
@@ -205,6 +221,12 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
         if xlim[1] is None:
             xlim[1] = np.max(xarr)
         plt.xlim(xlim)
+        if ylims is not None:
+            ylim = ylims[irow]
+            plt.ylim(ylim)
+        else:
+            ylim = None
+        plt.xlabel(xmode)
 
         for vline in vlines:
             plt.axvline(vline, color='k', lw=0.5)

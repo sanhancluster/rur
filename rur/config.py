@@ -138,6 +138,42 @@ oct_offset = np.array([
     -0.5, -0.5, -0.5, -0.5,  0.5,  0.5,  0.5,  0.5 
     ]).reshape(3,8).T
 
+# key alias that converts RAMSES keys to rur
+key_alias = alias_dict({
+    'position_x': 'x',
+    'position_y': 'y',
+    'position_z': 'z',
+    'velocity_x': 'vx',
+    'velocity_y': 'vy',
+    'velocity_z': 'vz',
+    'mass': 'm',
+    'identity': 'id',
+    'levelp': 'level',
+    'birth_time': 'epoch',
+    'metallicity': 'metal',
+    'initial_mass': 'm0',
+    'birth_density': 'rho',
+
+    'density': 'rho',
+    'pressure': 'P',
+    'refinement_scalar': 'refmask',
+
+    'chem_H': 'H',
+    'chem_C': 'C',
+    'chem_N': 'N',
+    'chem_O': 'O',
+    'chem_Mg': 'Mg',
+    'chem_Fe': 'Fe',
+    'chem_Si': 'Si',
+    'chem_S': 'S',
+    'chem_D': 'D',
+
+    'dust_bin01': 'd1',
+    'dust_bin02': 'd2',
+    'dust_bin03': 'd3',
+    'dust_bin04': 'd4',
+})
+
 # path_related parameters
 # avaiable modes: none, ng, nh, etc.
 default_path_in_repo = {
@@ -156,7 +192,7 @@ info_format = {
 }
 info_format.update(dict.fromkeys(
     ['nh', 'nh_dm_only', 'none', 'hagn', 'yzics', 'yzics_dm_only', 'iap', 'gem', 'fornax', 'y2', 'y3', 'y4', 'nc',
-     'nh2', 'dm_only'], 'info_{snap.iout:05d}.txt'))
+     'nh2', 'dm_only', 'y5'], 'info_{snap.iout:05d}.txt'))
 
 data_format = {
     'ng': '{{type}}.out{{icpu:05d}}',
@@ -165,7 +201,7 @@ data_format = {
 sinkprop_format = 'sink_{icoarse:05d}.dat'
 
 data_format.update(dict.fromkeys(
-    ['nh', 'nh_dm_only', 'none', 'hagn', 'yzics', 'yzics_dm_only', 'iap', 'gem', 'fornax', 'y2', 'y3', 'y4', 'nc',
+    ['nh', 'nh_dm_only', 'none', 'hagn', 'yzics', 'yzics_dm_only', 'iap', 'gem', 'fornax', 'y2', 'y3', 'y4', 'nc', 'y5',
      'nh2', 'dm_only'], '{{type}}_{snap.iout:05d}.out{{icpu:05d}}'))
 
 default = [('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
@@ -218,6 +254,12 @@ part_dtype = {
                      ('C', 'f8'), ('N', 'f8'), ('Si', 'f8'), ('S', 'f8'), ('D', 'f8'),
                      ('rho0', 'f8'),
                      ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('partp', 'i4'),
+                     ('family', 'i1'), ('tag', 'i1')],
+    'y5': default + [('epoch', 'f8'), ('metal', 'f8'), ('m0', 'f8'),
+                     ('H', 'f8'), ('O', 'f8'), ('Fe', 'f8'), ('Mg', 'f8'),
+                     ('C', 'f8'), ('N', 'f8'), ('Si', 'f8'), ('S', 'f8'), ('D', 'f8'),
+                     ('rho0', 'f8'),
+                     ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'),
                      ('family', 'i1'), ('tag', 'i1')],
 
     'gem_longint': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i8'), ('level', 'i4'), ('cpu', 'i4'),
@@ -302,6 +344,8 @@ hydro_names = {
     'y4': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'refmask'],
     'nh2': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'refmask'],
     'nc': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'd1', 'd2', 'd3',
+           'd4', 'refmask', 'sigma'],
+    'y5': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'd1', 'd2', 'd3',
            'd4', 'refmask', 'sigma'],
     'ng': ['rho', 'vx', 'vy', 'vz', 'P'],
 }
