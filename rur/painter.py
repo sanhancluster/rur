@@ -188,8 +188,8 @@ def set_weights(mode, cell, unit, depth, weights=None, quantity=None):
         # average dust density along LOS
         weights = cell['rho']
     elif mode == 'refmask':
-        # cumulative refinement paramster along LOS
-        weights = np.full(cell.size, 1)
+        # cumulative refinement parameter along LOS
+        weights = cell['rho']
     elif mode == 'rho':
         # average density along LOS
         weights = np.full(cell.size, 1)
@@ -198,7 +198,7 @@ def set_weights(mode, cell, unit, depth, weights=None, quantity=None):
         weights = np.full(cell.size, 1)
         quantity = cell['rho', unit] * depth
     elif mode != 'custom':
-        weights = np.full(cell.size, 1)
+        weights = cell['rho']
     if quantity is None and mode != 'custom':
         quantity = cell[mode, unit]
 
@@ -206,13 +206,15 @@ def set_weights(mode, cell, unit, depth, weights=None, quantity=None):
 
 
 def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True,
-           interp_order=0, weights=None, quantity=None, method='hist', total=False):
+           interp_order: int=0, weights=None, quantity=None, method='hist', total=False):
     if total:
         print(
             "Warning!\n\t`total` is developed for testing purpose.\n\tIt just shows the total quantity in the image, "
             "not the average.")
     if box is None and hasattr(cell, 'snap'):
         box = cell.snap.box
+    if not isinstance(interp_order, int):
+        raise TypeError('interp_order must be integer')
 
     lvl = cell['level']
 
@@ -581,6 +583,7 @@ def draw_points(points, box=None, proj=[0, 1], color=None, label=None, fontsize=
 
 def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_range=None, zorder=100,
                labels=None, fontsize=10, fontcolor='lightyellow', **kwargs):
+    mass_scale = None
     if box is None and isinstance(smbh, uri.Particle):
         box = smbh.snap.box
         mass = smbh['m', 'Msol']
@@ -596,19 +599,21 @@ def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_ran
         ss = mass_scale ** 2 * s + 1
     else:
         ss = np.repeat(10, smbh.size)
-    box_proj = get_box_proj(box, proj)
 
     poss = uri.get_vector(smbh)
-    mask = uri.box_mask(poss, box)
-    smbh = smbh[mask]
+    if box is not None:
+        box_proj = get_box_proj(box, proj)
+        mask = uri.box_mask(poss, box)
+        plt.xlim(box_proj[0])
+        plt.ylim(box_proj[1])
+        smbh = smbh[mask]
+    else:
+        mask = np.repeat(True, smbh.size)
 
-    if cmap is not None:
+    if cmap is not None and mass_scale is not None:
         colors = cmap(mass_scale)
         color = colors
     plt.scatter(poss[:, proj[0]], poss[:, proj[1]], s=ss, color=color, zorder=zorder, **kwargs)
-
-    plt.xlim(box_proj[0])
-    plt.ylim(box_proj[1])
 
     if labels is not None:
         labels = np.array(labels)[mask]
@@ -1155,7 +1160,11 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
         'dust': 3E-2,
         'temp': 1E8,
         'phot': 1E19,
-        'sdss': 1E17
+        'sdss': 1E17,
+        'd1': 0.01,
+        'd2': 0.01,
+        'd3': 0.01,
+        'd4': 0.01,
     }
 
     qscale_dict = {
@@ -1163,7 +1172,10 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
         'gas': 3,
         'dm': 4,
         'metal': 3,
-        'dust': 2,
+        'd1': 3,
+        'd2': 3,
+        'd3': 3,
+        'd4': 3,
         'temp': 4,
         'phot': 5,
         'sdss': None,
@@ -1187,7 +1199,7 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
             smbh = part['smbh']
             if smbh is not None:
                 smbh = smbh[smbh['m', 'Msol'] >= smbh_minmass]
-    if np.any(np.isin(['gas', 'dust', 'metal', 'temp'], mode)):
+    if np.any(np.isin(['gas', 'd1', 'd2', 'd3', 'd4', 'metal', 'temp'], mode)):
         snap.get_cell()
         if target is not None and align:
             cell = align_axis_cell(snap.cell, target)
@@ -1278,8 +1290,8 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
                              unit='K', method=cell_method)
             mode_label = 'Gas - Temperature'
             colorbar_label = 'Gas temperature [K]'
-        elif mode_now == 'dust':
-            im = draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='dust', cmap=ccm.lacerta,
+        elif mode_now == 'd1':
+            im = draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='d1', cmap=ccm.lacerta,
                              interp_order=interp_order, method=cell_method)
             mode_label = 'Gas - Dust'
             colorbar_label = 'Dust fraction'
