@@ -190,7 +190,7 @@ class HaloMaker:
                 double_precision=True
             else:
                 double_precision=False
-            if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2')or(snap.mode=='fornax')or(snap.mode=='y4'):
+            if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2')or(snap.mode=='fornax')or(snap.mode=='y4')or(snap.mode=='y3'):
                 double_precision=True
             else:
                 double_precision=False
@@ -419,7 +419,8 @@ class HaloMaker:
                     raise TypeError("`hals` should be either array of `int` or `structured array`!")
 
         part = np.empty(np.sum(hals['nparts']), dtype=dtype)
-        snap.part_mem = shared_memory.SharedMemory(create=True, size=part.nbytes)
+        shmname = 'galaxy' if(galaxy) else 'halo'
+        snap.part_mem = shared_memory.SharedMemory(name=snap.make_shm_name(shmname), create=True, size=part.nbytes)
         snap.memory.append(snap.part_mem)
         part = np.ndarray(part.shape, dtype=dtype, buffer=snap.part_mem.buf)
 
@@ -450,7 +451,7 @@ class HaloMaker:
         if(target_fields is None): target_fields = dtype.names
         else:
             ind = np.isin(dtype.names, target_fields, assume_unique=True)
-            dtype = np.dtype([idt for idt, iid in zip(dtype.descr, ind) if(iid)]+[('hmid', 'i4'), ('timstep', 'i4')])
+            dtype = np.dtype([idt for idt, iid in zip(dtype.descr, ind) if(iid)]+[('hmid', 'i4'), ('timestep', 'i4')])
         if(snaps.iout_avail is None): snaps.read_iout_avail()
         fout = snaps.iout_avail[-1]['iout']
         fsnap = snaps.get_snap(fout)
@@ -466,7 +467,8 @@ class HaloMaker:
         
 
         part = np.empty(np.sum(hals['nparts']), dtype=dtype)
-        fsnap.part_mem = shared_memory.SharedMemory(create=True, size=part.nbytes)
+        shmname = 'galaxy' if(galaxy) else 'halo'
+        fsnap.part_mem = shared_memory.SharedMemory(name=fsnap.make_shm_name(shmname), create=True, size=part.nbytes)
         fsnap.memory.append(fsnap.part_mem)
         part = np.ndarray(part.shape, dtype=dtype, buffer=fsnap.part_mem.buf)
 

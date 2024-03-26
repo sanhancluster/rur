@@ -18,6 +18,7 @@ import numpy as np
 import warnings
 import glob
 import re
+import datetime
 from copy import deepcopy
 from multiprocessing import Pool, shared_memory
 import atexit, signal
@@ -161,9 +162,10 @@ class TimeSeries(object):
 
     def clear(self):
         # Later: need to load all **opened** snaps and clear them manually
-
-        self.snaps = None
-        self.basesnap = None
+        for iout in self.snaps.keys():
+            self.snaps[iout].clear()
+        self.snaps = {}
+        self.basesnap.clear()
 
 
 RamsesRepo = TimeSeries
@@ -243,13 +245,10 @@ def readorskip_int(f: FortranFile, dtype: type, key: str, search: Iterable, add=
         f.skip_records()
 
 
-def _classify(pname: str, ids=None, epoch=None, m=None, family=None, sizeonly: bool = False):
+def _classify(pname: str, npart:int, ids=None, epoch=None, m=None, family=None, sizeonly: bool = False):
     if (pname is None):
-        mask = ...
-        if (family is None):
-            nsize = len(ids)
-        else:
-            nsize = len(family)
+        mask = np.full(npart, True, dtype=bool)
+        nsize = npart
     else:
         tracers = ["tracer", "cloud_tracer", "star_tracer", "gas_tracer"]
         if (family is not None):
@@ -259,8 +258,7 @@ def _classify(pname: str, ids=None, epoch=None, m=None, family=None, sizeonly: b
             if (pname == 'dm'):
                 mask = (epoch == 0) & (ids > 0)
             elif (pname == 'star'):
-                mask = ((epoch < 0) & (ids > 0)) \
-                       | ((epoch != 0) & (ids < 0))
+                mask = ((epoch < 0) & (ids > 0)) | ((epoch != 0) & (ids < 0))
             elif (pname == 'sink' or pname == 'cloud'):
                 mask = (ids < 0) & (m > 0) & (epoch == 0)
             nsize = np.count_nonzero(mask)
@@ -273,13 +271,12 @@ def _classify(pname: str, ids=None, epoch=None, m=None, family=None, sizeonly: b
                 mask = (ids < 0) & (m == 0)
                 nsize = np.count_nonzero(mask)
             else:
-                mask = False
+                mask = np.full(npart, False, dtype=bool)
                 nsize = 0
         else:
-            mask = False
+            mask = np.full(npart, False, dtype=bool)
             nsize = 0
-    if (sizeonly):
-        return nsize
+    if (sizeonly): return nsize
     return mask, nsize
 
 
@@ -287,26 +284,26 @@ def _calc_npart(fname: str, kwargs: dict, sizeonly=False):
     pname = kwargs.get('pname', None)
     isfamily = kwargs.get('isfamily', False)
     isstar = kwargs.get('isstar', False)
-    chem = kwargs.get('chem', False)
-    mode = kwargs.get('mode', None)
     ids, epoch, m, family = None, None, None, None
     with FortranFile(f"{fname}", mode='r') as f:
-        f.skip_records(8)
+        f.skip_records(2)
+        npart = f.read_ints(np.int32)
+        f.skip_records(5)
         if (isfamily):
-            f.skip_records(9)  # pos vel m id lvl
+            f.skip_records(9)
             family = f.read_ints(np.int8)
         else:
-            f.skip_records(6)  # pos vel
+            f.skip_records(6)
             m = f.read_reals(np.float64)
             ids = f.read_ints(np.int32)
             if (isstar):
-                f.skip_records(1)  # lvl
+                f.skip_records(1)
                 epoch = f.read_reals(np.float64)
-        result = _classify(pname, ids, epoch, m, family, sizeonly=sizeonly)
+        result = _classify(pname, npart, ids=ids, epoch=epoch, m=m, family=family, sizeonly=sizeonly)
     return result[0], result[1], int(fname[-5:])
 
 
-def _read_part(fname: str, kwargs: dict, legacy: bool, part=None, mask=None, nsize=None, cursor=None, address=None,
+def _read_part(fname: str, kwargs: dict, part=None, mask=None, nsize=None, cursor=None, address=None,
                shape=None):
     pname, ids, epoch, m, family = None, None, None, None, None
     target_fields = kwargs["target_fields"]
@@ -315,12 +312,14 @@ def _read_part(fname: str, kwargs: dict, legacy: bool, part=None, mask=None, nsi
     isfamily = kwargs["isfamily"]
     isstar = kwargs["isstar"]
     chem = kwargs["chem"]
-    mode = kwargs["mode"]
+    part_dtype = np.dtype(kwargs["part_dtype"])
     sequential = part is not None
     icpu = int(fname[-5:])
     with FortranFile(f"{fname}", mode='r') as f:
         # Read data
-        f.skip_records(8)  # ncpu, ndim, npart, localseed(+tracer_seed), nstar, mstar_tot, mstar_lost, nsink
+        f.skip_records(2)
+        npart, = f.read_ints(np.int32)
+        f.skip_records(5)
         x = readorskip_real(f, np.float64, 'x', target_fields)
         y = readorskip_real(f, np.float64, 'y', target_fields)
         z = readorskip_real(f, np.float64, 'z', target_fields)
@@ -345,12 +344,12 @@ def _read_part(fname: str, kwargs: dict, legacy: bool, part=None, mask=None, nsi
             metal = readorskip_real(f, np.float64, 'metal', target_fields)
 
         # Masking
-        if (mask is None) or (nsize is None):
-            mask, nsize = _classify(pname, ids, epoch, m, family)
+        if (mask is None)or(nsize is None):
+            mask, nsize = _classify(pname, npart, ids=ids, epoch=epoch, m=m, family=family, sizeonly=False)
             if (isinstance(mask, np.ndarray)):
                 assert np.sum(mask) == nsize
         # Allocating
-        if (legacy) or (address is None):
+        if(address is None):
             if (part is None): part = np.empty(nsize, dtype=dtype)
             pointer = part[cursor:cursor + nsize].view() if (sequential) else part
         else:
@@ -364,33 +363,31 @@ def _read_part(fname: str, kwargs: dict, legacy: bool, part=None, mask=None, nsi
         if ('vy' in target_fields): pointer['vy'] = vy[mask]
         if ('vz' in target_fields): pointer['vz'] = vz[mask]
         if ('m' in target_fields): pointer['m'] = m[mask]
-        if ('epoch' in target_fields): pointer['epoch'] = epoch[mask]
-        if ('metal' in target_fields): pointer['metal'] = metal[mask]
+        if ('epoch' in target_fields)and(isstar): pointer['epoch'] = epoch[mask]
+        if ('metal' in target_fields)and(isstar): pointer['metal'] = metal[mask]
         if ('id' in target_fields): pointer['id'] = ids[mask]
         if ('level' in target_fields): pointer['level'] = level[mask]
-        if ('family' in target_fields): pointer['family'] = family[mask]
-        if ('tag' in target_fields): pointer['tag'] = tag[mask]
+        if ('family' in target_fields)and(isfamily): pointer['family'] = family[mask]
+        if ('tag' in target_fields)and(isfamily): pointer['tag'] = tag[mask]
         newtypes = ["m0", "rho0", "partp"] + chem
         if True in np.isin(newtypes, target_fields):
-            if (mode == 'y2') or (mode == 'y3') or (mode == 'y4') or (mode == 'nc') or (mode == 'nh2'):
+            if('m0' in part_dtype.names):
                 if ('m0' in target_fields):
                     pointer['m0'] = f.read_reals(np.float64)[mask]
                 else:
                     f.read_reals(np.float64)
-            if (mode == 'y2') or (mode == 'y3') or (mode == 'y4') or (mode == 'nc') or (mode == 'hagn') or (
-                    mode == 'nh2'):
-                if len(chem) > 0:
-                    for ichem in chem:
-                        if (ichem in target_fields):
-                            pointer[ichem] = f.read_reals(np.float64)[mask]
-                        else:
-                            f.read_reals(np.float64)
-            if (mode == 'y3') or (mode == 'y4') or (mode == 'nc') or (mode == 'nh2'):
+            if len(chem) > 0:
+                for ichem in chem:
+                    if (ichem in target_fields):
+                        pointer[ichem] = f.read_reals(np.float64)[mask]
+                    else:
+                        f.read_reals(np.float64)
+            if('rho0' in part_dtype.names):
                 if ('rho0' in target_fields):
                     pointer['rho0'] = f.read_reals(np.float64)[mask]
                 else:
                     f.read_reals(np.float64)
-            if (mode == 'y2') or (mode == 'y3') or (mode == 'y4') or (mode == 'nc') or (mode == 'nh2'):
+            if('partp' in target_fields):
                 if ('partp' in target_fields):
                     pointer['partp'] = f.read_ints(np.int32)[mask]
                 else:
@@ -399,8 +396,6 @@ def _read_part(fname: str, kwargs: dict, legacy: bool, part=None, mask=None, nsi
     if (sequential):
         cursor += nsize
         return cursor
-    if (legacy):
-        return part
     exist.close()
 
 
@@ -417,11 +412,16 @@ def _calc_ncell(fname: str, amr_kwargs: dict):
     with FortranFile(fname, mode='r') as f:
         f.skip_records(21)
         numbl = f.read_ints()
+        f.skip_records(3)
+        if(nboundary>0):
+            numbb = f.read_ints()
+            f.skip_records(2)
         ngridfile = np.empty((ncpu + nboundary, nlevelmax), dtype='i4')
         for ilevel in range(nlevelmax):
-            ngridfile[:, ilevel] = numbl[ncpu * ilevel: ncpu * (ilevel + 1)]
-        f.skip_records(7)
-        if nboundary > 0: f.skip_records(3)
+            ngridfile[:ncpu, ilevel] = numbl[ncpu * ilevel: ncpu * (ilevel + 1)]
+            if(nboundary>0):
+                ngridfile[ncpu:ncpu+nboundary, ilevel]=numbb[nboundary*ilevel : nboundary*(ilevel+1)]
+        f.skip_records(4)
         levels, cpus = np.where(ngridfile.T > 0)
         for ilevel, jcpu in zip(levels, cpus + 1):
             f.skip_records(3)
@@ -437,7 +437,7 @@ def _calc_ncell(fname: str, amr_kwargs: dict):
     return ncell
 
 
-def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, legacy: bool, cell=None, nsize=None, cursor=None,
+def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, cell=None, nsize=None, cursor=None,
                address=None, shape=None):
     # 0) From snapshot
     nhvar = snap_kwargs['nhvar']
@@ -477,11 +477,16 @@ def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, legacy: bool, cel
     f_amr = FortranFile(amr_fname, mode='r')
     f_amr.skip_records(21)
     numbl = f_amr.read_ints()
-    ngridfile = numbl.reshape(nlevelmax, ncpu + nboundary).T
-    f_amr.skip_records(7)
-    if nboundary > 0: f_amr.skip_records(3)
+    f_amr.skip_records(3)
+    if nboundary>0:
+        numbb=f_amr.read_ints()
+        f_amr.skip_records(2)
+        ngridfile = np.vstack((numbl.reshape(nlevelmax, ncpu).T, numbb.reshape(nlevelmax, nboundary).T))
+    else:
+        ngridfile = numbl.reshape(nlevelmax, ncpu).T
+    f_amr.skip_records(4)
     if (cursor is None): cursor = 0
-    if (legacy) or (address is None):
+    if (address is None):
         if (cell is None): cell = np.empty(nsize, dtype=dtype)
         pointer = cell[cursor:cursor + nsize].view() if (sequential) else cell
         icursor = 0 if (sequential) else cursor
@@ -495,7 +500,7 @@ def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, legacy: bool, cel
     # Loop over levels
     for ilevel in range(nlevelmax):
         ncpu_befo = icpu - 1
-        ncpu_afte = ncpu - icpu
+        ncpu_afte = ncpu + nboundary - icpu
         ncache_befo = np.count_nonzero(ngridfile[:ncpu_befo, ilevel])
         ncache = ngridfile[icpu - 1, ilevel]
         ncache_afte = np.count_nonzero(ngridfile[icpu:, ilevel])
@@ -562,8 +567,6 @@ def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, legacy: bool, cel
     if (read_grav): f_grav.close()
     if (sequential):
         return cursor
-    if (legacy):
-        return cell[:cursor]
     exist.close()
 
 
@@ -644,8 +647,8 @@ class RamsesSnapshot(object):
         self.params = {}
 
         self.mode = mode
-        self.info_path = join(self.path, info_format[mode].format(snap=self))
-        self.data_path = join(self.path, data_format[mode].format(snap=self))
+        self.info_path = join(self.path, f'info_{self.iout:05d}.txt')
+        if(self.mode=='ng'): self.info_path = join(self.path, f'info.txt')
 
         self.memory = []
         self.part_mem = None
@@ -705,10 +708,11 @@ class RamsesSnapshot(object):
             except:
                 pass
         if (self.alert):
-            atexit.unregister(self.flush)
+            # atexit.unregister(self.flush)
             self.alert = False
             signal.signal(signal.SIGINT, signal.SIG_DFL)
             signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
 
     def __del__(self):
         atexit.unregister(self.flush)
@@ -735,7 +739,8 @@ class RamsesSnapshot(object):
         return self.__getitem__(item)
 
     def get_path(self, type='amr', icpu=1):
-        return self.data_path.format(type=type, icpu=icpu)
+        if(self.mode=='ng'): return join(self.path, f"{type}.out{icpu:05d}")
+        return join(self.path, f"{type}_{self.iout:05d}.out{icpu:05d}")
 
     def H_over_H0(self, aexp, params=None):
         if (params is None):
@@ -846,6 +851,79 @@ class RamsesSnapshot(object):
             extent = radius * 2
         self.set_box(center, extent)
 
+    def part_desc(self):
+        fname = f"part_file_descriptor.txt"
+        chem = []
+        if(os.path.exists(f"{self.snap_path}/output_{self.iout:05d}/{fname}")):
+            with open(f"{self.snap_path}/output_{self.iout:05d}/{fname}", "r") as f:
+                texts = [it.split(',') for it in f.readlines() if(not it.startswith("#"))]
+                convert = desc2dtype
+                part_dtype = [0]*len(texts)
+                for i, it in enumerate(texts):
+                    ikey = it[1].strip()
+                    dname = convert[ikey] if(ikey in convert.keys()) else ikey
+                    part_dtype[i] = (dname, format_f2py[it[2].strip()])
+                    if('chem' in ikey): chem.append(part_dtype[i][0])
+            part_dtype = part_dtype+[('cpu', 'i4')]
+        else:
+            if (timer.verbose>0):
+                print(f"Warning! No `part_file_descriptor.txt` found, using default dtype")
+            part_dtype = [('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
+            if(self.star[0]): part_dtype = part_dtype+[('epoch', 'f8'), ('metal', 'f8')]
+            if(self.mode == 'hagn'):
+                chem = ['H', 'O', 'Fe', 'C', 'N', 'Mg', 'Si']
+                part_dtype = part_dtype + [('H', 'f8'), ('O', 'f8'), ('Fe', 'f8'), ('C', 'f8'),
+                        ('N', 'f8'), ('Mg', 'f8'), ('Si', 'f8')]
+            _i = 'i8' if(self.longint) else 'i4'
+            part_dtype = part_dtype+[('id', _i), ('level', 'i4'), ('cpu', 'i4')]
+        return part_dtype, chem
+
+    def hydro_desc(self):
+        fname = f"hydro_file_descriptor.txt"
+        chem = []
+        if(os.path.exists(f"{self.snap_path}/output_{self.iout:05d}/{fname}")):
+            with open(f"{self.snap_path}/output_{self.iout:05d}/{fname}", "r") as f:
+                texts = [it.split(',') for it in f.readlines() if(not it.startswith("#"))]
+                convert = desc2dtype
+                # Old format of hydro_file_descriptor.txt
+                if(texts[0][0][:4] == 'nvar'):
+                    nvar = int(texts[0][0].split()[-1])
+                    hydro_names = [0]*nvar
+                    for i, it in enumerate(texts[1:]):
+                        ikey = it[0].split(':')[-1].strip()
+                        if(ikey == 'passive_scalar_1'): ikey = 'metal'
+                        if(ikey == 'passive_scalar_2'): ikey = 'refmask'
+                        dname = convert[ikey] if(ikey in convert.keys()) else ikey
+                        hydro_names[i] = dname
+                else:
+                    hydro_names = [0]*len(texts)
+                    for i, it in enumerate(texts):
+                        ikey = it[1].strip()
+                        dname = convert[ikey] if(ikey in convert.keys()) else ikey
+                        hydro_names[i] = dname
+                        if('chem' in ikey): chem.append(hydro_names[i])
+        else:
+            if (timer.verbose>0):
+                print(f"Warning! No `hydro_file_descriptor.txt` found, using default dtype")
+            hydro_names = ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask']
+            veryolds = ['dm_only', 'none', 'ng']
+            olds = ['hagn','yzics','yzics_dm_only']
+            if(self.mode in veryolds): hydro_names = hydro_names[:5]
+            if(self.mode in olds): hydro_names = hydro_names[:6]
+            if(self.mode == 'hagn'):
+                chem = ['H', 'O', 'Fe', 'C', 'N', 'Mg', 'Si']
+                hydro_names = hydro_names + chem
+        return hydro_names, chem
+
+    def make_shm_name(self, kind):
+        now = datetime.datetime.now()
+        fname = f"rur_{kind}_{self.mode}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S_%f')}"
+        count = 0
+        while(exists(f"/dev/shm/{fname}")):
+            fname = f"rur_{kind}_{self.mode}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S_%f')}r{count}"
+            count += 1
+        return fname
+
     def read_params(self, snap):
 
         opened = open(self.info_path, mode='r')
@@ -884,12 +962,6 @@ class RamsesSnapshot(object):
 
         params['icoarse'] = params['nstep_coarse']
 
-        self.part_dtype = part_dtype[self.mode]
-        self.hydro_names = hydro_names[self.mode]
-        if (self.mode == 'nh2') & (self.iout < 60):
-            self.hydro_names = hydro_names['y3']
-            self.part_dtype = part_dtype['y3']
-
         if (self.classic_format):
             opened.readline()
             line = opened.readline().strip()
@@ -915,20 +987,13 @@ class RamsesSnapshot(object):
             else:
                 self.params['nstar'] = 0
                 self.params['star'] = False
-
-            # check if star particle exists
-            if (not self.params['star']):
-                # This only applies to old RAMSES particle format
-                if (self.mode == 'nh'):
-                    self.part_dtype = part_dtype['nh_dm_only']
-                elif (self.mode == 'yzics'):
-                    self.part_dtype = part_dtype['yzics_dm_only']
-            if (self.longint):
-                if (
-                        self.mode == 'iap' or self.mode == 'gem' or self.mode == 'fornax' or self.mode == 'y2' or self.mode == 'y3' or self.mode == 'y4' or self.mode == 'nc'):
-                    self.part_dtype = part_dtype['gem_longint']
         else:
             self.params['star'] = True
+        part_dtype, chem = self.part_desc()
+        hydro_names, chem = self.hydro_desc()
+        self.part_dtype = part_dtype
+        self.hydro_names = hydro_names
+        self.chem = chem
 
         # initialize cpu list and boundaries
         self.cpulist_cell = np.array([], dtype='i4')
@@ -958,6 +1023,46 @@ class RamsesSnapshot(object):
         else:
             involved_cpu = np.arange(self.params['ncpu']) + 1
         return involved_cpu
+    
+    def extract_header(self):
+        fname = f"header_{self.iout:05d}.txt"
+        header = {'total':0,
+                'dm':0,
+                'star':0,
+                'sink':0,
+                'cloud':0,
+                'tracer':0,
+                'other_tracer':0,
+                'debris_tracer':0,
+                'cloud_tracer':0,
+                'star_tracer':0,
+                'gas_tracer':0,
+                'debris':0,
+                'other':0,
+                'undefined':0
+                }
+        if(os.path.exists(f"{self.snap_path}/output_{self.iout:05d}/{fname}")):
+            with open(f"{self.snap_path}/output_{self.iout:05d}/{fname}", "r") as f:
+                texts = [it.strip().split() for it in f.readlines() if(not it.startswith("#"))and(len(it)==24)]
+            if(len(texts)==0): # NewHorizon Case
+                with open(f"{self.snap_path}/output_{self.iout:05d}/{fname}", "r") as f:
+                    texts = [it.strip() for it in f.readlines()]
+                header['total'] = int(texts[1])
+                header['dm'] = int(texts[3])
+                header['star'] = int(texts[5])
+                header['sink'] = int(texts[7])
+                header['cloud'] = int(texts[7])*2109
+            else: # Normal Case
+                for it in texts:
+                    family, count = it[0], int(it[1])
+                    if(family in header.keys()): header[family] += count
+                    if('tracer' in family): header['tracer'] += count
+                    header['total'] += count
+                    header[it[0].lower()] = int(it[1])
+                header['sink'] = int(header['cloud']/2109)
+        else:
+            print(f"Warning! No `{fname}` found.")
+        return header
 
     def read_sink_table(self):
         if (self.mode == 'nh'):
@@ -966,141 +1071,67 @@ class RamsesSnapshot(object):
             raise ValueError('This function works only for NH-version RAMSES')
         return table
 
-    def read_part_py(self, pname: str, cpulist: Iterable, target_fields: Iterable = None, nthread: int = 1,
-                     legacy: bool = False):
-        # 1) Mode check
-        mode = self.mode
-        modes = ['hagn', 'yzics', 'nh', 'fornax', 'y2', 'y3', 'y4', 'nc', 'nh2', 'dm_only']
-        if mode not in modes:
-            raise ValueError(f"{mode} is not supported! \n(currently only {modes} are available)")
-
-        # 2) Chemical elements list
-        chems = {
-            'hagn': ['H', 'O', 'Fe', 'C', 'N', 'Mg', 'Si'],
-            'yzics': [], 'nh': [], "fornax": [], "y2": [], "dm_only": [],
-            "y3": ['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S'],
-            "y4": ['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D'],
-            "nc": ['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D'],
-            'nh2': ['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D']}
-        chem = chems[mode]
-
-        # 3) Check numbers of particles from txt (or from output file)
+    def read_part_py(self, pname:str, cpulist:Iterable, target_fields:Iterable=None, nthread=1):
+        part_dtype, chem = self.part_dtype, self.chem
         allfiles = glob.glob(f"{self.snap_path}/output_{self.iout:05d}/part*out*")
         files = [fname for fname in allfiles if int(fname[-5:]) in cpulist]
         files.sort()
-        header = f"{self.snap_path}/output_{self.iout:05d}/header_{self.iout:05d}.txt"
-        sinkinfo = f"{self.snap_path}/output_{self.iout:05d}/sink_{self.iout:05d}.info"
 
         sequential = nthread == 1
         isstar = self.star[0]
-        isfamily = False
-        if exists(header):  # (NH, NH2, Fornax, NC)
-            with open(header, "rt") as f:
-                temp = f.readline()
-                if "Family" in temp:  # (Fornax, NH2, NC)
-                    isfamily = True
-                    if (sequential):
-                        ntracer_tot = int(f.readline()[14:])  # other_tracer
-                        for _ in range(5):
-                            # tracers of debris, cloud, star, other, gas
-                            ntracer_tot += int(f.readline()[14:])  # debris_tracer
-                        ndm_tot = int(f.readline()[14:])
-                        nstar_tot = int(f.readline()[14:])
-                        ncloud_tot = int(f.readline()[14:])
-                        npart_tot = ntracer_tot + ndm_tot + nstar_tot + ncloud_tot
-                        for _ in range(3):
-                            # debris, other, undefined
-                            npart_tot += int(f.readline()[14:])  # debris
+        isfamily = 'family' in [p[0] for p in part_dtype]
 
-                        if exists(sinkinfo):  # (NH2, NC)
-                            with open(sinkinfo, 'rt') as f:
-                                nsink_tot = int(f.readline().split()[-1])
-                        else:  # (Fornax)
-                            with FortranFile(f"{allfiles[0]}", mode='r') as f:
-                                f.skip_records(7)
-                                nsink_tot = f.read_ints(np.int32)[0]
-                else:  # (NH)
-                    if (sequential):
-                        npart_tot = int(f.readline());
-                        f.readline()
-                        ndm_tot = int(f.readline());
-                        f.readline()
-                        nstar_tot = int(f.readline());
-                        f.readline()
-                        nsink_tot = int(f.readline());
-                        f.readline()
-                        ncloud_tot = nsink_tot * 2109
-                        ntracer_tot = 0
-        else:  # (hagn, yzics)
-            if (sequential):
-                with FortranFile(f"{allfiles[0]}", mode='r') as f:
-                    f.skip_records(4)  # ncpu, ndim, npart, localseed(+tracer_seed)
-                    nstar_tot = f.read_ints(np.int32)[0]  # nstar
-                    f.skip_records(2)  # mstar_tot, mstar_lost
-                    nsink_tot = f.read_ints(np.int32)[0]  # nsink
-                    ncloud_tot = 2109 * nsink_tot
-                ndm_tot = 0
-                ntracer_tot = 0
-                if (pname == 'dm') or (pname is None):
-                    npart_tot = 0
-                    for fname in allfiles:
-                        if (pname is None) and (not int(fname[-5:]) in cpulist):
-                            continue
-                        with FortranFile(f"{fname}", mode='r') as f:
-                            f.skip_records(2)
-                            npart_tot += f.read_ints(np.int32)[0]
-                    ndm_tot = npart_tot - nstar_tot - ncloud_tot
+        header = self.extract_header()
+        # If the total number of particles is zero, we need to calculate it.
+        if(header['total']==0)and(sequential):
+            with FortranFile(f"{allfiles[0]}", mode='r') as f:
+                f.skip_records(4); header['star'] = f.read_ints(np.int32)[0]
+                f.skip_records(2); header['sink'] = f.read_ints(np.int32)[0]
+                header['cloud'] = 2109 * header['sink']
+            header['dm'] = 0
+            header['tracer'] = 0
+            if (pname == 'dm') or (pname is None):
+                header['total'] = 0
+                for fname in allfiles:
+                    if (pname is None) and (not int(fname[-5:]) in cpulist): continue
+                    with FortranFile(f"{fname}", mode='r') as f:
+                        f.skip_records(2)
+                        header['total'] += f.read_ints(np.int32)[0]
+                header['DM'] = header['total'] - header['star'] - header['cloud']
 
-        # 4) Allocate base array
-        dtype = self.part_dtype
+        dtype = part_dtype
         if target_fields is not None:
-            if ('cpu' not in target_fields):
-                target_fields = np.append(target_fields, 'cpu')
-            # if(pname is not None):
-            #     # If `pname` is specified, you should include family(or m,epoch) to classify
-            #     if(isfamily):
-            #         if('family' not in target_fields):
-            #             target_fields = np.append(target_fields, 'family')
-            #     else:
-            #         if('m' not in target_fields):
-            #             target_fields = np.append(target_fields, 'm')
-            #         if('epoch' not in target_fields)and(isstar):
-            #             target_fields = np.append(target_fields, 'epoch')
-            #         if('id' not in target_fields):
-            #             target_fields = np.append(target_fields, 'id')
+            if ('cpu' not in target_fields): target_fields = np.append(target_fields, 'cpu')
             dtype = [idtype for idtype in dtype if idtype[0] in target_fields]
         else:
             target_fields = [idtype[0] for idtype in dtype]
+
         kwargs = {
-            "pname": pname, "isfamily": isfamily, "isstar": isstar, "chem": chem, "mode": mode,
+            "pname": pname, "isfamily": isfamily, "isstar": isstar, "chem": chem, "part_dtype": part_dtype,
             "target_fields": target_fields, "dtype": dtype}
 
         if (timer.verbose > 0):
-            print("Allocating Memory...");
+            print("Allocating Memory...")
             ref = time.time()
         if (sequential):
             tracers = ["tracer", "cloud_tracer", "star_tracer", "gas_tracer"]
-            if (pname == 'star'):
-                size = nstar_tot
-            elif (pname == 'dm') or (pname == 'DM'):
-                size = ndm_tot
-            elif (pname == 'sink'):
-                size = ncloud_tot
-            elif (pname in tracers):
-                size = ntracer_tot
-            elif (pname is None):
-                size = npart_tot
+            if(pname is None):
+                size = header['total']
+            elif(pname in tracers):
+                size = header['tracer']
+            elif(pname=='sink'):
+                size = header['cloud']
             else:
-                raise ValueError(f"{pname} is currently not supported!")
+                size = header[pname]
             part = np.empty(size, dtype=dtype)
             if (size == 0): return part
         else:
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
                 results = pool.starmap(_calc_npart, [(fname, kwargs) for fname in files])
-            results = np.asarray(results, dtype=[("mask", object), ("size", int), ("iout", int)])
+            results = np.asarray(results, dtype=[("mask", object), ("size", int), ("icpu", int)])
             signal.signal(signal.SIGTERM, self.terminate)
-            argsort = np.argsort(results['iout'])
+            argsort = np.argsort(results['icpu'])
             results = results[argsort]
             sizes = results['size']
             masks = results['mask']
@@ -1113,7 +1144,7 @@ class RamsesSnapshot(object):
                 signal.signal(signal.SIGINT, self.terminate)
                 signal.signal(signal.SIGPIPE, self.terminate)
                 self.alert = True
-            self.part_mem = shared_memory.SharedMemory(create=True, size=part.nbytes)
+            self.part_mem = shared_memory.SharedMemory(name=self.make_shm_name('part'),create=True, size=part.nbytes)
             self.memory.append(self.part_mem)
             part = np.ndarray(part.shape, dtype=np.dtype(dtype), buffer=self.part_mem.buf)
         if (timer.verbose > 0): print(f"Done ({time.time() - ref:.3f} sec)")
@@ -1123,14 +1154,14 @@ class RamsesSnapshot(object):
             cursor = 0
             iterobj = tqdm(files, desc=f"Reading parts") if (timer.verbose >= 1) else files
             for fname in iterobj:
-                cursor = _read_part(fname, kwargs, legacy, part=part, mask=None, nsize=None, cursor=cursor,
+                cursor = _read_part(fname, kwargs, part=part, mask=None, nsize=None, cursor=cursor,
                                     address=None, shape=None)
             part = part[:cursor]
         else:
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(_read_part, (
-                fname, kwargs, legacy, None, mask, size, cursor, self.part_mem.name, part.shape)) for
+                fname, kwargs, None, mask, size, cursor, self.part_mem.name, part.shape)) for
                                 fname, mask, size, cursor in zip(files, masks, sizes, cursors)]
                 iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading parts") if (
                             timer.verbose >= 1) else async_result
@@ -1140,7 +1171,7 @@ class RamsesSnapshot(object):
 
         return part
 
-    def read_part(self, target_fields=None, cpulist=None, pname=None, nthread=8, python=True, legacy=False):
+    def read_part(self, target_fields=None, cpulist=None, pname=None, nthread=8, python=True):
         """Reads particle data from current box.
 
         Parameters
@@ -1171,7 +1202,8 @@ class RamsesSnapshot(object):
                 'Reading %d part files (%s) in %s... ' % (cpulist.size, utool.format_bytes(filesize), self.path), 1)
             nthread = min(nthread, cpulist.size)
             if (python):
-                part = self.read_part_py(pname, cpulist, target_fields=target_fields, nthread=nthread, legacy=legacy)
+                self.clear_shm(clean=False)
+                part = self.read_part_py(pname, cpulist, target_fields=target_fields, nthread=nthread)
             else:
                 progress_bar = cpulist.size > progress_bar_limit and timer.verbose >= 1
                 mode = self.mode
@@ -1198,12 +1230,12 @@ class RamsesSnapshot(object):
                                 'family' in target_fields) else None
                     if (family is None):
                         ids = arr[np.where(np.array(target_fields) == 'id')[0][0]] if ('id' in target_fields) else None
-                        if (self.star[0] > 0):
+                        if (self.star[0]):
                             epoch = arr[np.where(np.array(target_fields) == 'epoch')[0][0]] if (
                                         'epoch' in target_fields) else None
                         if (pname != 'dm') and (pname != 'star'):
                             m = arr[np.where(np.array(target_fields) == 'm')[0][0]] if ('m' in target_fields) else None
-                    mask, _ = _classify(pname, ids=ids, epoch=epoch, m=m, family=family)
+                    mask, _ = _classify(pname, len(arr[0]), ids=ids, epoch=epoch, m=m, family=family)
                     if (pname is not None): arr = [iarr[mask] for iarr in arr]
                     part = fromarrays(arr, dtype=dtype)
                 else:
@@ -1216,7 +1248,7 @@ class RamsesSnapshot(object):
                     family = arrs[-1][:, 0] if ('family' in np.dtype(dtype).names) else None
                     if (family is None):
                         names = {'epoch': None, 'id': None, 'm': None}
-                        if (self.star[0] == 0): del names['epoch']
+                        if (not self.star[0]): del names['epoch']
                         if (pname == 'dm') or (pname == 'star'): del names['m']
                         for key in list(names.keys()):
                             idx = np.where(np.array(np.dtype(dtype).names) == key)[0][0]
@@ -1224,21 +1256,21 @@ class RamsesSnapshot(object):
                             i = 0
                             # Long/Int table
                             if (idx + 1 > arrs[0].shape[1]):
-                                idx -= arrs[0].shape[1];
+                                idx -= arrs[0].shape[1]
                                 i += 1
                                 # Int/byte
                                 if (idx + 1 > arrs[1].shape[1]):
-                                    idx -= arrs[1].shape[1];
+                                    idx -= arrs[1].shape[1]
                                     i += 1
                                     # byte
                                     if (idx + 1 > arrs[2].shape[1]):
-                                        idx -= arrs[2].shape[1];
+                                        idx -= arrs[2].shape[1]
                                         i += 1
                             names[key] = arrs[i][:, idx]
                         ids = names.pop('id', None)
                         epoch = names.pop('epoch', None)
                         m = names.pop('m', None)
-                    mask, _ = _classify(pname, ids=ids, epoch=epoch, m=m, family=family)
+                    mask, _ = _classify(pname, arrs[0].shape[0], ids=ids, epoch=epoch, m=m, family=family)
                     if (pname is not None): arrs = [arr[mask] for arr in arrs]
                     part = fromndarrays(arrs, dtype)
                 readr.close()
@@ -1256,8 +1288,7 @@ class RamsesSnapshot(object):
             if (timer.verbose >= 1):
                 print('CPU list already satisfied.')
 
-    def read_cell_py(self, cpulist: Iterable, target_fields: Iterable = None, nthread: int = 8, read_grav: bool = False,
-                     legacy: bool = False):
+    def read_cell_py(self, cpulist: Iterable, target_fields: Iterable = None, nthread: int = 8, read_grav: bool = False):
         # 1) Read AMR params
         sequential = nthread == 1
         fname = f"{self.snap_path}/output_{self.iout:05d}/amr_{self.iout:05d}.out00001"
@@ -1299,7 +1330,7 @@ class RamsesSnapshot(object):
 
         # 4) Calculate total number of cells
         if (timer.verbose > 0):
-            print("Allocating Memory...");
+            print("Allocating Memory...")
             ref = time.time()
         if (sequential):
             ncell_tot = 0
@@ -1323,7 +1354,7 @@ class RamsesSnapshot(object):
                 signal.signal(signal.SIGINT, self.terminate)
                 signal.signal(signal.SIGPIPE, self.terminate)
                 self.alert = True
-            self.cell_mem = shared_memory.SharedMemory(create=True, size=cell.nbytes)
+            self.cell_mem = shared_memory.SharedMemory(name=self.make_shm_name('cell'), create=True, size=cell.nbytes)
             self.memory.append(self.cell_mem)
             cell = np.ndarray(cell.shape, dtype=np.dtype(dtype), buffer=self.cell_mem.buf)
         if (timer.verbose > 0): print(f"Done ({time.time() - ref:.3f} sec)")
@@ -1337,14 +1368,14 @@ class RamsesSnapshot(object):
             iterobj = tqdm(enumerate(cpulist), total=len(cpulist), desc=f"Reading cells") if (
                         timer.verbose >= 1) else enumerate(cpulist)
             for i, icpu in iterobj:
-                cursor = _read_cell(icpu, snap_kwargs, amr_kwargs, legacy, cell=cell, nsize=sizes[i], cursor=cursor,
+                cursor = _read_cell(icpu, snap_kwargs, amr_kwargs, cell=cell, nsize=sizes[i], cursor=cursor,
                                     address=None, shape=None)
             cell = cell[:cursor]
         else:
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(_read_cell, (
-                icpu, snap_kwargs, amr_kwargs, legacy, None, size, cursor, self.cell_mem.name, cell.shape)) for
+                icpu, snap_kwargs, amr_kwargs, None, size, cursor, self.cell_mem.name, cell.shape)) for
                                 icpu, size, cursor in zip(cpulist, sizes, cursors)]
                 iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading cells") if (
                             timer.verbose >= 1) else async_result
@@ -1353,7 +1384,7 @@ class RamsesSnapshot(object):
             signal.signal(signal.SIGTERM, self.terminate)
         return cell
 
-    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, python=True, nthread=8, legacy=False):
+    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, python=True, nthread=8):
         """Reads amr data from current box.
 
         Parameters
@@ -1387,8 +1418,8 @@ class RamsesSnapshot(object):
                 1)
             nthread = min(nthread, cpulist.size)
             if (python):
-                cell = self.read_cell_py(cpulist, read_grav=read_grav, nthread=nthread, target_fields=target_fields,
-                                         legacy=legacy)
+                self.clear_shm(clean=False)
+                cell = self.read_cell_py(cpulist, read_grav=read_grav, nthread=nthread, target_fields=target_fields)
             else:
                 if (nthread > 1):
                     warnings.warn(
@@ -1693,6 +1724,29 @@ class RamsesSnapshot(object):
             utool.dump(sink, cache_file, format=cache_format)
 
         return sink
+    
+    def clear_shm(self, clean=True):
+        shms = glob.glob(f'/dev/shm/rur*')
+        if(len(shms)>0):
+            shms = [shm.split('/')[-1] for shm in shms]
+            olds = []
+            for shm in shms:
+                try: _, _, _, fuid, fdate, _ = shm.split('_')
+                except: _, _, _, fuid, fdate, _, _ = shm.split('_')
+                if(f'u{os.getuid()}' == fuid):
+                    date_diff = datetime.datetime.now() - datetime.datetime.strptime(fdate, '%Y%m%d')
+                    if(date_diff.days>=7):
+                        olds.append(shm)
+            if(len(olds)>0):
+                total_size = np.sum([os.path.getsize(f"/dev/shm/{shm}") for shm in olds])
+                if(not clean): print(f"Warning! Found {len(olds)} old shared memory ({total_size/(1024**3):.2f} GB)")
+                for old in olds:
+                    if(not clean): print(f" > `/dev/shm/{old}`")
+                    else:
+                        size = os.path.getsize(f"/dev/shm/{old}")/(1024**3)
+                        os.remove(f"/dev/shm/{old}")
+                        print(f"Removed: `/dev/shm/{old}` ({size:.2f} GB)")
+                if(not clean): print("\nIf you want to remove them, run `snap.clear_shm()`")
 
     def clear(self, part=True, cell=True):
         """Clear exsisting cache from snapshot data.
@@ -1792,7 +1846,7 @@ class RamsesSnapshot(object):
         self.cpu = np.concatenate(amr_cpus)
 
     def get_cell_instant(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None,
-                         read_grav=False, ripses=False, python=True, nthread=8, legacy=False):
+                         read_grav=False, ripses=False, python=True, nthread=8):
         '''
         Use only if you want to read part data from already loaded whole snapshot.
         It will not affect attributes of `RamsesSnapshot` class if all CPUlist are satisfied.
@@ -1802,7 +1856,7 @@ class RamsesSnapshot(object):
         if (not ind.all()):
             if (timer.verbose >= 1): print(f"Extend CPU list...\n->{cpulist[~ind]}")
             self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist[~ind], python=python,
-                           nthread=nthread, legacy=legacy)
+                           nthread=nthread)
         if (ind.all() & np.isin(self.cpulist_cell, cpulist).all()):
             cell = self.cell_data
         else:
@@ -1812,7 +1866,7 @@ class RamsesSnapshot(object):
         return Cell(cell, self)
 
     def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False,
-                 ripses=False, python=True, nthread=8, legacy=False):
+                 ripses=False, python=True, nthread=8):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -1836,7 +1890,7 @@ class RamsesSnapshot(object):
                 exact_box = False
             if (not ripses):
                 self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist, python=python,
-                               nthread=nthread, legacy=legacy)
+                               nthread=nthread)
             else:
                 self.read_ripses(target_fields=target_fields, cpulist=cpulist)
             if (domain_slicing):
@@ -1861,7 +1915,7 @@ class RamsesSnapshot(object):
         return self.cell
 
     def get_part_instant(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None,
-                         pname=None, python=True, nthread=8, legacy=False):
+                         pname=None, python=True, nthread=8):
         '''
         Use only if you want to read part data from already loaded whole snapshot.
         It will not affect attributes of `RamsesSnapshot` class if all CPUlist are satisfied.
@@ -1870,8 +1924,7 @@ class RamsesSnapshot(object):
         ind = np.isin(cpulist, self.cpulist_part, assume_unique=True)
         if (not ind.all()):
             if (timer.verbose >= 1): print(f"Extend CPU list...\n->{cpulist[~ind]}")
-            self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, python=python,
-                           legacy=legacy)
+            self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, python=python)
         if (ind.all() & np.isin(self.cpulist_part, cpulist).all()):
             part = self.part_data
         else:
@@ -1881,7 +1934,7 @@ class RamsesSnapshot(object):
         return Particle(part, self, ptype=pname)
 
     def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None,
-                 python=True, nthread=8, legacy=False):
+                 python=True, nthread=8):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -1914,8 +1967,7 @@ class RamsesSnapshot(object):
             else:
                 domain_slicing = True
                 exact_box = False
-            self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, python=python,
-                           legacy=legacy)
+            self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, python=python)
             if (domain_slicing):
                 if (np.isin(cpulist, self.cpulist_part).all() & np.isin(self.cpulist_part, cpulist).all()):
                     part = self.part_data
@@ -2275,7 +2327,9 @@ def classify_part(part, pname, ptype=None):
         else:
             mask = False
     elif ('id' in names):
-        print("Warning: No `family` or `epoch` field found, using id and mass instead.")
+        warnings.warn(
+                        f"No `family` or `epoch` field found, using `id` and `mass` instead.",
+                        UserWarning)
         # DM-only simulation
         if (pname == 'dm'):
             mask = part['id'] > 0
@@ -2860,7 +2914,7 @@ def quad_to_f16(by):
     for raw in np.reshape(by, (-1, 16)):
         asint.append(int.from_bytes(raw, byteorder='little'))
     asint = np.array(asint)
-    sign = (np.float128(-1.0)) ** np.float128(asint >> 127);
-    exponent = ((asint >> 112) & 0x7FFF) - 16383;
+    sign = (np.float128(-1.0)) ** np.float128(asint >> 127)
+    exponent = ((asint >> 112) & 0x7FFF) - 16383
     significand = np.float128((asint & ((1 << 112) - 1)) | (1 << 112))
     return sign * significand * 2.0 ** np.float128(exponent - 112)

@@ -138,42 +138,6 @@ oct_offset = np.array([
     -0.5, -0.5, -0.5, -0.5,  0.5,  0.5,  0.5,  0.5 
     ]).reshape(3,8).T
 
-# key alias that converts RAMSES keys to rur
-key_alias = alias_dict({
-    'position_x': 'x',
-    'position_y': 'y',
-    'position_z': 'z',
-    'velocity_x': 'vx',
-    'velocity_y': 'vy',
-    'velocity_z': 'vz',
-    'mass': 'm',
-    'identity': 'id',
-    'levelp': 'level',
-    'birth_time': 'epoch',
-    'metallicity': 'metal',
-    'initial_mass': 'm0',
-    'birth_density': 'rho',
-
-    'density': 'rho',
-    'pressure': 'P',
-    'refinement_scalar': 'refmask',
-
-    'chem_H': 'H',
-    'chem_C': 'C',
-    'chem_N': 'N',
-    'chem_O': 'O',
-    'chem_Mg': 'Mg',
-    'chem_Fe': 'Fe',
-    'chem_Si': 'Si',
-    'chem_S': 'S',
-    'chem_D': 'D',
-
-    'dust_bin01': 'd1',
-    'dust_bin02': 'd2',
-    'dust_bin03': 'd3',
-    'dust_bin04': 'd4',
-})
-
 # path_related parameters
 # avaiable modes: none, ng, nh, etc.
 default_path_in_repo = {
@@ -187,85 +151,41 @@ output_regex = r'output_(?P<iout>\d{5})'
 output_glob = 'output_[0-9][0-9][0-9][0-9][0-9]'
 sinkprop_glob = 'sink_[0-9][0-9][0-9][0-9][0-9].dat'
 
-info_format = {
-    'ng': 'info.txt',
-}
-info_format.update(dict.fromkeys(
-    ['nh', 'nh_dm_only', 'none', 'hagn', 'yzics', 'yzics_dm_only', 'iap', 'gem', 'fornax', 'y2', 'y3', 'y4', 'nc',
-     'nh2', 'dm_only', 'y5'], 'info_{snap.iout:05d}.txt'))
 
-data_format = {
-    'ng': '{{type}}.out{{icpu:05d}}',
-}
 
 sinkprop_format = 'sink_{icoarse:05d}.dat'
 
-data_format.update(dict.fromkeys(
-    ['nh', 'nh_dm_only', 'none', 'hagn', 'yzics', 'yzics_dm_only', 'iap', 'gem', 'fornax', 'y2', 'y3', 'y4', 'nc', 'y5',
-     'nh2', 'dm_only'], '{{type}}_{snap.iout:05d}.out{{icpu:05d}}'))
-
 default = [('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
 
-# columns for particle table, see readr.f90
-part_dtype = {
-    'dm_only': default + [('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
+desc2dtype = {
+    'position_x':'x', 'position_y':'y', 'position_z':'z',
+    'velocity_x':'vx', 'velocity_y':'vy', 'velocity_z':'vz',
+    'mass':'m',
+    'identity':'id', 'levelp':'level',
+    'family':'family', 'tag':'tag',
+    'birth_time':'epoch', 'metallicity':'metal', 'initial_mass':'m0',
+    'chem_H':'H', 'chem_O':'O', 'chem_Fe':'Fe',
+    'chem_Mg':'Mg', 'chem_C':'C', 'chem_N':'N',
+    'chem_Si':'Si', 'chem_S':'S', 'chem_D':'D',
+    'birth_density':'rho0', 'partp':'partp',
+    'density':'rho', 'pressure':'P', 'thermal_pressure':'P',
+    'dust_bin01':'d1', 'dust_bin02':'d2', 'dust_bin03':'d3', 'dust_bin04':'d4',
+    'refinement_scalar':'refmask', 'scalar_15':'sigma'
+}
 
-    'yzics': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
-    'hagn': default + [('epoch', 'f8'), ('metal', 'f8'), ('H', 'f8'), ('O', 'f8'), ('Fe', 'f8'), ('C', 'f8'),
-                       ('N', 'f8'), ('Mg', 'f8'), ('Si', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
-    'yzics_dm_only': default + [('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
+desc2dtype_sink = {
+    'identity':'id', 'mass':'m',
+    'position_x':'x', 'position_y':'y', 'position_z':'z',
+    'velocity_x':'vx', 'velocity_y':'vy', 'velocity_z':'vz',
+    'birth_time':'tform', 'dMsmbh':'dM', 'dMBH_coarse':'dMBH', 'dMEd_coarse':'dMEd',
+    'Esave':'Esave', 'jsink_x':'jx', 'jsink_y':'jy', 'jsink_z':'jz',
+    'spin_x':'sx', 'spin_y':'sy', 'spin_z':'sz', 'spin_magnitude':'spinmag'
+}
 
-    'nh': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
-    'nh_dm_only': default + [('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
-
-    'none': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('family', 'i1'),
-                       ('tag', 'i1')],
-    'iap': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('family', 'i1'),
-                      ('tag', 'i1')],
-    'gem': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('family', 'i1'),
-                      ('tag', 'i1')],
-    'fornax': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'),
-                         ('family', 'i1'), ('tag', 'i1')],
-    'y2': default + [('epoch', 'f8'), ('metal', 'f8'), ('m0', 'f8'),
-                     ('H', 'f8'), ('O', 'f8'), ('Fe', 'f8'), ('Mg', 'f8'),
-                     ('C', 'f8'), ('N', 'f8'), ('Si', 'f8'), ('S', 'f8'),
-                     ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('partp', 'i4'),
-                     ('family', 'i1'), ('tag', 'i1')],
-    'y3': default + [('epoch', 'f8'), ('metal', 'f8'), ('m0', 'f8'),
-                     ('H', 'f8'), ('O', 'f8'), ('Fe', 'f8'), ('Mg', 'f8'),
-                     ('C', 'f8'), ('N', 'f8'), ('Si', 'f8'), ('S', 'f8'),
-                     ('rho0', 'f8'),
-                     ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('partp', 'i4'),
-                     ('family', 'i1'), ('tag', 'i1')],
-    'y4': default + [('epoch', 'f8'), ('metal', 'f8'), ('m0', 'f8'),
-                     ('H', 'f8'), ('O', 'f8'), ('Fe', 'f8'), ('Mg', 'f8'),
-                     ('C', 'f8'), ('N', 'f8'), ('Si', 'f8'), ('S', 'f8'), ('D', 'f8'),
-                     ('rho0', 'f8'),
-                     ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('partp', 'i4'),
-                     ('family', 'i1'), ('tag', 'i1')],
-    'nh2': default + [('epoch', 'f8'), ('metal', 'f8'), ('m0', 'f8'),
-                      ('H', 'f8'), ('O', 'f8'), ('Fe', 'f8'), ('Mg', 'f8'),
-                      ('C', 'f8'), ('N', 'f8'), ('Si', 'f8'), ('S', 'f8'), ('D', 'f8'),
-                      ('rho0', 'f8'),
-                      ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('partp', 'i4'),
-                      ('family', 'i1'), ('tag', 'i1')],
-    'nc': default + [('epoch', 'f8'), ('metal', 'f8'), ('m0', 'f8'),
-                     ('H', 'f8'), ('O', 'f8'), ('Fe', 'f8'), ('Mg', 'f8'),
-                     ('C', 'f8'), ('N', 'f8'), ('Si', 'f8'), ('S', 'f8'), ('D', 'f8'),
-                     ('rho0', 'f8'),
-                     ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'), ('partp', 'i4'),
-                     ('family', 'i1'), ('tag', 'i1')],
-    'y5': default + [('epoch', 'f8'), ('metal', 'f8'), ('m0', 'f8'),
-                     ('H', 'f8'), ('O', 'f8'), ('Fe', 'f8'), ('Mg', 'f8'),
-                     ('C', 'f8'), ('N', 'f8'), ('Si', 'f8'), ('S', 'f8'), ('D', 'f8'),
-                     ('rho0', 'f8'),
-                     ('id', 'i4'), ('level', 'i4'), ('cpu', 'i4'),
-                     ('family', 'i1'), ('tag', 'i1')],
-
-    'gem_longint': default + [('epoch', 'f8'), ('metal', 'f8'), ('id', 'i8'), ('level', 'i4'), ('cpu', 'i4'),
-                              ('family', 'i1'), ('tag', 'i1')],
-
-    'ng': default + [('id', 'i4'), ('level', 'i4'), ('cpu', 'i4')],
+format_f2py = {
+    'd':'f8',
+    'i':'i4',
+    'b':'i1'
 }
 
 sink_prop_dtype_drag = [
@@ -327,28 +247,6 @@ iout_avail_dtype = [('iout', 'i4'), ('aexp', 'f8'), ('age', 'f8'), ('icoarse', '
 
 icoarse_avail_dtype = [('icoarse', 'i4'), ('aexp', 'f8'), ('age', 'f8'), ('time', 'f8')]
 
-# columns for hydro quantity table, all float64, see readr.f90
-hydro_names = {
-    'dm_only': ['rho', 'vx', 'vy', 'vz', 'P'],
-    'nh': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],
-    'nh_dm_only': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],
-    'hagn': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'H', 'O', 'Fe', 'C', 'N', 'Mg', 'Si'],
-    'yzics': ['rho', 'vx', 'vy', 'vz', 'P', 'metal'],
-    'yzics_dm_only': ['rho', 'vx', 'vy', 'vz', 'P', 'metal'],
-    'none': ['rho', 'vx', 'vy', 'vz', 'P'],
-    'iap': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask'],
-    'gem': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'dust', 'refmask'],
-    'fornax': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'dust', 'refmask'],
-    'y2': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'dust', 'refmask'],
-    'y3': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'refmask'],
-    'y4': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'refmask'],
-    'nh2': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'refmask'],
-    'nc': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'd1', 'd2', 'd3',
-           'd4', 'refmask', 'sigma'],
-    'y5': ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'd1', 'd2', 'd3',
-           'd4', 'refmask', 'sigma'],
-    'ng': ['rho', 'vx', 'vy', 'vz', 'P'],
-}
 
 part_family = {
     'cloud_tracer': -3,
@@ -385,9 +283,9 @@ yr = 3.154E7
 G_const = 6.673E-8  # Gravitational constant in
 c_const = 2.99792458E10  # Speed of light
 sigma_T = 6.6524E-25  # Thomson cross section
-k_B = 1.38064852E-16  # Boltzmann constant
-m_H = 1.6737236E-24  # hydrogen atomic mass
-
+k_B = 1.38062000E-16  # Boltzmann constant (RAMSES:cooling_module.f90)
+m_H = 1.6600000E-24  # hydrogen atomic mass (RAMSES:cooling_module.f90)
+XH = 0.76 # hydrogen mass fraction (RAMSES:cooling_module.f90)
 # others
 gamma = 1.6666667
 
@@ -446,7 +344,7 @@ def set_custom_units(snap):
 
         # Density
         'g/cc': 1E0 / d,
-        'H/cc': m_H / d,
+        'H/cc': m_H / d / XH,
         'Msol/Mpc3': Msol / Mpc ** 3 / d,
         'Msol/kpc3': Msol / kpc ** 3 / d,
 
@@ -499,7 +397,7 @@ def custom_extra_fields(snap, type='common'):
             'cs': lambda table: np.sqrt(gamma * table['P'] / table['rho']),  # sound speed
             'mach': lambda table: rss(table['vel']) / np.sqrt(gamma * table['P'] / table['rho']),  # mach number
             'e': lambda table: table['P'] / (gamma - 1) + 0.5 * table['rho'] * ss(table['vel']),  # total energy density
-            'dx': lambda table: 0.5 ** table['level'],  # spatial resolution
+            'dx': lambda table: 1 / 2 ** table['level'],  # spatial resolution
         })
 
     elif type == 'particle':
