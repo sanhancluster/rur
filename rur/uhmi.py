@@ -331,6 +331,9 @@ class HaloMaker:
 
     @staticmethod
     def read_member_part(snap, hmid, nchem=0, galaxy=False, path_in_repo=None, full_path=None, usefortran=False, simple=False, target_fields=None):
+        '''
+        Return member particles(uri.Particle class) of one halo or galaxy.
+        '''
         # usefortran=False is faster
         if(target_fields is None):
             target_fields = ['id', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'm']
@@ -384,6 +387,10 @@ class HaloMaker:
 
     @staticmethod
     def read_member_parts(snap, hals:np.ndarray, nchem=0, galaxy=False, path_in_repo=None, full_path=None, usefortran=False, simple=False, target_fields=None, nthread=4):
+        '''
+        Return member particles(uri.Particle class) of multiple halos or galaxies.
+        Also this supports multi-processing
+        '''
         nthread = min(nthread, len(hals))
         dtype = [('id', 'i4'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8'), ('hmid', 'i4')]
         if(galaxy)&(not simple): dtype = dtype+[('epoch', 'f8'), ('metal', 'f8')]
@@ -444,6 +451,11 @@ class HaloMaker:
 
     @staticmethod
     def read_member_general(snaps:uri.TimeSeries, hals:np.ndarray, nchem=0, galaxy=False, path_in_repo=None, usefortran=False, simple=False, target_fields=None, nthread=4):
+        '''
+        Return member particles(uri.Particle class) of multiple halos or galaxies.
+        Also this supports multi-processing.
+        The difference of this to `read_member_parts` is that this function can read members from different snapshots.
+        '''
         nthread = min(nthread, len(hals))
         dtype = [('id', 'i4'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8'), ('hmid', 'i4'), ('timestep', 'i4')]
         if(galaxy)&(not simple): dtype = dtype+[('epoch', 'f8'), ('metal', 'f8')]
