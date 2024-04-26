@@ -337,11 +337,13 @@ def _read_part(fname: str, kwargs: dict, part=None, mask=None, nsize=None, curso
             family = f.read_ints(np.int8)  # family
             tag = readorskip_int(f, np.int8, 'tag', target_fields)  # tag
         if (isstar):
-            if (pname is None):
-                epoch = readorskip_real(f, np.float64, 'epoch', target_fields)  # epoch
-            else:
-                epoch = f.read_reals(np.float64)
-            metal = readorskip_real(f, np.float64, 'metal', target_fields)
+            if('epoch' in part_dtype.names):
+                if (pname is None):
+                    epoch = readorskip_real(f, np.float64, 'epoch', target_fields)  # epoch
+                else:
+                    epoch = f.read_reals(np.float64)
+            if('metal' in part_dtype.names):
+                metal = readorskip_real(f, np.float64, 'metal', target_fields)
 
         # Masking
         if (mask is None)or(nsize is None):
@@ -680,7 +682,11 @@ class RamsesSnapshot(object):
         if (box is not None):
             self.box = np.array(box)
         else:
-            self.box = default_box
+            if(self.params['boxlen']==1):
+                self.box = default_box
+            else:
+                boxlen = self.params['boxlen']
+                self.box = np.array([[0, boxlen], [0, boxlen], [0, boxlen]])
         self.region = BoxRegion(self.box)
         self.box_cell = None
         self.box_part = None
@@ -1939,6 +1945,21 @@ class RamsesSnapshot(object):
             self.box_cell = self.box
             self.cell = cell
         return self.cell
+
+    def correct_unit(self, l1=1, l2=2):
+        '''
+        Corrects the unit to follow `boxlen` unit
+        '''
+        boxlen = self.params['boxlen']
+        print(f"Current: {l1}~{l2}")
+        print(f"Desired: 0~{boxlen}")
+        self.cell['x'] -= l1
+        self.cell['y'] -= l1
+        self.cell['z'] -= l1
+        self.cell['x'] *= boxlen/(l2-l1)
+        self.cell['y'] *= boxlen/(l2-l1)
+        self.cell['z'] *= boxlen/(l2-l1)
+
 
     def get_part_instant(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None,
                          pname=None, python=True, nthread=8):

@@ -16,7 +16,7 @@ from warnings import warn
 from rur.sci import geometry as geo
 import os
 from astropy.visualization import make_lupton_rgb
-from rur.config import default_path_in_repo, timer
+from rur.config import default_path_in_repo, timer, tqdm
 import matplotlib as mpl
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from itertools import cycle
@@ -64,7 +64,7 @@ def get_box_proj(box, proj):
     return box_proj
 
 
-def set_bins(known_lvls, minlvl, maxlvl, box_proj, shape):
+def set_bins(known_lvls, minlvl, maxlvl, box_proj, shape, boxlen=1):
     if minlvl is None:
         minlvl = np.min(known_lvls)
     else:
@@ -74,13 +74,13 @@ def set_bins(known_lvls, minlvl, maxlvl, box_proj, shape):
     if maxlvl is None:
         maxlvl = np.max(known_lvls)
         if shape is not None:
-            pixlvl = np.max(-np.log2((box_proj[:, 1] - box_proj[:, 0]) / np.array(shape)))
+            pixlvl = np.max(-np.log2((box_proj[:, 1] - box_proj[:, 0])/boxlen / np.array(shape)))
             # maxlvl = np.min([maxlvl, int(pixlvl) + 1])
             maxlvl = max( np.min([maxlvl, int(pixlvl) + 1]), minlvl ) # <------ Should be checked!!!
     else:
         maxlvl = np.min([maxlvl, np.max(known_lvls)])
 
-    mingrid = np.linspace(0, 1, 2 ** minlvl + 1)
+    mingrid = np.linspace(0, boxlen, 2 ** minlvl + 1)
 
     # find the smallest grid box that encloses projected box region
     edgeidx = np.stack([np.searchsorted(mingrid, box_proj[:, 0], 'right') - 1,
@@ -109,7 +109,7 @@ def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, sub
         shape = np.repeat(shape, 2)
 
     known_lvls = np.unique(lvl)
-    minlvl, maxlvl, basebin, edge = set_bins(known_lvls, minlvl, maxlvl, box_proj, shape)
+    minlvl, maxlvl, basebin, edge = set_bins(known_lvls, minlvl, maxlvl, box_proj, shape, boxlen=cell.snap.boxlen)
 
     known_lvls = np.arange(minlvl, maxlvl + 1)
 
@@ -160,7 +160,7 @@ def draw_lvlmap(cell, box=None, proj=[0, 1], shape=None, minlvl=None, maxlvl=Non
     image = lvlmap(cell, box, proj, shape=shape, minlvl=minlvl, maxlvl=maxlvl)
 
     if box is None:
-        box = default_box
+        box = cell.snap.box
     box = np.array(box)
 
     box_proj = np.array(box)[proj]
@@ -226,7 +226,7 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
         shape = np.array(shape)
 
     known_lvls = np.unique(lvl)
-    minlvl, maxlvl, basebin, edge = set_bins(known_lvls, minlvl, maxlvl, box_proj, shape)
+    minlvl, maxlvl, basebin, edge = set_bins(known_lvls, minlvl, maxlvl, box_proj, shape, boxlen=cell.snap.boxlen)
 
     known_lvls = np.arange(minlvl, np.max(known_lvls) + 1)
 
@@ -338,7 +338,7 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
         shape = np.array(shape)
 
     known_lvls = np.unique(lvl)
-    minlvl, maxlvl, basebin, edge = set_bins(known_lvls, minlvl, maxlvl, box_proj, shape)
+    minlvl, maxlvl, basebin, edge = set_bins(known_lvls, minlvl, maxlvl, box_proj, shape, boxlen=tracer_part.snap.boxlen)
 
     known_lvls = np.arange(minlvl, np.max(known_lvls) + 1)
 
@@ -695,7 +695,7 @@ def draw_grid(cell, box=None, ax=None, proj=[0, 1], minlvl=None, maxlvl=None, co
     box_proj = get_box_proj(box, proj)
 
     known_lvls = np.unique(lvl)
-    minlvl, maxlvl, basebin, edge = set_bins(known_lvls, minlvl, maxlvl, box_proj, None)
+    minlvl, maxlvl, basebin, edge = set_bins(known_lvls, minlvl, maxlvl, box_proj, None, boxlen=cell.snap.boxlen)
 
     known_lvls = np.arange(minlvl, maxlvl + 1)
 
@@ -720,14 +720,15 @@ def draw_grid(cell, box=None, ax=None, proj=[0, 1], minlvl=None, maxlvl=None, co
 
         xm, ym = np.meshgrid(xarr, yarr)
         mesh = np.stack([xm, ym], axis=-1)
-        size = 0.5 ** ilvl
+        size = cell.snap.boxlen * 0.5 ** ilvl
         coords = mesh[hist_map > draw_threshold] - size / 2
         progress = (ilvl - minlvl) / (maxlvl - minlvl)
         alpha = (1. - progress) / 2 + 0.5
         if cmap is not None:
             color = cmap(progress)
 
-        for xy in coords:
+        iters = coords if(timer.verbose<1) else tqdm(coords, desc=f'lvl={ilvl}')
+        for xy in iters:
             ax.add_patch(Rectangle(xy, size, size, edgecolor=color, facecolor='None', linewidth=linewidth, alpha=alpha,
                                    zorder=100, **kwargs))
 
