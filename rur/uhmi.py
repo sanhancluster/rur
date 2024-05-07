@@ -688,8 +688,17 @@ class PhantomTree:
         
         *Written by Chat-GPT and modified by Seyoung
         """
+        if(full_path_halomaker is None):
+            full_path_halomaker = os.path.join(snap.repo, path_in_repo_halomaker)
+        snap_iouts = os.listdir(full_path_halomaker)
+        snap_iouts = np.array([int(f[-5:]) for f in snap_iouts if f.startswith('tree_bricks')])
+        snap_iouts = np.sort(snap_iouts)[::-1]
+
         max_iout = snap.iout
-        snap_iouts = np.arange(max_iout, 0, -1)
+        if(max_iout < np.max(snap_iouts)):
+            print(f"Warning! You set the max_iout={max_iout}, but there is {np.max(snap_iouts)} in the snapshot directory.")
+        snap_iouts = snap_iouts[snap_iouts <= max_iout]
+        # snap_iouts = np.arange(max_iout, 0, -1)
         print(f'Building PhantomTree from HaloMaker data ({len(snap_iouts)} snapshots) in `{snap.repo}`')
 
         if (max_part_size is None):
@@ -706,23 +715,28 @@ class PhantomTree:
             if full_path_ptree is None: pfiles = os.listdir(f"{snap.repo}/{path_in_repo}")
             else: pfiles = os.listdir(full_path_ptree)
             pfiles = [pf for pf in pfiles if pf.startswith("ptree_0")]
-            nout = [int(pf[6:11]) for pf in pfiles]
-            print(f"\tFound {len(nout)} ptree files exist ({np.min(nout)} ~ {np.max(nout)})")
-            snap_iouts = snap_iouts[
-                # (snap_iouts <= np.min(nout) + 2*lookup + 1) |
-                (snap_iouts >= np.max(nout) - 2*lookup - 1) ]
+            nout = np.array([int(pf[6:11]) for pf in pfiles])
+            omitted = snap_iouts[~np.isin(snap_iouts, nout)]
+            min_omit = np.min(omitted)
+            print(f"\tNeed from snapshot {min_omit}")
+            # print(f"\tFound {len(nout)} ptree files exist ({np.min(nout)} ~ {np.max(nout)})")
+            # snap_iouts = snap_iouts[
+            #     (snap_iouts >= np.max(nout) - 2*lookup - 1) ]
+            snap_iouts = snap_iouts[ snap_iouts >= (min_omit - lookup - 1) ]
+            print(f"\t > Recalculate for {len(snap_iouts)} snapshots:\n\t{snap_iouts}")
             for snap_iout in snap_iouts:
                 if(snap_iout in nout):
                     if full_path_ptree is None: path = os.path.join(snap.repo, path_in_repo, ptree_file_format % snap_iout)
+                    # path=ptree_xxxxx.pkl
                     else: path = os.path.join(full_path_ptree, ptree_file_format % snap_iout)
                     if(os.path.isfile(path)):
                         brick = load(path, format='pkl', msg=False)
                         dump(brick, path+".old", format='pkl', msg=False)
                         if(uri.timer.verbose>0): print(f"\tBackup `{path}` to `{path}.old`")
-            print(f"\tCheck {len(snap_iouts)} snapshots")
             
         iterator = tqdm(snap_iouts, unit='snapshot') if uri.timer.verbose>0 else snap_iouts
         for iout in iterator: # Main calculation loop (longest: few miutes per snapshot)
+            # Start from most recent snapshot
             iterator.set_description(f"[{iout:04d}]")
             # Add `desc` and `npass` fields to `halo` table
             # And then, save it as a pickle file (name: `ptree_{iout:05d}.pkl`)

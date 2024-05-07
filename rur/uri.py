@@ -653,6 +653,7 @@ class RamsesSnapshot(object):
         if(self.mode=='ng'): self.info_path = join(self.path, f'info.txt')
 
         self.memory = []
+        self.tracer_mem = None
         self.part_mem = None
         self.cell_mem = None
         self.part_data = None
@@ -702,6 +703,7 @@ class RamsesSnapshot(object):
         if (len(self.memory) > 0):
             if (msg or timer.verbose >= 1): print(f"{parent} Clearing memory")
             if (msg or timer.verbose > 1): print(f"  {[i.name for i in self.memory]}")
+        self.tracer_mem = None
         self.part_mem = None
         self.cell_mem = None
         while (len(self.memory) > 0):
@@ -1125,7 +1127,7 @@ class RamsesSnapshot(object):
             "target_fields": target_fields, "dtype": dtype}
 
         if (timer.verbose > 0):
-            print("Allocating Memory...")
+            print("\tAllocating Memory...")
             ref = time.time()
         if (sequential):
             tracers = ["tracer", "cloud_tracer", "star_tracer", "gas_tracer"]
@@ -1161,7 +1163,7 @@ class RamsesSnapshot(object):
             self.part_mem = shared_memory.SharedMemory(name=self.make_shm_name('part'),create=True, size=part.nbytes)
             self.memory.append(self.part_mem)
             part = np.ndarray(part.shape, dtype=np.dtype(dtype), buffer=self.part_mem.buf)
-        if (timer.verbose > 0): print(f"Done ({time.time() - ref:.3f} sec)")
+        if (timer.verbose > 0): print(f"\tDone ({time.time() - ref:.3f} sec)")
 
         # 5) Read output part files
         if (sequential):
@@ -1344,7 +1346,7 @@ class RamsesSnapshot(object):
 
         # 4) Calculate total number of cells
         if (timer.verbose > 0):
-            print("Allocating Memory...")
+            print("\tAllocating Memory...")
             ref = time.time()
         if (sequential):
             ncell_tot = 0
@@ -1371,7 +1373,7 @@ class RamsesSnapshot(object):
             self.cell_mem = shared_memory.SharedMemory(name=self.make_shm_name('cell'), create=True, size=cell.nbytes)
             self.memory.append(self.cell_mem)
             cell = np.ndarray(cell.shape, dtype=np.dtype(dtype), buffer=self.cell_mem.buf)
-        if (timer.verbose > 0): print(f"Done ({time.time() - ref:.3f} sec)")
+        if (timer.verbose > 0): print(f"\tDone ({time.time() - ref:.3f} sec)")
 
         snap_kwargs = {
             'nhvar': nhvar, 'hydro_names': self.hydro_names, 'repo': self.snap_path, 'iout': self.iout,
@@ -1936,7 +1938,9 @@ class RamsesSnapshot(object):
                 cell = self.cell_data
 
             if (exact_box):
+                timer.start("Masking...",tab=1)
                 mask = box_mask(get_vector(cell), self.box, size=self.cell_extra['dx'](cell))
+                timer.record(tab=1)
                 timer.start('Masking cells... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size), 1)
                 cell = cell[mask]
                 timer.record()
@@ -2026,7 +2030,9 @@ class RamsesSnapshot(object):
                 part = self.part_data
             if (self.box is not None):
                 if (exact_box):
+                    timer.start("Masking...", tab=1)
                     mask = box_mask(get_vector(part), self.box)
+                    timer.record(tab=1)
                     timer.start(
                         'Masking particles... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size), 1)
                     part = part[mask]
@@ -2585,6 +2591,63 @@ def match_tracer(tracer, cell, min_dist_pc=1, use_cell_size=False):
     timer.record()
     return idx_tracer, idx_cell
 
+def cpumap_tracer(tracer, target_iouts=None, extend=False, nthread=4):
+    snap = tracer.snap
+    path = f"{snap.repo}/TRACER"
+    header = load(f"{path}/header.pkl", msg=False, format='pkl')
+    minid = header['minid']
+    if(timer.verbose>=1):
+        print(f"\n{len(tracer)} tracers are given")
+        if(target_iouts is None):
+            target_iouts = header['nout']
+        else:
+            target_iouts = np.atleast_1d(target_iouts)
+        print(f"Find iouts: {target_iouts}\n")
+    ids = tracer['id']-minid
+    keys = np.mod(ids,1000)
+
+    nout = header['nout']
+    where = np.where(np.isin(nout, target_iouts, assume_unique=True))[0]
+
+    if(timer.verbose>=1):
+        print(f"Allocate array ({len(target_iouts)*len(ids)*16 / 1024**3:.2f}GB)")
+    data = np.empty((len(target_iouts), len(ids)), dtype='int16')
+    shmname = 'tracermap'
+    snap.tracer_mem = shared_memory.SharedMemory(name=snap.make_shm_name(shmname), create=True, size=data.nbytes)
+    snap.memory.append(snap.tracer_mem)
+    data = np.ndarray(data.shape, dtype='int16', buffer=snap.tracer_mem.buf)
+
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    with Pool(processes=nthread) as pool:
+        async_result = [pool.apply_async(_cpumap_tracer, (data.shape, snap.tracer_mem.name, ikey, path, target_iouts, ids, keys==ikey, where)) for ikey in range(1000)]
+        iterobj = tqdm(async_result, desc=f"Reading tracer bricks") if (timer.verbose >= 1) else async_result
+        for r in iterobj:
+            r.get()
+    signal.signal(signal.SIGTERM, snap.terminate)
+
+    if(extend):
+        return data
+    else:
+        result = {}
+        for i in range(len(target_iouts)):
+            iout = target_iouts[i]
+            result[iout] = np.unique(data[i])
+        snap.tracer_mem.close()
+        snap.tracer_mem.unlink()
+        return result
+
+def _cpumap_tracer(shape, address, ikey, path, target_iouts, ids, mask, where):
+    exist = shared_memory.SharedMemory(name=address)
+    datamem = np.ndarray(shape=shape, dtype='int16', buffer=exist.buf)
+
+    fname = f"{path}/tracer_{ikey:03d}.pkl"
+    tmp = load(fname, msg=False, format='pkl')
+    indicies = np.arange(len(ids))[mask]
+    iids = ids[mask]
+    cpumap = tmp['cpumap'][iids//1000]
+    for iout, iwhere in zip(target_iouts, where):
+        ctmp = cpumap[:, iwhere]
+        datamem[iwhere][indicies] = ctmp.astype('int16')
 
 def time_series(repo, iouts, halo_table, mode='none', extent=None, unit=None):
     # returns multiple snapshots from repository and array of iouts
