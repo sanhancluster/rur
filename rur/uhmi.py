@@ -13,7 +13,7 @@ import gc
 import string
 from multiprocessing import Process, Queue
 from multiprocessing import Pool, shared_memory
-from time import sleep
+from time import sleep, time
 import atexit, signal
 
 chars = string.ascii_lowercase
@@ -179,7 +179,7 @@ class HaloMaker:
 
 
     @staticmethod
-    def load(snap, path_in_repo=None, galaxy=False, full_path=None, load_parts=False, double_precision=None, copy_part_id=True):
+    def load(snap, path_in_repo=None, galaxy=False, full_path=None, load_parts=False, double_precision=True, copy_part_id=True):
         # boxsize: comoving length of the box in Mpc
         repo = snap.repo
         start = snap.iout
@@ -688,6 +688,8 @@ class PhantomTree:
         
         *Written by Chat-GPT and modified by Seyoung
         """
+        print(f"\n------------------------------\n[PhantomTree] `from_halomaker`")
+        reft = time()
         if(full_path_halomaker is None):
             full_path_halomaker = os.path.join(snap.repo, path_in_repo_halomaker)
         snap_iouts = os.listdir(full_path_halomaker)
@@ -718,7 +720,7 @@ class PhantomTree:
             nout = np.array([int(pf[6:11]) for pf in pfiles])
             omitted = snap_iouts[~np.isin(snap_iouts, nout)]
             min_omit = np.min(omitted)
-            print(f"\tNeed from snapshot {min_omit}")
+            print(f"\tNo pbricks after {min_omit}th snapshot")
             # print(f"\tFound {len(nout)} ptree files exist ({np.min(nout)} ~ {np.max(nout)})")
             # snap_iouts = snap_iouts[
             #     (snap_iouts >= np.max(nout) - 2*lookup - 1) ]
@@ -745,7 +747,10 @@ class PhantomTree:
             # Step 1: Check skip or not, and load halo data
             # ---------------------------------------------
             try:
+                oldverbose = uri.timer.verbose * 1
+                uri.timer.verbose = 0
                 snap = snap.switch_iout(iout)
+                uri.timer.verbose = oldverbose
             except FileNotFoundError:
                 if(skip_jumps):
                     if(uri.timer.verbose>0): f"Skip jump due to no snapshot at {iout}"
@@ -826,7 +831,7 @@ class PhantomTree:
             halo = merge_arrays([halo, tree_data], fill_value=-2, flatten=True, usemask=False)
 
             dump(halo, path, msg=False)
-
+        print(f"[PhantomTree] `from_halomaker` Done ({(time()-reft)/60:.2f} min)\n")
 
     @staticmethod
     def find_desc(hid_arr, prog_n=None, next_n=None, rankup=1):
@@ -853,6 +858,8 @@ class PhantomTree:
 
     @staticmethod
     def merge_ptree(repo, iout_max, full_path=None, path_in_repo=path_in_repo, ptree_file=ptree_file, ptree_file_format=ptree_file_format, skip_jumps=False, dtype_id='i8'):
+        print(f"\n------------------------------\n[PhantomTree] `merge_ptree`")
+        reft = time()
         dirpath = os.path.join(repo, path_in_repo) if full_path is None else full_path
         iout = iout_max
         tree_fname = os.path.join(dirpath, ptree_file) # 'ptree.pkl'
@@ -880,7 +887,7 @@ class PhantomTree:
                 brick = load(brick_fname, msg=False)
                 try: brick = drop_fields(brick, 'mcontam', usemask=False)
                 except: pass
-                if(add==0): print(brick.dtype)
+                # if(add==0): print(brick.dtype)
                 ptree.append(brick)
                 add += 1
             iout -= 1
@@ -891,6 +898,7 @@ class PhantomTree:
             ptree = np.concatenate(ptree)
             ptree = PhantomTree.set_pairing_id(ptree, dtype_id=dtype_id)
             dump(ptree, tree_fname)
+        print(f"[PhantomTree] `from_halomaker` Done ({(time()-reft)/60:.2f} min)\n")
 
     @staticmethod
     def set_pairing_id(ptree, save_hmid=True, dtype_id='i8'):
@@ -933,9 +941,13 @@ class PhantomTree:
 
     @staticmethod
     def build_tree(ptree, overwrite=False, jump_ratio=0.5):
+        print(f"\n------------------------------\n[PhantomTree] `build_tree`")
+        reft = time()
         print('Building tree from %d halo-nodes...' % ptree.size)
         names = ['fat', 'son', 'score_fat', 'score_son']
-        ptree.sort(order='id')
+        argsort = np.argsort(ptree['id'])
+        ptree = ptree[argsort]
+        # ptree.sort(order='id')
         if(overwrite):
             ptree = drop_fields(ptree, names, usemask=False)
         id_ini = np.full(ptree.size, -1, dtype='i8')
@@ -979,6 +991,7 @@ class PhantomTree:
         ptree['fat'][desc_idx] = ptree['id'][prog_idx]
         ptree['score_fat'][desc_idx] = score[mask]
 
+        print(f"[PhantomTree] `build_tree` Done ({(time()-reft)/60:.2f} min)\n")
         return ptree
 
     @staticmethod
@@ -1007,6 +1020,8 @@ class PhantomTree:
         An updated ptree table
 
         """
+        print(f"\n------------------------------\n[PhantomTree] `add_tree_info`")
+        reft = time()
         print('Adding tree info from %d halo-nodes...' % ptree.size)
         names = ['nprog', 'ndesc', 'first', 'last', 'first_rev', 'last_rev']
         if(overwrite):
@@ -1073,7 +1088,7 @@ class PhantomTree:
 
         search_tree_reverse('son', 'fat', 'last', 'ndesc')
         search_tree_reverse('fat', 'son', 'first', 'nprog')
-
+        print(f"[PhantomTree] `add_tree_info` Done ({(time()-reft)/60:.2f} min)\n")
         return ptree
 
 
