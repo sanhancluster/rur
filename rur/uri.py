@@ -1163,7 +1163,7 @@ class RamsesSnapshot(object):
             self.part_mem = shared_memory.SharedMemory(name=self.make_shm_name('part'),create=True, size=part.nbytes)
             self.memory.append(self.part_mem)
             part = np.ndarray(part.shape, dtype=np.dtype(dtype), buffer=self.part_mem.buf)
-        if (timer.verbose > 0): print(f"\tDone ({time.time() - ref:.3f} sec)")
+        if (timer.verbose > 0): print(f"\tDone ({time.time() - ref:.3f} sec) -> {part.shape[0]} particles")
 
         # 5) Read output part files
         if (sequential):
@@ -1185,7 +1185,7 @@ class RamsesSnapshot(object):
                     r.get()
             signal.signal(signal.SIGTERM, self.terminate)
 
-        return part
+        return part, np.append(cursors, size)
 
     def read_part(self, target_fields=None, cpulist=None, pname=None, nthread=8, python=True):
         """Reads particle data from current box.
@@ -1219,8 +1219,9 @@ class RamsesSnapshot(object):
             nthread = min(nthread, cpulist.size)
             if (python):
                 self.clear_shm(clean=False)
-                part = self.read_part_py(pname, cpulist, target_fields=target_fields, nthread=nthread)
+                part, bound = self.read_part_py(pname, cpulist, target_fields=target_fields, nthread=nthread)
             else:
+                bound = None
                 progress_bar = cpulist.size > progress_bar_limit and timer.verbose >= 1
                 mode = self.mode
                 if mode == 'nc':
@@ -1290,7 +1291,11 @@ class RamsesSnapshot(object):
                     if (pname is not None): arrs = [arr[mask] for arr in arrs]
                     part = fromndarrays(arrs, dtype)
                 readr.close()
-            bound = compute_boundary(part['cpu'], cpulist)
+            timer.record()
+            if(bound is None):
+                timer.start('Compute boundary on cpumap... ', 1)
+                bound = compute_boundary(part['cpu'], cpulist)
+                timer.record()
             if (self.part_data is None):
                 self.part_data = part
             else:
@@ -1298,7 +1303,6 @@ class RamsesSnapshot(object):
 
             self.bound_part = np.concatenate([self.bound_part[:-1], self.bound_part[-1] + bound])
             self.cpulist_part = np.concatenate([self.cpulist_part, cpulist])
-            timer.record()
 
         else:
             if (timer.verbose >= 1):
@@ -1373,7 +1377,7 @@ class RamsesSnapshot(object):
             self.cell_mem = shared_memory.SharedMemory(name=self.make_shm_name('cell'), create=True, size=cell.nbytes)
             self.memory.append(self.cell_mem)
             cell = np.ndarray(cell.shape, dtype=np.dtype(dtype), buffer=self.cell_mem.buf)
-        if (timer.verbose > 0): print(f"\tDone ({time.time() - ref:.3f} sec)")
+        if (timer.verbose > 0): print(f"\tDone ({time.time() - ref:.3f} sec) -> {cell.shape[0]} cells")
 
         snap_kwargs = {
             'nhvar': nhvar, 'hydro_names': self.hydro_names, 'repo': self.snap_path, 'iout': self.iout,
@@ -1398,7 +1402,7 @@ class RamsesSnapshot(object):
                 for r in iterobj:
                     r.get()
             signal.signal(signal.SIGTERM, self.terminate)
-        return cell
+        return cell, np.append(cursors, np.sum(sizes))
 
     def read_cell(self, target_fields=None, read_grav=False, cpulist=None, python=True, nthread=8):
         """Reads amr data from current box.
@@ -1435,8 +1439,9 @@ class RamsesSnapshot(object):
             nthread = min(nthread, cpulist.size)
             if (python):
                 self.clear_shm(clean=False)
-                cell = self.read_cell_py(cpulist, read_grav=read_grav, nthread=nthread, target_fields=target_fields)
+                cell, bound = self.read_cell_py(cpulist, read_grav=read_grav, nthread=nthread, target_fields=target_fields)
             else:
+                bound=None
                 if (nthread > 1):
                     warnings.warn(
                         f"\n[read_cell] In Fortran mode, \nmulti-threading is usually slower than single-threading\nunless there are lots of hydro variables!",
@@ -1473,8 +1478,11 @@ class RamsesSnapshot(object):
                     arrs = [readr.real_table.T, readr.integer_table.T]
                     cell = fromndarrays(arrs, dtype)
                 readr.close()
-
-            bound = compute_boundary(cell['cpu'], cpulist)
+            timer.record()
+            if(bound is None):
+                timer.start('Compute boundary on cpumap... ', 1)
+                bound = compute_boundary(cell['cpu'], cpulist)
+                timer.record()
             if (self.cell_data is None):
                 self.cell_data = cell
             else:
@@ -1482,7 +1490,6 @@ class RamsesSnapshot(object):
 
             self.bound_cell = np.concatenate([self.bound_cell[:-1], self.bound_cell[-1] + bound])
             self.cpulist_cell = np.concatenate([self.cpulist_cell, cpulist])
-            timer.record()
 
         else:
             if (timer.verbose >= 1):
@@ -1895,7 +1902,7 @@ class RamsesSnapshot(object):
             cell = self.cell_data
         else:
             cell = domain_slice(self.cell_data, cpulist, self.cpulist_cell, self.bound_cell)
-        mask = box_mask(get_vector(cell), box, size=self.cell_extra['dx'](cell))
+        mask = box_mask_table(cell, box, snap=self, size=self.cell_extra['dx'](cell), nthread=nthread)
         cell = cell[mask]
         return Cell(cell, self)
 
@@ -1915,6 +1922,9 @@ class RamsesSnapshot(object):
                 warnings.warn("cpulist cannot be set without domain_slicing!", UserWarning)
                 domain_slicing = True
             exact_box = False
+
+        if(target_fields=='basic'):
+            target_fields = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'rho','P','level', 'cpu']
 
         if (self.box is None or not np.array_equal(self.box, self.box_cell) or cpulist is not None):
             if (cpulist is None):
@@ -1939,9 +1949,13 @@ class RamsesSnapshot(object):
 
             if (exact_box):
                 timer.start("Masking...",tab=1)
-                mask = box_mask(get_vector(cell), self.box, size=self.cell_extra['dx'](cell))
+                mask = box_mask_table(cell, self.box, snap=self, size=self.cell_extra['dx'](cell), nthread=nthread)
                 timer.record(tab=1)
-                timer.start('Masking cells... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size), 1)
+                if(timer.verbose>1):
+                    msg = 'Masking cells... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
+                else:
+                    msg = 'Masking cells...'
+                timer.start(msg, 1)
                 cell = cell[mask]
                 timer.record()
 
@@ -1980,7 +1994,7 @@ class RamsesSnapshot(object):
             part = self.part_data
         else:
             part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
-        mask = box_mask(get_vector(part), box)
+        mask = box_mask_table(part, box, snap=self, nthread=nthread)
         part = part[mask]
         return Particle(part, self, ptype=pname)
 
@@ -2031,10 +2045,13 @@ class RamsesSnapshot(object):
             if (self.box is not None):
                 if (exact_box):
                     timer.start("Masking...", tab=1)
-                    mask = box_mask(get_vector(part), self.box)
+                    mask = box_mask_table(part, self.box, snap=self, nthread=nthread)
                     timer.record(tab=1)
-                    timer.start(
-                        'Masking particles... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size), 1)
+                    if(timer.verbose>1):
+                        msg = 'Masking particles... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
+                    else:
+                        msg = 'Masking particles...'
+                    timer.start(msg, 1)
                     part = part[mask]
                     timer.record()
             part = Particle(part, self, ptype=pname)
@@ -2431,6 +2448,45 @@ def find_smbh(part, verbose=None):
     timer.verbose = verbose_tmp
     return smbh
 
+def _mask_table(shape, address, tmp, box, trad, ith, jth):
+    exist = shared_memory.SharedMemory(name=address)
+    data = np.ndarray(shape, dtype=bool, buffer=exist.buf)
+    imask = (tmp['x'] >= box[0,0]-trad) & (tmp['x'] <= box[0,1]+trad) & (tmp['y'] >= box[1,0]-trad) & (tmp['y'] <= box[1,1]+trad) & (tmp['z'] >= box[2,0]-trad) & (tmp['z'] <= box[2,1]+trad)
+    data[ith:jth] = imask
+
+def box_mask_table(table, box, snap=None, size=0, exclusive=False, chunksize=50000, nthread=8):
+    if (exclusive):
+        size *= -1
+    rad = size/2
+    box = np.array(box)
+    if(len(table) < (20*chunksize*nthread)):
+        box_mask = (table['x'] >= box[0,0]-rad) & (table['x'] <= box[0,1]+rad) & (table['y'] >= box[1,0]-rad) & (table['y'] <= box[1,1]+rad) & (table['z'] >= box[2,0]-rad) & (table['z'] <= box[2,1]+rad)
+    else:
+        box_mask = np.empty(len(table), dtype=bool)
+        shmname = 'boxmask'
+        name = snap.make_shm_name(shmname) if(snap is not None) else "boxmask"
+        memory = shared_memory.SharedMemory(name=name, create=True, size=box_mask.nbytes)
+        data = np.ndarray(box_mask.shape, dtype=bool, buffer=memory.buf)
+        Nchunk = int(np.ceil(len(table)/chunksize))
+        indicies = np.append(np.arange(0, len(table), chunksize), len(table))
+        nthread = min(nthread, Nchunk)
+
+        if(snap is not None): signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        with Pool(processes=nthread) as pool:
+            async_result = []
+            if(np.isscalar(rad)): # For part
+                async_result = [pool.apply_async(_mask_table, args=(box_mask.shape, memory.name, table[ith:jth], box, rad, ith, jth)) for ith,jth in zip(indicies[:-1], indicies[1:])]
+            else: # For cell
+                async_result = [pool.apply_async(_mask_table, args=(box_mask.shape, memory.name, table[ith:jth], box, rad[ith:jth], ith, jth)) for ith,jth in zip(indicies[:-1], indicies[1:])]
+            iterobj = tqdm(async_result, desc='Mask with Chunk') if(timer.verbose >= 2) else async_result
+            for r in iterobj:
+                r.get()
+
+        if(snap is not None): signal.signal(signal.SIGTERM, snap.terminate)
+        box_mask[:] = data[:]
+        memory.close()
+        memory.unlink()
+    return box_mask
 
 def box_mask(coo, box, size=None, exclusive=False):
     # masking coordinates based on the box
@@ -2441,8 +2497,8 @@ def box_mask(coo, box, size=None, exclusive=False):
     if (exclusive):
         size *= -1
     box = np.array(box)
-    box_mask = np.all((box[:, 0] <= coo + size / 2) & (coo - size / 2 <= box[:, 1]), axis=-1)
-    return box_mask
+    mask = np.all((box[:, 0] <= coo + size / 2) & (coo - size / 2 <= box[:, 1]), axis=-1)
+    return mask
 
 
 def interpolate_part(part1, part2, name, fraction=0.5, periodic=False):
