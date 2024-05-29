@@ -1184,7 +1184,7 @@ class RamsesSnapshot(object):
                 for r in iterobj:
                     r.get()
             signal.signal(signal.SIGTERM, self.terminate)
-
+        if(sequential): return part, None
         return part, np.append(cursors, size)
 
     def read_part(self, target_fields=None, cpulist=None, pname=None, nthread=8, python=True):
@@ -1402,6 +1402,7 @@ class RamsesSnapshot(object):
                 for r in iterobj:
                     r.get()
             signal.signal(signal.SIGTERM, self.terminate)
+        if(sequential): return cell, None
         return cell, np.append(cursors, np.sum(sizes))
 
     def read_cell(self, target_fields=None, read_grav=False, cpulist=None, python=True, nthread=8):
