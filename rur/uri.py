@@ -925,10 +925,10 @@ class RamsesSnapshot(object):
 
     def make_shm_name(self, kind):
         now = datetime.datetime.now()
-        fname = f"rur_{kind}_{self.mode}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S_%f')}"
+        fname = f"rur_{kind}_{self.mode.replace('_','')}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S_%f')}"
         count = 0
         while(exists(f"/dev/shm/{fname}")):
-            fname = f"rur_{kind}_{self.mode}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S_%f')}r{count}"
+            fname = f"rur_{kind}_{self.mode.replace('_','')}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S_%f')}r{count}"
             count += 1
         return fname
 
@@ -1756,8 +1756,15 @@ class RamsesSnapshot(object):
             shms = [shm.split('/')[-1] for shm in shms]
             olds = []
             for shm in shms:
-                try: _, _, _, fuid, fdate, _ = shm.split('_')
-                except: _, _, _, fuid, fdate, _, _ = shm.split('_')
+                nubar = shm.count('_')
+                if(nubar==6): # Default (hhmmss_xxxxxx)
+                    _, _, _, fuid, fdate, _, _ = shm.split('_')
+                elif(nubar==5): # Old (hhmmss)
+                    _, _, _, fuid, fdate, _ = shm.split('_')
+                else: # Weird mode (ex: yohan_dust)
+                    splits = shm.split('_')
+                    fuid = splits[-4]
+                    fdate = splits[-3]
                 if(f'u{os.getuid()}' == fuid):
                     date_diff = datetime.datetime.now() - datetime.datetime.strptime(fdate, '%Y%m%d')
                     if(date_diff.days>=7):
