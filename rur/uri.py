@@ -1140,7 +1140,7 @@ class RamsesSnapshot(object):
             else:
                 size = header[pname]
             part = np.empty(size, dtype=dtype)
-            if (size == 0): return part
+            if (size == 0): return part, None
         else:
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
@@ -1154,7 +1154,7 @@ class RamsesSnapshot(object):
             size = np.sum(sizes)
             cursors = np.cumsum(sizes) - sizes
             part = np.empty(size, dtype=dtype)
-            if (size == 0): return part
+            if (size == 0): return part, None
             if (not self.alert):
                 atexit.register(self.flush, msg=True, parent='[Auto]')
                 signal.signal(signal.SIGINT, self.terminate)
