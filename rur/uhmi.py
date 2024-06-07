@@ -74,6 +74,22 @@ def fix_out_of_order_fields(array):
     output = fromarrays(arrays, names = names)
     return output
 
+def _read_simple(shape, dtype, cursor, address, galaxy, path, hmid, timestep):
+    if(galaxy): nomfich = os.path.join(path, f"gal_stars_{hmid:07d}")
+    else: nomfich = os.path.join(path, f"halo_dms_{hmid:07d}")
+    exist = shared_memory.SharedMemory(name=address)
+    partmem = np.ndarray(shape=shape, dtype=dtype, buffer=exist.buf)
+
+    with FortranFile(nomfich, 'r') as f:
+        f.skip_records(6)
+        nparts, = f.read_ints()
+        array = partmem[cursor:cursor+nparts].view()
+        array['hmid'] = hmid
+        array['timestep'] = timestep
+        f.skip_records(7)
+        array['id'] = f.read_ints()
+
+
 def _read_one(shape, dtype, cursor, address, galaxy, path, hmid, nchem, timestep=None, target_fields=None):
     if(galaxy): nomfich = os.path.join(path, f"gal_stars_{hmid:07d}")
     else: nomfich = os.path.join(path, f"halo_dms_{hmid:07d}")
@@ -464,6 +480,8 @@ class HaloMaker:
         else:
             ind = np.isin(dtype.names, target_fields, assume_unique=True)
             dtype = np.dtype([idt for idt, iid in zip(dtype.descr, ind) if(iid)]+[('hmid', 'i4'), ('timestep', 'i4')])
+        if(simple):
+            dtype = [('id','i4'), ('timestep','i4'), ('hmid','i4')]
         if(snaps.iout_avail is None): snaps.read_iout_avail()
         fout = snaps.iout_avail[-1]['iout']
         fsnap = snaps.get_snap(fout)
@@ -476,7 +494,6 @@ class HaloMaker:
                 path_in_repo = default_path_in_repo['HaloMaker']
                 temp = "HAL"
         paths = [os.path.join(fsnap.repo, path_in_repo, f"{temp}_{iout:05d}") for iout in hals['timestep']]
-        
 
         part = np.empty(np.sum(hals['nparts']), dtype=dtype)
         shmname = 'galaxy' if(galaxy) else 'halo'
@@ -486,24 +503,34 @@ class HaloMaker:
 
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
         cursors = np.insert(np.cumsum(hals['nparts']), 0, 0)[:-1]
-        with Pool(processes=nthread) as pool:
-            async_result = [pool.apply_async(_read_one, (part.shape, part.dtype, cursor, fsnap.part_mem.name, galaxy, path, hmid, timestep, nchem, target_fields)) for cursor, hmid,timestep, path in zip(cursors, hals['id'], hals['timestep'], paths)]
-            iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading members") if(uri.timer.verbose>=1) else async_result
-            for r in iterobj:
-                r.get()
+        if(simple):
+            with Pool(processes=nthread) as pool:
+                async_result = [pool.apply_async(_read_simple, (part.shape, part.dtype, cursor, fsnap.part_mem.name, galaxy, path, hmid, timestep)) for cursor, hmid,timestep, path in zip(cursors, hals['id'], hals['timestep'], paths)]
+                iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading members") if(uri.timer.verbose>=1) else async_result
+                for r in iterobj:
+                    r.get()
+        else:
+            with Pool(processes=nthread) as pool:
+                async_result = [pool.apply_async(_read_one, (part.shape, part.dtype, cursor, fsnap.part_mem.name, galaxy, path, hmid, timestep, nchem, target_fields)) for cursor, hmid,timestep, path in zip(cursors, hals['id'], hals['timestep'], paths)]
+                iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading members") if(uri.timer.verbose>=1) else async_result
+                for r in iterobj:
+                    r.get()
         signal.signal(signal.SIGTERM, fsnap.terminate)
-        for timestep in np.unique(hals['timestep']):
-            mask = (part['timestep']==timestep)
-            snap = snaps.get_snap(timestep)
-            boxsize_physical = snap['boxsize_physical']
-            if('x' in target_fields): part['x'][mask] = part['x'][mask] / boxsize_physical + 0.5
-            if('y' in target_fields): part['y'][mask] = part['y'][mask] / boxsize_physical + 0.5
-            if('z' in target_fields): part['z'][mask] = part['z'][mask] / boxsize_physical + 0.5
-            if('m' in target_fields): part['m'][mask] = part['m'][mask]*snap.unit['Msol']
-            if('vx' in target_fields): part['vx'][mask] = part['vx'][mask]*snap.unit['km/s']
-            if('vy' in target_fields): part['vy'][mask] = part['vy'][mask]*snap.unit['km/s']
-            if('vz' in target_fields): part['vz'][mask] = part['vz'][mask]*snap.unit['km/s']
-        return uri.Particle(part, snap)
+        if(not simple):
+            for timestep in np.unique(hals['timestep']):
+                mask = (part['timestep']==timestep)
+                snap = snaps.get_snap(timestep)
+                boxsize_physical = snap['boxsize_physical']
+                if('x' in target_fields): part['x'][mask] = part['x'][mask] / boxsize_physical + 0.5
+                if('y' in target_fields): part['y'][mask] = part['y'][mask] / boxsize_physical + 0.5
+                if('z' in target_fields): part['z'][mask] = part['z'][mask] / boxsize_physical + 0.5
+                if('m' in target_fields): part['m'][mask] = part['m'][mask]*snap.unit['Msol']
+                if('vx' in target_fields): part['vx'][mask] = part['vx'][mask]*snap.unit['km/s']
+                if('vy' in target_fields): part['vy'][mask] = part['vy'][mask]*snap.unit['km/s']
+                if('vz' in target_fields): part['vz'][mask] = part['vz'][mask]*snap.unit['km/s']
+            return uri.Particle(part, snap)
+        else:
+            return part
 
     from rur.uri import RamsesSnapshot
     @staticmethod
