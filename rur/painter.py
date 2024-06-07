@@ -567,7 +567,7 @@ def draw_points(points, box=None, proj=[0, 1], color=None, label=None, fontsize=
             fontsize = repeat(fontsize)
         else:
             fontsize = np.array(fontsize)[mask]
-        ax = plt.gca()
+        ax = kwargs.pop('ax', plt.gca())
         if fontcolor is None:
             fontcolor = color
         if isinstance(fontcolor, str) or not isinstance(fontcolor, Iterable):
@@ -613,7 +613,7 @@ def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_ran
 
     if labels is not None:
         labels = np.array(labels)[mask]
-        ax = plt.gca()
+        ax = kwargs.pop('ax', plt.gca())
         for i, pos, label, s in zip(np.arange(smbh.size), poss[mask], labels, ss[mask]):
             # ax.text(pos[proj[0]], pos[proj[1]], label, color='white', ha='center', va='top', fontsize=fontsize, zorder=zorder, transform=ax.transAxes)
             ax.annotate(label, (pos[proj[0]], pos[proj[1]]), xytext=(3, 3), textcoords='offset points',
