@@ -263,7 +263,7 @@ def _classify(pname: str, npart:int, ids=None, epoch=None, m=None, family=None, 
                 mask = (ids < 0) & (m > 0) & (epoch == 0)
             nsize = np.count_nonzero(mask)
         elif (ids is not None):
-            print("Warning: either `family` or `epoch` should be given to classify particles.")
+            warnings.warn("Warning: either `family` or `epoch` should be given to classify particles.", UserWarning)
             if (pname == 'dm'):
                 mask = ids > 0
                 nsize = np.count_nonzero(mask)
@@ -875,7 +875,7 @@ class RamsesSnapshot(object):
             part_dtype = part_dtype+[('cpu', 'i4')]
         else:
             if (timer.verbose>0):
-                print(f"Warning! No `part_file_descriptor.txt` found, using default dtype")
+                warnings.warn(f"Warning! No `part_file_descriptor.txt` found, using default dtype", UserWarning)
             part_dtype = [('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
             if(self.star[0]): part_dtype = part_dtype+[('epoch', 'f8'), ('metal', 'f8')]
             if(self.mode == 'hagn'):
@@ -912,7 +912,7 @@ class RamsesSnapshot(object):
                         if('chem' in ikey): chem.append(hydro_names[i])
         else:
             if (timer.verbose>0):
-                print(f"Warning! No `hydro_file_descriptor.txt` found, using default dtype")
+                warnings.warn(f"Warning! No `hydro_file_descriptor.txt` found, using default dtype", UserWarning)
             hydro_names = ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask']
             veryolds = ['dm_only', 'none', 'ng']
             olds = ['hagn','yzics','yzics_dm_only']
@@ -1077,7 +1077,7 @@ class RamsesSnapshot(object):
                     header[it[0].lower()] = int(it[1])
                 header['sink'] = int(header['cloud']/2109)
         else:
-            print(f"Warning! No `{fname}` found.")
+            warnings.warn(f"Warning! No `{fname}` found.", UserWarning)
         return header
 
     def read_sink_table(self):
@@ -1771,7 +1771,7 @@ class RamsesSnapshot(object):
                         olds.append(shm)
             if(len(olds)>0):
                 total_size = np.sum([os.path.getsize(f"/dev/shm/{shm}") for shm in olds])
-                if(not clean): print(f"Warning! Found {len(olds)} old shared memory ({total_size/(1024**3):.2f} GB)")
+                if(not clean): warnings.warn(f"Warning! Found {len(olds)} old shared memory ({total_size/(1024**3):.2f} GB)", UserWarning)
                 for old in olds:
                     if(not clean): print(f" > `/dev/shm/{old}`")
                     else:
