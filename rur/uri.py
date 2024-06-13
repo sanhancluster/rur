@@ -288,6 +288,9 @@ def _calc_npart(fname: str, kwargs: dict, sizeonly=False):
     with FortranFile(f"{fname}", mode='r') as f:
         f.skip_records(2)
         npart = f.read_ints(np.int32)
+        if(pname is None):
+            result = _classify(pname, npart, ids=ids, epoch=epoch, m=m, family=family, sizeonly=sizeonly)
+            return result[0], result[1], int(fname[-5:])
         f.skip_records(5)
         if (isfamily):
             f.skip_records(9)
@@ -306,13 +309,14 @@ def _calc_npart(fname: str, kwargs: dict, sizeonly=False):
 def _read_part(fname: str, kwargs: dict, part=None, mask=None, nsize=None, cursor=None, address=None,
                shape=None):
     pname, ids, epoch, m, family = None, None, None, None, None
-    target_fields = kwargs["target_fields"]
-    dtype = kwargs["dtype"]
+    target_fields = kwargs["target_fields"] # input names
+    dtype = kwargs["dtype"] # input dtypes
+    ndeep = kwargs['ndeep']
     pname = kwargs["pname"]
     isfamily = kwargs["isfamily"]
     isstar = kwargs["isstar"]
     chem = kwargs["chem"]
-    part_dtype = np.dtype(kwargs["part_dtype"])
+    part_dtype = np.dtype(kwargs["part_dtype"]) # output dtype
     sequential = part is not None
     icpu = int(fname[-5:])
     with FortranFile(f"{fname}", mode='r') as f:
@@ -320,30 +324,44 @@ def _read_part(fname: str, kwargs: dict, part=None, mask=None, nsize=None, curso
         f.skip_records(2)
         npart, = f.read_ints(np.int32)
         f.skip_records(5)
-        x = readorskip_real(f, np.float64, 'x', target_fields)
-        y = readorskip_real(f, np.float64, 'y', target_fields)
-        z = readorskip_real(f, np.float64, 'z', target_fields)
-        vx = readorskip_real(f, np.float64, 'vx', target_fields)
-        vy = readorskip_real(f, np.float64, 'vy', target_fields)
-        vz = readorskip_real(f, np.float64, 'vz', target_fields)
-        if (pname is None):
-            m = readorskip_real(f, np.float64, 'm', target_fields)
-            ids = readorskip_int(f, np.int32, 'id', target_fields)
-        else:
-            m = f.read_reals(np.float64)
-            ids = f.read_ints(np.int32)
-        level = readorskip_int(f, np.int32, 'level', target_fields)
-        if (isfamily):
-            family = f.read_ints(np.int8)  # family
-            tag = readorskip_int(f, np.int8, 'tag', target_fields)  # tag
-        if (isstar):
-            if('epoch' in part_dtype.names):
-                if (pname is None):
-                    epoch = readorskip_real(f, np.float64, 'epoch', target_fields)  # epoch
-                else:
-                    epoch = f.read_reals(np.float64)
-            if('metal' in part_dtype.names):
-                metal = readorskip_real(f, np.float64, 'metal', target_fields)
+        if(ndeep>=1):
+            x = readorskip_real(f, np.float64, 'x', target_fields)
+            if(ndeep>=2):
+                y = readorskip_real(f, np.float64, 'y', target_fields)
+                if(ndeep>=3):
+                    z = readorskip_real(f, np.float64, 'z', target_fields)
+                    if(ndeep>=4):
+                        vx = readorskip_real(f, np.float64, 'vx', target_fields)
+                        if(ndeep>=5):
+                            vy = readorskip_real(f, np.float64, 'vy', target_fields)
+                            if(ndeep>=6):
+                                vz = readorskip_real(f, np.float64, 'vz', target_fields)
+                                if(ndeep>=7):
+                                    if (pname is None)or(isfamily):
+                                        m = readorskip_real(f, np.float64, 'm', target_fields)
+                                        if(ndeep>=8):
+                                            ids = readorskip_int(f, np.int32, 'id', target_fields)
+                                    else:
+                                        m = f.read_reals(np.float64)
+                                        if(ndeep>=8):
+                                            ids = f.read_ints(np.int32)
+                                    if(ndeep>=9):
+                                        level = readorskip_int(f, np.int32, 'level', target_fields)
+                                        if(ndeep>=10):
+                                            if (isfamily):
+                                                family = f.read_ints(np.int8)  # family
+                                                if(ndeep>=11):
+                                                    tag = readorskip_int(f, np.int8, 'tag', target_fields)  # tag
+                                            if (isstar):
+                                                if(ndeep>=12):
+                                                    if('epoch' in part_dtype.names):
+                                                        if (pname is None):
+                                                            epoch = readorskip_real(f, np.float64, 'epoch', target_fields)  # epoch
+                                                        else:
+                                                            epoch = f.read_reals(np.float64)
+                                                if(ndeep>=13):
+                                                    if('metal' in part_dtype.names):
+                                                        metal = readorskip_real(f, np.float64, 'metal', target_fields)
 
         # Masking
         if (mask is None)or(nsize is None):
@@ -371,29 +389,32 @@ def _read_part(fname: str, kwargs: dict, part=None, mask=None, nsize=None, curso
         if ('level' in target_fields): pointer['level'] = level[mask]
         if ('family' in target_fields)and(isfamily): pointer['family'] = family[mask]
         if ('tag' in target_fields)and(isfamily): pointer['tag'] = tag[mask]
-        newtypes = ["m0", "rho0", "partp"] + chem
-        if True in np.isin(newtypes, target_fields):
-            if('m0' in part_dtype.names):
-                if ('m0' in target_fields):
-                    pointer['m0'] = f.read_reals(np.float64)[mask]
-                else:
-                    f.read_reals(np.float64)
-            if len(chem) > 0:
-                for ichem in chem:
-                    if (ichem in target_fields):
-                        pointer[ichem] = f.read_reals(np.float64)[mask]
+        if(ndeep>=14):
+            newtypes = ["m0", "rho0", "partp"] + chem
+            if True in np.isin(newtypes, target_fields):
+                if('m0' in part_dtype.names):
+                    if ('m0' in target_fields):
+                        pointer['m0'] = f.read_reals(np.float64)[mask]
                     else:
                         f.read_reals(np.float64)
-            if('rho0' in part_dtype.names):
-                if ('rho0' in target_fields):
-                    pointer['rho0'] = f.read_reals(np.float64)[mask]
-                else:
-                    f.read_reals(np.float64)
-            if('partp' in target_fields):
-                if ('partp' in target_fields):
-                    pointer['partp'] = f.read_ints(np.int32)[mask]
-                else:
-                    f.read_ints(np.int32)
+                if(ndeep>=15):
+                    if len(chem) > 0:
+                        for ichem in chem:
+                            if (ichem in target_fields):
+                                pointer[ichem] = f.read_reals(np.float64)[mask]
+                            else:
+                                f.read_reals(np.float64)
+                    if('rho0' in part_dtype.names):
+                        if ('rho0' in target_fields):
+                            pointer['rho0'] = f.read_reals(np.float64)[mask]
+                        else:
+                            f.read_reals(np.float64)
+                    if(ndeep>=16):
+                        if('partp' in target_fields):
+                            if ('partp' in target_fields):
+                                pointer['partp'] = f.read_ints(np.int32)[mask]
+                            else:
+                                f.read_ints(np.int32)
         pointer['cpu'] = icpu
     if (sequential):
         cursor += nsize
@@ -1121,10 +1142,12 @@ class RamsesSnapshot(object):
             dtype = [idtype for idtype in dtype if idtype[0] in target_fields]
         else:
             target_fields = [idtype[0] for idtype in dtype]
-
+        field_indicies = ['x','y','z','vx','vy','vz','m','id','level','family','tag','epoch','metal','m0','rho0','partp']
+        where = np.where(np.isin(field_indicies, target_fields))[0]
+        ndeep = np.max(where)+1 if(len(where)>0) else 0
         kwargs = {
             "pname": pname, "isfamily": isfamily, "isstar": isstar, "chem": chem, "part_dtype": part_dtype,
-            "target_fields": target_fields, "dtype": dtype}
+            "target_fields": target_fields, "dtype": dtype, "ndeep":ndeep}
 
         if (timer.verbose > 0):
             print("\tAllocating Memory...")
