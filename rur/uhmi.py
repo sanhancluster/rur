@@ -402,7 +402,7 @@ class HaloMaker:
         return uri.Particle(array, snap)
 
     @staticmethod
-    def read_member_parts(snap, hals:np.ndarray, nchem=0, galaxy=False, path_in_repo=None, full_path=None, usefortran=False, simple=False, target_fields=None, nthread=4):
+    def read_member_parts(snap, hals:np.ndarray, nchem=0, galaxy=False, path_in_repo=None, full_path=None, usefortran=False, simple=False, target_fields=None, nthread=4, copy=False):
         '''
         Return member particles(uri.Particle class) of multiple halos or galaxies.
         Also this supports multi-processing
@@ -455,6 +455,11 @@ class HaloMaker:
             for r in iterobj:
                 r.get()
         signal.signal(signal.SIGTERM, snap.terminate)
+        if(copy):
+            ppart = part.copy()
+            snap.part_mem.close()
+            snap.part_mem.unlink()
+            part = ppart
         boxsize_physical = snap['boxsize_physical']
         if('x' in target_fields): part['x'] = part['x'] / boxsize_physical + 0.5
         if('y' in target_fields): part['y'] = part['y'] / boxsize_physical + 0.5
