@@ -140,6 +140,9 @@ oct_offset = np.array([
     -0.5, -0.5,  0.5,  0.5, -0.5, -0.5,  0.5,  0.5,
     -0.5, -0.5, -0.5, -0.5,  0.5,  0.5,  0.5,  0.5 
     ]).reshape(3,8).T
+oct_x = oct_offset[:, 0].reshape(8, 1)
+oct_y = oct_offset[:, 1].reshape(8, 1)
+oct_z = oct_offset[:, 2].reshape(8, 1)
 
 # path_related parameters
 # avaiable modes: none, ng, nh, etc.
