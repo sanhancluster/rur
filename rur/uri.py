@@ -1986,7 +1986,7 @@ class RamsesSnapshot(object):
         return Cell(cell, self)
 
     def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False,
-                 ripses=False, python=True, nthread=8, use_cache=True):
+                 ripses=False, python=True, nthread=8, use_cache=False):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -2078,7 +2078,7 @@ class RamsesSnapshot(object):
         return Particle(part, self, ptype=pname)
 
     def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None,
-                 python=True, nthread=8, use_cache=True):
+                 python=True, nthread=8, use_cache=False):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
