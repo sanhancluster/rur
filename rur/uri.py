@@ -2,7 +2,12 @@ import os
 from os.path import join, exists, getsize
 from numpy.core.records import fromarrays as fromarrays
 
-from scipy.integrate import cumtrapz
+import scipy
+if(scipy.__version__>='1.14.0'):
+    from scipy.integrate import cumulative_trapezoid
+    cumtrapz = cumulative_trapezoid
+else:
+    from scipy.integrate import cumtrapz
 from collections.abc import Iterable
 from scipy.spatial import cKDTree as KDTree
 from numpy.lib.recfunctions import append_fields
@@ -500,12 +505,15 @@ def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, cell=None, nsize=
 
     if (read_grav):
         grav_fname = f"{repo}/output_{iout:05d}/grav_{iout:05d}.out{icpu:05d}"
-        f_grav = FortranFile(grav_fname, mode='r')
-        f_grav.skip_records(1)
-        ndim1, = f_grav.read_ints()
-        output_particle_density = ndim1 == ndim + 2
-        f_grav.skip_records(2)
-        skip_grav = twotondim * (2 + ndim) if output_particle_density else twotondim * (1 + ndim)
+        if(not os.path.exists(grav_fname)):
+            read_grav = False
+        else:
+            f_grav = FortranFile(grav_fname, mode='r')
+            f_grav.skip_records(1)
+            ndim1, = f_grav.read_ints()
+            output_particle_density = ndim1 == ndim + 2
+            f_grav.skip_records(2)
+            skip_grav = twotondim * (2 + ndim) if output_particle_density else twotondim * (1 + ndim)
 
     amr_fname = f"{repo}/output_{iout:05d}/amr_{iout:05d}.out{icpu:05d}"
     sequential = True
@@ -1386,7 +1394,10 @@ class RamsesSnapshot(object):
             names = [names[idx] for idx in target_idx]
             dtype = [(nm, fmt) for nm, fmt in zip(names, formats)]
         else:
-            dtype = np.format_parser(formats=formats, names=names, titles=None).dtype
+            if(np.__version__ >= '2.0.0'):
+                dtype = np.rec.format_parser(formats=formats, names=names, titles=None).dtype
+            else:
+                dtype = np.format_parser(formats=formats, names=names, titles=None).dtype
 
         # 4) Calculate total number of cells
         if (timer.verbose > 0):
