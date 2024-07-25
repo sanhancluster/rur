@@ -851,7 +851,10 @@ def combine_image(images_to_combine, mode='screen', weights=None):
     elif mode == 'sum':
         image = np.sum(images_to_combine, axis=0)
     elif mode == 'multiply':
-        image = np.product(images_to_combine, axis=0)
+        if(np.__version__ >= '1.25.0'):
+            image = np.prod(images_to_combine, axis=0)
+        else:
+            image = np.product(images_to_combine, axis=0)
     elif mode == 'max':
         image = np.max(images_to_combine, axis=0)
     elif mode == 'screen':

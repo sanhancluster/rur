@@ -349,7 +349,10 @@ def cic_img(x, y, lims, reso=100, weights=None):
         indices_int = np.floor(indices_float - dx).astype(int)
 
         offsets = indices_float - indices_int
-        areas = np.product(1-np.abs(offsets - 1), axis=-1)
+        if(np.__version__ >= '1.25.0'):
+            areas = np.prod(1-np.abs(offsets - 1), axis=-1)
+        else:
+            areas = np.product(1-np.abs(offsets - 1), axis=-1)
 
         mask = np.all((indices_int >= 0) & (indices_int < shape_array), axis=-1)
         np.add.at(pool, (indices_int[mask, 0], indices_int[mask, 1]), (areas * weights)[mask])
