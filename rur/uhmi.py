@@ -90,40 +90,73 @@ def _read_simple(shape, dtype, cursor, address, galaxy, path, hmid, timestep):
         array['id'] = f.read_ints()
 
 
-def _read_one(shape, dtype, cursor, address, galaxy, path, hmid, nchem, timestep=None, target_fields=None):
+def _read_one(shape, dtype, cursor, address, galaxy, path, hmid, nchem, timestep=None, target_fields=None, maxorder=20):
     if(galaxy): nomfich = os.path.join(path, f"gal_stars_{hmid:07d}")
     else: nomfich = os.path.join(path, f"halo_dms_{hmid:07d}")
     exist = shared_memory.SharedMemory(name=address)
     partmem = np.ndarray(shape=shape, dtype=dtype, buffer=exist.buf)
-    
 
+    #DEBUG
+    # if(hmid%10==1):
+    #     print(f"*** {hmid} ", nomfich)
+    #     print(f"*** {hmid} ", partmem.shape)
+
+    iorder = 0
     with FortranFile(nomfich, 'r') as f:
+        # if(hmid%10==1): print(f"*** {hmid} open")
         f.skip_records(6)
+        # if(hmid%10==1): print(f"*** {hmid} skip")
         nparts, = f.read_ints()
         array = partmem[cursor:cursor+nparts].view()
         array['hmid'] = hmid
         if(timestep is not None): array['timestep'] = timestep
-        if('x' in target_fields): array['x'] = f.read_reals()
-        else: f.skip_records(1)
-        if('y' in target_fields): array['y'] = f.read_reals()
-        else: f.skip_records(1)
-        if('z' in target_fields): array['z'] = f.read_reals()
-        else: f.skip_records(1)
-        if('vx' in target_fields): array['vx'] = f.read_reals()
-        else: f.skip_records(1)
-        if('vy' in target_fields): array['vy'] = f.read_reals()
-        else: f.skip_records(1)
-        if('vz' in target_fields): array['vz'] = f.read_reals()
-        else: f.skip_records(1)
-        if('m' in target_fields): array['m'] = f.read_reals()*1e11
-        else: f.skip_records(1)
-        if('id' in target_fields): array['id'] = f.read_ints()
-        else: f.skip_records(1)
+        if(iorder<=maxorder):
+            if('x' in target_fields): array['x'] = f.read_reals()
+            else: f.skip_records(1)
+            iorder+=1
+        if(iorder<=maxorder):
+            if('y' in target_fields): array['y'] = f.read_reals()
+            else: f.skip_records(1)
+            iorder+=1
+        if(iorder<=maxorder):
+            if('y' in target_fields): array['y'] = f.read_reals()
+            else: f.skip_records(1)
+            iorder+=1
+        if(iorder<=maxorder):
+            if('z' in target_fields): array['z'] = f.read_reals()
+            else: f.skip_records(1)
+            iorder+=1
+        if(iorder<=maxorder):
+            if('vx' in target_fields): array['vx'] = f.read_reals()
+            else: f.skip_records(1)
+            iorder+=1
+        if(iorder<=maxorder):
+            if('vy' in target_fields): array['vy'] = f.read_reals()
+            else: f.skip_records(1)
+            iorder+=1
+        if(iorder<=maxorder):
+            if('vz' in target_fields): array['vz'] = f.read_reals()
+            else: f.skip_records(1)
+            iorder+=1
+        if(iorder<=maxorder):
+            if('m' in target_fields): array['m'] = f.read_reals()*1e11
+            else: f.skip_records(1)
+            iorder+=1
+        if(iorder<=maxorder):
+            if('id' in target_fields): array['id'] = f.read_ints()
+            else: f.skip_records(1)
+            iorder+=1
         if(galaxy):
-            if('epoch' in target_fields): array['epoch'] = f.read_reals()
-            else: f.skip_records(1)
-            if('metal' in target_fields): array['metal'] = f.read_reals()
-            else: f.skip_records(1)
+            if(iorder<=maxorder):
+                if('epoch' in target_fields): array['epoch'] = f.read_reals()
+                else: f.skip_records(1)
+                iorder+=1
+            if(iorder<=maxorder):
+                if('metal' in target_fields): array['metal'] = f.read_reals()
+                else: f.skip_records(1)
+                iorder+=1
+        # if(hmid%10==1): print(f"*** {hmid} done")
+    return None
 
 class HaloMaker:
     @staticmethod
@@ -402,7 +435,7 @@ class HaloMaker:
         return uri.Particle(array, snap)
 
     @staticmethod
-    def read_member_parts(snap, hals:np.ndarray, nchem=0, galaxy=False, path_in_repo=None, full_path=None, usefortran=False, simple=False, target_fields=None, nthread=4):
+    def read_member_parts(snap, hals:np.ndarray, nchem=0, galaxy=False, path_in_repo=None, full_path=None, usefortran=False, simple=False, target_fields=None, nthread=4, copy=False):
         '''
         Return member particles(uri.Particle class) of multiple halos or galaxies.
         Also this supports multi-processing
@@ -415,6 +448,9 @@ class HaloMaker:
         else:
             ind = np.isin(dtype.names, target_fields, assume_unique=True)
             dtype = np.dtype([idt for idt, iid in zip(dtype.descr, ind) if(iid)]+[('hmid', 'i4')])
+        orders = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'm', 'id', 'epoch', 'metal']
+        args = np.where(np.isin(orders, target_fields))[0]
+        maxorder = np.max(args)
         if(full_path is None):
             if(path_in_repo is None):
                 if (galaxy):        
@@ -449,12 +485,25 @@ class HaloMaker:
 
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
         cursors = np.insert(np.cumsum(hals['nparts']), 0, 0)[:-1]
+        if(uri.timer.verbose>=1):
+            pbar = tqdm(total=len(hals), desc=f"Reading members")
+            def update(*a):
+                pbar.update()
+        else:
+            update = None
         with Pool(processes=nthread) as pool:
-            async_result = [pool.apply_async(_read_one, (part.shape, part.dtype, cursor, snap.part_mem.name, galaxy, path, hmid, nchem,None, target_fields)) for cursor, hmid in zip(cursors, hals['id'])]
-            iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading members") if(uri.timer.verbose>=1) else async_result
-            for r in iterobj:
+            async_result = [pool.apply_async(_read_one, (part.shape, part.dtype, cursor, snap.part_mem.name, galaxy, path, hmid, nchem,None, target_fields, maxorder), callback=update) for cursor, hmid in zip(cursors, hals['id'])]
+            # iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading members") if(uri.timer.verbose>=1) else async_result
+            # for r in iterobj:
+            for r in async_result:
                 r.get()
         signal.signal(signal.SIGTERM, snap.terminate)
+        if(copy):
+            part = part.copy()
+            snap.memory.remove(snap.part_mem)
+            snap.part_mem.close()
+            snap.part_mem.unlink()
+            snap.part_mem = None
         boxsize_physical = snap['boxsize_physical']
         if('x' in target_fields): part['x'] = part['x'] / boxsize_physical + 0.5
         if('y' in target_fields): part['y'] = part['y'] / boxsize_physical + 0.5
@@ -466,7 +515,7 @@ class HaloMaker:
         return uri.Particle(part, snap)
 
     @staticmethod
-    def read_member_general(snaps:uri.TimeSeries, hals:np.ndarray, nchem=0, galaxy=False, path_in_repo=None, usefortran=False, simple=False, target_fields=None, nthread=4):
+    def read_member_general(snaps:uri.TimeSeries, hals:np.ndarray, nchem=0, galaxy=False, path_in_repo=None, usefortran=False, simple=False, target_fields=None, nthread=4, copy=False):
         '''
         Return member particles(uri.Particle class) of multiple halos or galaxies.
         Also this supports multi-processing.
@@ -509,6 +558,8 @@ class HaloMaker:
                 iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading members") if(uri.timer.verbose>=1) else async_result
                 for r in iterobj:
                     r.get()
+                pool.close()
+                pool.join()
         else:
             with Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(_read_one, (part.shape, part.dtype, cursor, fsnap.part_mem.name, galaxy, path, hmid, timestep, nchem, target_fields)) for cursor, hmid,timestep, path in zip(cursors, hals['id'], hals['timestep'], paths)]
@@ -516,6 +567,12 @@ class HaloMaker:
                 for r in iterobj:
                     r.get()
         signal.signal(signal.SIGTERM, fsnap.terminate)
+        if(copy):
+            part = part.copy()
+            fsnap.memory.remove(fsnap.part_mem)
+            fsnap.part_mem.close()
+            fsnap.part_mem.unlink()
+            fsnap.part_mem = None
         if(not simple):
             for timestep in np.unique(hals['timestep']):
                 mask = (part['timestep']==timestep)
