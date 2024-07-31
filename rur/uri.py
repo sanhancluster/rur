@@ -1222,13 +1222,20 @@ class RamsesSnapshot(object):
                                     address=None, shape=None)
             part = part[:cursor]
         else:
+            if(timer.verbose>=1):
+                pbar = tqdm(total=len(files), desc=f"Reading parts")
+                def update(*a):
+                    pbar.update()
+            else:
+                update = None   
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(_read_part, (
-                fname, kwargs, None, mask, size, cursor, self.part_mem.name, part.shape)) for
+                fname, kwargs, None, mask, size, cursor, self.part_mem.name, part.shape), callback=update) for
                                 fname, mask, size, cursor in zip(files, masks, sizes, cursors)]
-                iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading parts") if (
-                            timer.verbose >= 1) else async_result
+                # iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading parts") if (
+                #             timer.verbose >= 1) else async_result
+                iterobj = async_result
                 for r in iterobj:
                     r.get()
             signal.signal(signal.SIGTERM, self.terminate)
@@ -1474,13 +1481,20 @@ class RamsesSnapshot(object):
                                     address=None, shape=None)
             cell = cell[:cursor]
         else:
+            if(timer.verbose>=1):
+                pbar = tqdm(total=len(cpulist), desc=f"Reading cells")
+                def update(*a):
+                    pbar.update()
+            else:
+                update = None
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(_read_cell, (
-                icpu, snap_kwargs, amr_kwargs, None, size, cursor, self.cell_mem.name, cell.shape)) for
+                icpu, snap_kwargs, amr_kwargs, None, size, cursor, self.cell_mem.name, cell.shape), callback=update) for
                                 icpu, size, cursor in zip(cpulist, sizes, cursors)]
-                iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading cells") if (
-                            timer.verbose >= 1) else async_result
+                # iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading cells") if (
+                #             timer.verbose >= 1) else async_result
+                iterobj = async_result
                 for r in iterobj:
                     r.get()
             signal.signal(signal.SIGTERM, self.terminate)
@@ -2561,14 +2575,22 @@ def box_mask_table(table, box, snap=None, size=0, exclusive=False, chunksize=500
         indicies = np.append(np.arange(0, len(table), chunksize), len(table))
         nthread = min(nthread, Nchunk)
 
+        if(timer.verbose>=2):
+            pbar = tqdm(total=len(indicies-1), desc=f"Mask with Chunk")
+            def update(*a):
+                pbar.update()
+        else:
+            update = None
+
         if(snap is not None): signal.signal(signal.SIGTERM, signal.SIG_DFL)
         with Pool(processes=nthread) as pool:
             async_result = []
             if(np.isscalar(rad)): # For part
-                async_result = [pool.apply_async(_mask_table, args=(box_mask.shape, memory.name, table[ith:jth], box, rad, ith, jth)) for ith,jth in zip(indicies[:-1], indicies[1:])]
+                async_result = [pool.apply_async(_mask_table, args=(box_mask.shape, memory.name, table[ith:jth], box, rad, ith, jth), callback=update) for ith,jth in zip(indicies[:-1], indicies[1:])]
             else: # For cell
-                async_result = [pool.apply_async(_mask_table, args=(box_mask.shape, memory.name, table[ith:jth], box, rad[ith:jth], ith, jth)) for ith,jth in zip(indicies[:-1], indicies[1:])]
-            iterobj = tqdm(async_result, desc='Mask with Chunk') if(timer.verbose >= 2) else async_result
+                async_result = [pool.apply_async(_mask_table, args=(box_mask.shape, memory.name, table[ith:jth], box, rad[ith:jth], ith, jth), callback=update) for ith,jth in zip(indicies[:-1], indicies[1:])]
+            # iterobj = tqdm(async_result, desc='Mask with Chunk') if(timer.verbose >= 2) else async_result
+            iterobj = async_result
             for r in iterobj:
                 r.get()
 
@@ -2763,10 +2785,18 @@ def cpumap_tracer(tracer, target_iouts=None, extend=False, nthread=4):
     snap.memory.append(snap.tracer_mem)
     data = np.ndarray(data.shape, dtype='int16', buffer=snap.tracer_mem.buf)
 
+    if(timer.verbose>=1):
+        pbar = tqdm(total=1000, desc=f"Reading tracer bricks")
+        def update(*a):
+            pbar.update()
+    else:
+        update = None
+
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
     with Pool(processes=nthread) as pool:
-        async_result = [pool.apply_async(_cpumap_tracer, (data.shape, snap.tracer_mem.name, ikey, path, target_iouts, ids, keys==ikey, where)) for ikey in range(1000)]
-        iterobj = tqdm(async_result, desc=f"Reading tracer bricks") if (timer.verbose >= 1) else async_result
+        async_result = [pool.apply_async(_cpumap_tracer, (data.shape, snap.tracer_mem.name, ikey, path, target_iouts, ids, keys==ikey, where), callback=update) for ikey in range(1000)]
+        # iterobj = tqdm(async_result, desc=f"Reading tracer bricks") if (timer.verbose >= 1) else async_result
+        iterobj = async_result
         for r in iterobj:
             r.get()
     signal.signal(signal.SIGTERM, snap.terminate)
