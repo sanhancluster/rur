@@ -119,10 +119,6 @@ def _read_one(shape, dtype, cursor, address, galaxy, path, hmid, nchem, timestep
             else: f.skip_records(1)
             iorder+=1
         if(iorder<=maxorder):
-            if('y' in target_fields): array['y'] = f.read_reals()
-            else: f.skip_records(1)
-            iorder+=1
-        if(iorder<=maxorder):
             if('z' in target_fields): array['z'] = f.read_reals()
             else: f.skip_records(1)
             iorder+=1
