@@ -161,6 +161,8 @@ class HaloMaker:
         mass_unit = 1E11
         array['m'] *= mass_unit
         array['mvir'] *= mass_unit
+        if('m_bulge' in array.dtype.names):
+            array['m_bulge'] *= mass_unit 
         array['Lx'] *= mass_unit
         array['Ly'] *= mass_unit
         array['Lz'] *= mass_unit
@@ -224,7 +226,7 @@ class HaloMaker:
 
 
     @staticmethod
-    def load(snap, path_in_repo=None, galaxy=False, full_path=None, load_parts=False, double_precision=True, copy_part_id=True):
+    def load(snap, path_in_repo=None, galaxy=False, full_path=None, load_parts=False, double_precision=True, copy_part_id=True, extend=True):
         # boxsize: comoving length of the box in Mpc
         repo = snap.repo
         start = snap.iout
@@ -279,6 +281,20 @@ class HaloMaker:
             else:
                 array = fromarrays([*readh.integer_table.T, *readh.real_table_dp.T], dtype=dtype)
         array = HaloMaker.unit_conversion(array, snap)
+        if(extend):
+            extend_path = f"{path}/extended/{start:05d}"
+            if(os.path.exists(extend_path)):
+                fnames = os.listdir(extend_path)
+                names = [f[:-10] for f in fnames if f.endswith('.pkl')]
+                odtype = array.dtype
+                ndtype = odtype.descr + [(name.lower(), 'f8') for name in names]
+                narray = np.empty(array.size, dtype=ndtype)
+                for name in odtype.names:
+                    narray[name] = array[name]
+                for name in names:
+                    vals, desc = load(f"{extend_path}/{name}_{start:05d}.pkl", msg=False)
+                    narray[name.lower()] = vals
+                array = narray
 
         if(array.size==0):
             print("No tree_brick file found, or no halo found in %s" % path)
