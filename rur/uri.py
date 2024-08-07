@@ -1667,13 +1667,17 @@ class RamsesSnapshot(object):
         filesize = 0
         cpulist = [1]
         for icpu in cpulist:
-            filesize += getsize(self.get_path('sink', icpu))
-        timer.start('Reading a sink file (%s) in %s... ' % (utool.format_bytes(filesize), self.path), 1)
-        readr.read_sink(self.snap_path, self.iout, cpulist, self.levelmin, self.levelmax)
-        arr = [*readr.integer_table, *readr.real_table[:19]]
-        sink = fromarrays(arr, sink_dtype)
-        self.sink_data = sink
-        timer.record()
+            if(os.path.exists(self.get_path('sink', icpu))):
+                filesize += getsize(self.get_path('sink', icpu))
+        if(filesize==0):
+            self.sink_data = np.empty(0, dtype=sink_dtype)
+        else:
+            timer.start('Reading a sink file (%s) in %s... ' % (utool.format_bytes(filesize), self.path), 1)
+            readr.read_sink(self.snap_path, self.iout, cpulist, self.levelmin, self.levelmax)
+            arr = [*readr.integer_table, *readr.real_table[:19]]
+            sink = fromarrays(arr, sink_dtype)
+            self.sink_data = sink
+            timer.record()
 
     def read_sink_raw(self, icpu, path_in_repo='snapshots'):
         # reads sink file as raw array including sink_stat
