@@ -42,7 +42,7 @@ def getmem(members, cparts, i):
 # Main Function
 # --------------------------------------------------------------
 def calc_extended(
-    path, galaxy, iout, name_dicts, pre_func, calc_func, dump_func, result_dtype,
+    path, galaxy, iout, name_dicts, pre_func, calc_func, dump_func,
     nthread=8, verbose=False,
     need_member=False, mtarget_fields=None,
     need_part=False, ptarget_fields=None,
@@ -70,6 +70,7 @@ def calc_extended(
         print(f"Skip {iout}")
         return
     names = list(name_dicts.keys())
+    result_dtype = [(name, 'f8') for name in names]
     if(verbose): print(f"\nExtended: {names} of {path_in_repo}\n")
     if('dBH' in names):
         def _f1(table, snapm, members, snap, part_memory, cell_memory):
@@ -164,6 +165,8 @@ def calc_extended(
     # Assign shared memory
     if(verbose): print(f" > Make shared memory")
     shmname = f"extend_{mode}_{path_in_repo}_{snap.iout:05d}"
+    if(os.path.exists(f"/dev/shm/{shmname}")):
+        os.remove(f"/dev/shm/{shmname}")
     result_table = np.empty(len(table), dtype=result_dtype)
     memory = shared_memory.SharedMemory(name=shmname, create=True, size=result_table.nbytes)
     result_table = np.ndarray(result_table.shape, dtype=result_dtype, buffer=memory.buf)
@@ -228,12 +231,11 @@ if __name__ == "__main__":
         if(skip):
             print(f"\n=================\nSkip {iout}\n=================")
             continue
-        result_dtype = [(name, 'f8') for name in names.keys()]
         now = datetime.datetime.now() 
         now = f"V{now}V" if verbose else now
         print(f"\n=================\nStart {iout} {now}\n================="); ref = time.time()
         calc_extended(
             path, galaxy, iout, names, 
-            pre_func, calc_func, dump_func, result_dtype, 
+            pre_func, calc_func, dump_func, 
             verbose=verbose, nthread=nthread,)
         print(f"Done ({time.time()-ref:.2f} sec)")
