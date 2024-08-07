@@ -58,7 +58,7 @@ default_names = {
     'vsig'          :('vsig',         " - vsig: (Rotational_velocity)/(Velocity_dispersion) of star (mass-weighted)",),
     'vsig_r50'      :('vsig_r50',     " - vsig_r50: (Rotational_velocity)/(Velocity_dispersion) of star (within r50) (mass-weighted)",),
     'vsig_r90'      :('vsig_r90',     " - vsig_r90: (Rotational_velocity)/(Velocity_dispersion) of star (within r50) (mass-weighted)",),
-    'metal'         :('metal',        " - metal_gas: Metallicity (Mass fraction) in star",),
+    'metal'         :('metal',        " - metal: Metallicity (Mass fraction) in star",),
     'vsig_gas'      :('vsig_gas',     " - vsig_gas: (Rotational_velocity)/(Velocity_dispersion) of gas (mass-weighted)"),
     'vsig_gas_r50'  :('vsig_gas_r50', " - vsig_gas_r50: (Rotational_velocity)/(Velocity_dispersion) of gas (within r50) (mass-weighted)"),
     'vsig_gas_r90'  :('vsig_gas_r90', " - vsig_gas_r90: (Rotational_velocity)/(Velocity_dispersion) of gas (within r50) (mass-weighted)"),
@@ -212,7 +212,7 @@ def skip_func(path, galaxy, iout, names, verbose):
     # SB
     fname = f"{full_path}/SBz_r90_{iout:05d}.pkl"
     if(os.path.exists(fname)):
-        for bsuffix in bandsuffixs:
+        for bsuffix in bandsuffixs[1:]:
             for rsuffix in radsuffixs:
                 if(verbose): print(f" [SkipFunc] > No need SB{bsuffix}{rsuffix}")
                 del nnames[f'SB{bsuffix}{rsuffix}']
