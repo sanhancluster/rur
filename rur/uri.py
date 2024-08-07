@@ -1667,13 +1667,17 @@ class RamsesSnapshot(object):
         filesize = 0
         cpulist = [1]
         for icpu in cpulist:
-            filesize += getsize(self.get_path('sink', icpu))
-        timer.start('Reading a sink file (%s) in %s... ' % (utool.format_bytes(filesize), self.path), 1)
-        readr.read_sink(self.snap_path, self.iout, cpulist, self.levelmin, self.levelmax)
-        arr = [*readr.integer_table, *readr.real_table[:19]]
-        sink = fromarrays(arr, sink_dtype)
-        self.sink_data = sink
-        timer.record()
+            if(os.path.exists(self.get_path('sink', icpu))):
+                filesize += getsize(self.get_path('sink', icpu))
+        if(filesize==0):
+            self.sink_data = np.empty(0, dtype=sink_dtype)
+        else:
+            timer.start('Reading a sink file (%s) in %s... ' % (utool.format_bytes(filesize), self.path), 1)
+            readr.read_sink(self.snap_path, self.iout, cpulist, self.levelmin, self.levelmax)
+            arr = [*readr.integer_table, *readr.real_table[:19]]
+            sink = fromarrays(arr, sink_dtype)
+            self.sink_data = sink
+            timer.record()
 
     def read_sink_raw(self, icpu, path_in_repo='snapshots'):
         # reads sink file as raw array including sink_stat
@@ -2196,22 +2200,30 @@ class RamsesSnapshot(object):
                 extent = radius * 2
             return get_box(get_vector(halo), extent)
 
-        if (nthread == 1):
-            for halo in halos:
-                box = _ibox(halo, radius=radius, use_halo_radius=use_halo_radius, radius_name=radius_name)
-                cpulist.append(get_cpulist(box, None, self.levelmax, self.bound_key, self.ndim, n_divide,
-                                           ncpu=self.params['ncpu']))
+        galaxy = True if('sigma_bulge' in halos.dtype.names) else False
+        path_in_repo = 'galaxy' if galaxy else 'halo'
+        prefix = 'GAL' if galaxy else 'HAL'
+        path = f"{self.repo}/{path_in_repo}/{prefix}_{self.iout:05d}/domain_{self.iout:05d}.pkl"
+        if (exists(path)):
+            domain = load(path)
+            cpulist = [domain[i-1] for i in halos['id']]
         else:
-            with Pool(processes=nthread) as pool:
-                async_result = [
-                    pool.apply_async(
-                        get_cpulist,
-                        (_ibox(halo, radius, use_halo_radius, radius_name), None, self.levelmax, self.bound_key,
-                         self.ndim, n_divide, self.params['ncpu'])
-                    ) for halo in halos
-                ]
-                for r in async_result:
-                    cpulist.append(r.get())
+            if (nthread == 1):
+                for halo in halos:
+                    box = _ibox(halo, radius=radius, use_halo_radius=use_halo_radius, radius_name=radius_name)
+                    cpulist.append(get_cpulist(box, None, self.levelmax, self.bound_key, self.ndim, n_divide,
+                                            ncpu=self.params['ncpu']))
+            else:
+                with Pool(processes=nthread) as pool:
+                    async_result = [
+                        pool.apply_async(
+                            get_cpulist,
+                            (_ibox(halo, radius, use_halo_radius, radius_name), None, self.levelmax, self.bound_key,
+                            self.ndim, n_divide, self.params['ncpu'])
+                        ) for halo in halos
+                    ]
+                    for r in async_result:
+                        cpulist.append(r.get())
         return np.unique(np.concatenate(cpulist))
 
     def get_cpulist_from_part(self, ids, path_in_repo='part_cpumap', mode='init', filename='%s_cpumap_%05d.pkl'):
