@@ -63,10 +63,13 @@ def calc_extended(
     # Check names
     hnames = snap.hydro_names
     for name in names:
+        delete = False
         if(name in ['H','O','Fe','Mg','C','Si','N','S','D','d1','d3','d2','d4']):
             if(name not in hnames)or(low):
-                del name_dicts[name]
-        if('gas' in names)&(low):
+                delete = True
+        if('gas' in name_dicts[name][0])&(low):
+            delete = True
+        if(delete):
             del name_dicts[name]
     if(len(name_dicts)==0):
         print(f"Skip {iout}")
@@ -177,6 +180,7 @@ def calc_extended(
     # Main Calculation
     if(verbose): print(f" > Start Calculation")
     if(verbose):
+        reft = time.time()
         pbar = tqdm(total=len(table), desc=f"Nthread={min(len(table), nthread)}")
         def update(*a):
             pbar.update()
@@ -192,6 +196,9 @@ def calc_extended(
             result.get()
     if(snap is not None):
         signal.signal(signal.SIGTERM, snap.terminate)
+    if(verbose):
+        pbar.close()
+        print(f" > Done ({time.time()-reft:.2f} sec)")
     
     # Dump and relase memory
     if(verbose): print(f" > Dumping")
