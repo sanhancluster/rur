@@ -66,6 +66,8 @@ def calc_extended(
         if(name in ['H','O','Fe','Mg','C','Si','N','S','D','d1','d3','d2','d4']):
             if(name not in hnames)or(low):
                 del name_dicts[name]
+        if('gas' in names)&(low):
+            del name_dicts[name]
     if(len(name_dicts)==0):
         print(f"Skip {iout}")
         return
