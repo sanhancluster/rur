@@ -15,11 +15,13 @@ parser = argparse.ArgumentParser(description='Extend HaloMaker (syj3514@yonsei.a
 parser.add_argument("-m", "--mode", default='nc', required=False, help='Simulation mode', type=str)
 parser.add_argument("-n", "--nthread", default=8, required=False, help='Ncore', type=int)
 parser.add_argument("--verbose", action='store_true')
+parser.add_argument("--low", action='store_true')
 args = parser.parse_args()
 print(args)
 mode = args.mode
 nthread = args.nthread
 verbose = args.verbose
+low = args.low
 uri.timer.verbose = 1 if verbose else 0
 
 def check_chems(result_dtype, hvars):
@@ -62,7 +64,7 @@ def calc_extended(
     hnames = snap.hydro_names
     for name in names:
         if(name in ['H','O','Fe','Mg','C','Si','N','S','D','d1','d3','d2','d4']):
-            if(name not in hnames):
+            if(name not in hnames)or(low):
                 del name_dicts[name]
     if(len(name_dicts)==0):
         print(f"Skip {iout}")
@@ -103,6 +105,7 @@ def calc_extended(
         if(verbose): print(f" > Member fields: {fields}")
     need_cell = 'metal_gas' in names
     if(need_cell)&(verbose): print(f" > Need to load cell data")
+    if(need_cell)&(low): ctarget_fields = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'rho','P','level','metal','cpu']
 
 
     
