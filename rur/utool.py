@@ -70,6 +70,15 @@ def dump(data, path, msg=True, format='pkl'):
         filesize = os.path.getsize(path)
         print("File %s dump complete (%s): %.3f seconds elapsed" % (path, format_bytes(filesize), t.time()))
 
+def datdump(data, path, msg=False):
+    assert isinstance(data[0], np.ndarray), "Data should be numpy.ndarray"
+    assert isinstance(data[1], str)
+    leng = len(data[0])
+    with open(path, "wb") as f:
+        f.write(leng.to_bytes(4, byteorder='little'))
+        f.write(data[0].tobytes())
+        f.write(data[1].encode())
+    if(msg): print(f" `{path}` saved")
 
 def load(path, msg=True, format=None):
     t = Timer()
@@ -90,6 +99,25 @@ def load(path, msg=True, format=None):
         print("File %s load complete (%s): %.3f seconds elapsed" % (path, format_bytes(filesize), t.time()))
     return data
 
+def domload(path, msg=False):
+    with open(path, "rb") as f:
+        leng = int.from_bytes(f.read(4), byteorder='little')
+        domain = [None]*leng
+        for i in range(leng):
+            v=f.readline()
+            if(len(v)%2 != 0):
+                v = v[:-1]
+            domain[i] = np.frombuffer(v, dtype='i2')
+    if(msg): print(f" `{path}` loaded")
+    return domain
+
+def datload(path, msg=False):
+    with open(path, "rb") as f:
+        leng = int.from_bytes(f.read(4), byteorder='little')
+        data = np.frombuffer(f.read(leng), dtype='f8')
+        name = f.read().decode()
+    if(msg): print(f" `{path}` loaded")
+    return data, name
 
 # Some RAMSES-related stuff
 dim_keys = ['x', 'y', 'z']

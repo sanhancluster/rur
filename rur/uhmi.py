@@ -2,7 +2,7 @@ import os
 from numpy.core.records import fromarrays
 import numpy as np
 from rur.utool import Timer, get_vector, dump, load, pairing, get_distance, rss, ss,\
-    set_vector, discrete_hist2d, weighted_quantile, expand_shape
+    set_vector, discrete_hist2d, weighted_quantile, expand_shape, datdump, datload
 from rur.readhtm import readhtm as readh
 from rur.fortranfile import FortranFile
 from rur import uri
@@ -166,6 +166,10 @@ class HaloMaker:
         array['Lx'] *= mass_unit
         array['Ly'] *= mass_unit
         array['Lz'] *= mass_unit
+        array['ek'] *= mass_unit
+        array['ep'] *= mass_unit
+        array['et'] *= mass_unit
+        array['rho0'] *= mass_unit
 
         boxsize_physical = snap['boxsize_physical']
         pos = get_vector(array)
@@ -285,15 +289,15 @@ class HaloMaker:
             extend_path = f"{path}/extended/{start:05d}"
             if(os.path.exists(extend_path)):
                 fnames = os.listdir(extend_path)
-                names = [f[:-10] for f in fnames if f.endswith('.pkl')]
+                names = [f[:-10] for f in fnames if f.endswith('.dat')]
                 odtype = array.dtype
-                ndtype = odtype.descr + [(name.lower(), 'f8') for name in names]
+                ndtype = odtype.descr + [(name, 'f8') for name in names]
                 narray = np.empty(array.size, dtype=ndtype)
                 for name in odtype.names:
                     narray[name] = array[name]
                 for name in names:
-                    vals, desc = load(f"{extend_path}/{name}_{start:05d}.pkl", msg=False)
-                    narray[name.lower()] = vals
+                    vals, desc = datload(f"{extend_path}/{name}_{start:05d}.dat", msg=False)
+                    narray[name] = vals
                 array = narray
 
         if(array.size==0):

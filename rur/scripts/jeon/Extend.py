@@ -15,11 +15,13 @@ parser = argparse.ArgumentParser(description='Extend HaloMaker (syj3514@yonsei.a
 parser.add_argument("-m", "--mode", default='nc', required=False, help='Simulation mode', type=str)
 parser.add_argument("-n", "--nthread", default=8, required=False, help='Ncore', type=int)
 parser.add_argument("--verbose", action='store_true')
+parser.add_argument("--low", action='store_true')
 args = parser.parse_args()
 print(args)
 mode = args.mode
 nthread = args.nthread
 verbose = args.verbose
+low = args.low
 uri.timer.verbose = 1 if verbose else 0
 
 def check_chems(result_dtype, hvars):
@@ -40,7 +42,7 @@ def getmem(members, cparts, i):
 # Main Function
 # --------------------------------------------------------------
 def calc_extended(
-    path, galaxy, iout, name_dicts, pre_func, calc_func, dump_func, result_dtype,
+    path, galaxy, iout, name_dicts, pre_func, calc_func, dump_func,
     nthread=8, verbose=False,
     need_member=False, mtarget_fields=None,
     need_part=False, ptarget_fields=None,
@@ -61,13 +63,19 @@ def calc_extended(
     # Check names
     hnames = snap.hydro_names
     for name in names:
+        delete = False
         if(name in ['H','O','Fe','Mg','C','Si','N','S','D','d1','d3','d2','d4']):
-            if(name not in hnames):
-                del name_dicts[name]
+            if(name not in hnames)or(low):
+                delete = True
+        if('gas' in name_dicts[name][0])&(low):
+            delete = True
+        if(delete):
+            del name_dicts[name]
     if(len(name_dicts)==0):
         print(f"Skip {iout}")
         return
     names = list(name_dicts.keys())
+    result_dtype = [(name, 'f8') for name in names]
     if(verbose): print(f"\nExtended: {names} of {path_in_repo}\n")
     if('dBH' in names):
         def _f1(table, snapm, members, snap, part_memory, cell_memory):
@@ -103,6 +111,7 @@ def calc_extended(
         if(verbose): print(f" > Member fields: {fields}")
     need_cell = 'metal_gas' in names
     if(need_cell)&(verbose): print(f" > Need to load cell data")
+    if(need_cell)&(low): ctarget_fields = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'rho','P','level','metal','cpu']
 
 
     
@@ -161,6 +170,8 @@ def calc_extended(
     # Assign shared memory
     if(verbose): print(f" > Make shared memory")
     shmname = f"extend_{mode}_{path_in_repo}_{snap.iout:05d}"
+    if(os.path.exists(f"/dev/shm/{shmname}")):
+        os.remove(f"/dev/shm/{shmname}")
     result_table = np.empty(len(table), dtype=result_dtype)
     memory = shared_memory.SharedMemory(name=shmname, create=True, size=result_table.nbytes)
     result_table = np.ndarray(result_table.shape, dtype=result_dtype, buffer=memory.buf)
@@ -169,6 +180,7 @@ def calc_extended(
     # Main Calculation
     if(verbose): print(f" > Start Calculation")
     if(verbose):
+        reft = time.time()
         pbar = tqdm(total=len(table), desc=f"Nthread={min(len(table), nthread)}")
         def update(*a):
             pbar.update()
@@ -184,6 +196,9 @@ def calc_extended(
             result.get()
     if(snap is not None):
         signal.signal(signal.SIGTERM, snap.terminate)
+    if(verbose):
+        pbar.close()
+        print(f" > Done ({time.time()-reft:.2f} sec)")
     
     # Dump and relase memory
     if(verbose): print(f" > Dumping")
@@ -225,12 +240,11 @@ if __name__ == "__main__":
         if(skip):
             print(f"\n=================\nSkip {iout}\n=================")
             continue
-        result_dtype = [(name, 'f8') for name in names.keys()]
         now = datetime.datetime.now() 
         now = f"V{now}V" if verbose else now
         print(f"\n=================\nStart {iout} {now}\n================="); ref = time.time()
         calc_extended(
             path, galaxy, iout, names, 
-            pre_func, calc_func, dump_func, result_dtype, 
+            pre_func, calc_func, dump_func, 
             verbose=verbose, nthread=nthread,)
         print(f"Done ({time.time()-ref:.2f} sec)")
