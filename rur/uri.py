@@ -2203,9 +2203,9 @@ class RamsesSnapshot(object):
         galaxy = True if('sigma_bulge' in halos.dtype.names) else False
         path_in_repo = 'galaxy' if galaxy else 'halo'
         prefix = 'GAL' if galaxy else 'HAL'
-        path = f"{self.repo}/{path_in_repo}/{prefix}_{self.iout:05d}/domain_{self.iout:05d}.pkl"
+        path = f"{self.repo}/{path_in_repo}/{prefix}_{self.iout:05d}/domain_{self.iout:05d}.dat"
         if (exists(path)):
-            domain = load(path)
+            domain = domload(path)
             cpulist = [domain[i-1] for i in halos['id']]
         else:
             if (nthread == 1):
