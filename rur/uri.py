@@ -2189,7 +2189,7 @@ class RamsesSnapshot(object):
             self.sink = sink
         return self.sink
 
-    def get_halos_cpulist(self, halos, radius=1., use_halo_radius=True, radius_name='r', n_divide=4, nthread=1):
+    def get_halos_cpulist(self, halos, radius=1., use_halo_radius=True, radius_name='r', n_divide=4, nthread=1, full=False):
         # returns cpulist that encloses given list of halos
         cpulist = []
 
@@ -2224,6 +2224,8 @@ class RamsesSnapshot(object):
                     ]
                     for r in async_result:
                         cpulist.append(r.get())
+        if (full):
+            return np.unique(np.concatenate(cpulist)), cpulist
         return np.unique(np.concatenate(cpulist))
 
     def get_cpulist_from_part(self, ids, path_in_repo='part_cpumap', mode='init', filename='%s_cpumap_%05d.pkl'):

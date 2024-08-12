@@ -103,11 +103,24 @@ def domload(path, msg=False):
     with open(path, "rb") as f:
         leng = int.from_bytes(f.read(4), byteorder='little')
         domain = [None]*leng
+        oldv = None
+        cursor = 0
         for i in range(leng):
             v=f.readline()
-            if(len(v)%2 != 0):
-                v = v[:-1]
-            domain[i] = np.frombuffer(v, dtype='i2')
+            if(len(v)%2 == 0):
+                v = oldv + v
+                cursor -= 1
+            domain[cursor] = np.frombuffer(v[:-1], dtype='i2')
+            oldv = v
+            cursor += 1
+
+        while cursor < leng:
+            v=f.readline()
+            if(len(v)%2 == 0):
+                v = oldv + v
+                cursor -= 1
+            domain[cursor] = np.frombuffer(v[:-1], dtype='i2')
+            cursor += 1           
     if(msg): print(f" `{path}` loaded")
     return domain
 

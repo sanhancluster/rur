@@ -15,21 +15,28 @@ parser = argparse.ArgumentParser(description='Extend HaloMaker (syj3514@yonsei.a
 parser.add_argument("-m", "--mode", default='nc', required=False, help='Simulation mode', type=str)
 parser.add_argument("-n", "--nthread", default=8, required=False, help='Ncore', type=int)
 parser.add_argument("--verbose", action='store_true')
-parser.add_argument("--low", action='store_true')
+parser.add_argument("--nocell", action='store_true')
+parser.add_argument("--chem", action='store_true')
 args = parser.parse_args()
 print(args)
 mode = args.mode
 nthread = args.nthread
 verbose = args.verbose
-low = args.low
+nocell = args.nocell
+chem = args.chem
+if(nocell): chem = False
 uri.timer.verbose = 1 if verbose else 0
 
 def check_chems(result_dtype, hvars):
+    global chem
     checklist = ['H', 'O', 'Fe', 'Mg', 'C', 'N',
     'Si', 'S', 'D', 'd1','d2','d3','d4']
 
     dtype = np.dtype(result_dtype)
-    ndtype = [descr for descr in dtype.descr if(descr[0] not in checklist)or(descr[0] in hvars)]
+    if(chem):
+        ndtype = [descr for descr in dtype.descr if(descr[0] not in checklist)or(descr[0] in hvars)]
+    else:
+        ndtype = [descr for descr in dtype.descr if(descr[0] not in checklist)]
     return ndtype
 
 def getmem(members, cparts, i):
@@ -42,11 +49,25 @@ def domload(path, msg=False):
     with open(path, "rb") as f:
         leng = int.from_bytes(f.read(4), byteorder='little')
         domain = [None]*leng
+        oldv = None
+        cursor = 0
         for i in range(leng):
             v=f.readline()
-            if(len(v)%2 != 0):
-                v = v[:-1]
-            domain[i] = np.frombuffer(v, dtype='i2')
+            if(len(v)%2 == 0):
+                v = oldv + v
+                cursor -= 1
+            domain[cursor] = np.frombuffer(v[:-1], dtype='i2')
+            oldv = v
+            cursor += 1
+
+        while cursor < leng:
+            v=f.readline()
+            if(len(v)%2 == 0):
+                v = oldv + v
+                cursor -= 1
+            domain[cursor] = np.frombuffer(v[:-1], dtype='i2')
+            cursor += 1
+            
     if(msg): print(f" `{path}` loaded")
     return domain
 # --------------------------------------------------------------
@@ -69,16 +90,18 @@ def calc_extended(
     full_path = f"{path}/{path_in_repo}/extended/{iout:05d}"
     if(not os.path.exists(full_path)):
         os.makedirs(full_path)
+    uri.timer.verbose=0
     snap = uri.RamsesSnapshot(path, iout)
+    uri.timer.verbose = 1 if verbose else 0
 
     # Check names
     hnames = snap.hydro_names
     for name in names:
         delete = False
         if(name in ['H','O','Fe','Mg','C','Si','N','S','D','d1','d3','d2','d4']):
-            if(name not in hnames)or(low):
+            if(name not in hnames)or(nocell)or(not chem):
                 delete = True
-        if('gas' in name_dicts[name][0])&(low):
+        if('gas' in name_dicts[name][0])&(nocell):
             delete = True
         if(delete):
             del name_dicts[name]
@@ -120,9 +143,28 @@ def calc_extended(
         mtarget_fields = fields
         need_member = True
         if(verbose): print(f" > Member fields: {fields}")
-    need_cell = 'metal_gas' in names
+    need_cells = {
+        'mgas_r90':['x', 'y', 'z', 'rho', 'level'],
+        'mcold_r90':['x', 'y', 'z', 'rho', 'P', 'level'],
+        'mdense_r90':['x', 'y', 'z', 'rho', 'P', 'level'],
+        'vsig_gas_r90':['x', 'y', 'z', 'vx','vy','vz', 'rho', 'level'],
+        'metal_gas':['x','y','z','rho','level','metal'],
+        'H':['x','y','z','rho','level','H','O','Fe','Mg','C','Si','N','S','D'] if chem else ['x','y','z','rho','level'],
+        'd1':['x','y','z','rho','level','d1','d2','d3','d4'] if chem else ['x','y','z','rho','level'],
+    }
+    ctarget_fields = []
+    for name in names:
+        if(name in need_cells):
+            ctarget_fields += need_cells[name]
+    if(len(ctarget_fields)>0):
+        ctarget_fields = list(set(ctarget_fields))
+        need_cell = True
+        if(verbose): print(f" > Cell fields: {ctarget_fields}")
+       
+    # need_cell = len([value[0] for value in name_dicts.values() if('gas' in value[0])]) >0
+    if(nocell): need_cell = False
     if(need_cell)&(verbose): print(f" > Need to load cell data")
-    if(need_cell)&(low): ctarget_fields = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'rho','P','level','metal','cpu']
+    # if(need_cell)&(not chem): ctarget_fields = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'rho','P','level','metal','cpu']
 
 
     
@@ -130,12 +172,13 @@ def calc_extended(
     sparams = snap.params; sunits = snap.unit
     table = uhmi.HaloMaker.load(snap,galaxy=galaxy, extend=False)
     if(verbose): print(f" > Calculate for {len(table)} {path_in_repo}s")
+    domain = [None for _ in range(len(table))]
 
     # Load Member particles
     snapm = None
     members=None; cparts=None
-    part_memory = (None, None, None)
-    cell_memory = (None, None, None)
+    part_memory = (None, None, None, None, None)
+    cell_memory = (None, None, None, None, None)
     if(need_member):
         if(verbose): print(f" > Read member particles")
         snapm = uri.RamsesSnapshot(path, iout)
@@ -145,14 +188,14 @@ def calc_extended(
 
     # Load Raw data
     if(need_part)or(need_cell):
-        domain = f"{path}/{path_in_repo}/{prefix}_{iout:05d}/domain_{iout:05d}.dat"
-        if(os.path.exists(domain)):
+        fdomain = f"{path}/{path_in_repo}/{prefix}_{iout:05d}/domain_{iout:05d}.dat"
+        if(os.path.exists(fdomain)):
             if(verbose): print(f" > Load domain")
-            domain = domload(domain, msg=verbose)
+            domain = domload(fdomain, msg=verbose)
             cpulist = np.unique(np.concatenate(domain))
         else:
             if(verbose): print(f" > Get halos cpu list")
-            cpulist = snap.get_halos_cpulist(table, nthread=nthread)
+            cpulist, domain = snap.get_halos_cpulist(table, nthread=nthread, full=True)
         if(need_part):
             if(verbose): print(f" > Get part")
             pname = 'star' if galaxy else 'dm'
@@ -163,7 +206,9 @@ def calc_extended(
             if(verbose): print(f" > Get cell")
             snap.get_cell(target_fields=ctarget_fields, nthread=nthread, cpulist=cpulist)
             cshape = snap.cell.shape; caddress = snap.cell_mem.name; cdtype = snap.cell.dtype
-            cell_memory = (cshape, caddress, cdtype)
+            cpulist_cell = snap.cpulist_cell
+            bound_cell = snap.bound_cell
+            cell_memory = (cshape, caddress, cdtype, cpulist_cell, bound_cell)
             result_dtype = check_chems(result_dtype, snap.hydro_names)
     
     # Preprocess
@@ -200,7 +245,7 @@ def calc_extended(
     if(snap is not None):
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
     with Pool(processes=min(len(table),nthread)) as pool:
-        async_result = [pool.apply_async(calc_func, args=(i, table[i], shape, address, dtype, sparams, sunits, getmem(members, cparts, i), part_memory, cell_memory, send), callback=update) for i in range(len(table))]
+        async_result = [pool.apply_async(calc_func, args=(i, table[i], shape, address, dtype, sparams, sunits, getmem(members, cparts, i), part_memory, cell_memory, domain[i], send), callback=update) for i in range(len(table))]
         # iterobj = tqdm(async_result, total=len(async_result), desc=f"Nthread={nthread}") if(verbose) else async_result
         iterobj = async_result
         for result in iterobj:

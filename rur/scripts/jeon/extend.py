@@ -2,7 +2,7 @@ import numpy as np
 from rur import uri
 from rur.sci.photometry import measure_magnitude,measure_luminosity
 from multiprocessing import shared_memory
-import os
+import os, time
 #-------------------------------------------------------------------
 # Configure
 #-------------------------------------------------------------------
@@ -346,9 +346,9 @@ def pre_func(keys, table, snapm, members, snap, part_memory, cell_memory, full_p
 
 
 
-
+debug = False
 # This is used in multiprocessing
-def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_memory, cell_memory, send=None):
+def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_memory, cell_memory, cdomain, send=None):
     # Common
     exist = shared_memory.SharedMemory(name=address)
     result_table = np.ndarray(shape, dtype=dtype, buffer=exist.buf)
@@ -364,14 +364,17 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         
 
     # R50, R90
-    if('r90' in result_table.dtype.names):
-        cmas = np.cumsum(mass)
-        r50 = dist [np.argmin(np.abs(cmas - cmas[-1]*0.5)) ]
-        result_table['r50'][i] = r50
-        r90 = dist[ np.argmin(np.abs(cmas - cmas[-1]*0.9)) ]
-        result_table['r90'][i] = r90
-    else:
-        r50 = halo['r50']; r90 = halo['r90']
+    needr50s = ['r90', 'sfr','sfr10','mgas','mcold','mdense','vsig_gas','vsig','SBz']
+    needr50 = True in np.isin(needr50s, result_table.dtype.names, assume_unique=True)
+    if needr50:
+        if('r90' in result_table.dtype.names):
+            cmas = np.cumsum(mass)
+            r50 = dist [np.argmin(np.abs(cmas - cmas[-1]*0.5)) ]
+            result_table['r50'][i] = r50
+            r90 = dist[ np.argmin(np.abs(cmas - cmas[-1]*0.9)) ]
+            result_table['r90'][i] = r90
+        else:
+            r50 = halo['r50']; r90 = halo['r90']
     # Reff
     if('r90z' in result_table.dtype.names):
         for band in global_bands:
@@ -530,6 +533,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
                 result_table[f'SB{band}_r50'][i] = np.nan
     # Hydro
     if('metal_gas' in result_table.dtype.names):
+        if(debug)and(i==0): print(" [CalcFunc] > Hydro")
         # halo prop
         cx = halo['x']; cy = halo['y']; cz = halo['z']
         cvx = halo['vx']; cvy = halo['vy']; cvz = halo['vz']
@@ -540,25 +544,29 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         Lvec = np.array([Lx, Ly, Lz])
 
         # Load cells
-        cshape, caddress, cdtype = cell_memory
+        if(debug)and(i==0): print(" [CalcFunc] > Load cell")
+        cshape, caddress, cdtype, cpulist_cell, bound_cell = cell_memory
         cexist = shared_memory.SharedMemory(name=caddress)
         cells = np.ndarray(cshape, dtype=cdtype, buffer=cexist.buf)
+        cells = uri.domain_slice(cells, cdomain, cpulist_cell, bound_cell)
         cdist = np.sqrt( (cells['x']-cx)**2 + (cells['y']-cy)**2 + (cells['z']-cz)**2 )
         rmask = cdist < halo['r']
         if(np.sum(rmask) < 8):
-            rmask = cdist < (halo['r'] + (1/2**cells['level'])/2)
+            rmask = cdist < (halo['r'] + (1 / 2**cells['level'])/2)
 
         cells = cells[rmask]; cdist = cdist[rmask]
         dx = 1 / 2**cells['level']
         vol = dx**3
 
         # Cell mass
+        if(debug)and(i==0): print(" [CalcFunc] > cell mass")
         mass = cells['rho']*dx**3 / sunits['Msol']
         result_table['mgas'][i] = np.sum(mass)
         result_table['mgas_r50'][i] = np.sum(mass[cdist < halo['r50']])
         result_table['mgas_r90'][i] = np.sum(mass[cdist < halo['r90']])
 
         # temperature
+        if(debug)and(i==0): print(" [CalcFunc] > temperature")
         T = cells['P']/cells['rho'] / sunits['K']
         cold = T < 1e4
         dense = (cells['rho'] / sunits['H/cc'] > 5) & (cold)
@@ -571,6 +579,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
 
 
         # vsig
+        if(debug)and(i==0): print(" [CalcFunc] > vsig")
         x = cells['x'] - cx
         y = cells['y'] - cy
         z = cells['z'] - cz
@@ -583,8 +592,11 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         rotunit = np.cross(Lvec, runit)
         vrot = np.sum(np.vstack([vx,vy,vz]).T * rotunit, axis=1)
         vnorm = np.sqrt(vx**2 + vy**2 + vz**2)
-        sigma = np.sqrt( np.average((vnorm - vmean)**2, weights=mass) )
-        vsig = np.average(vrot, weights=mass) / sigma
+        if(len(mass)>0):
+            sigma = np.sqrt( np.average((vnorm - vmean)**2, weights=mass) )
+            vsig = np.average(vrot, weights=mass) / sigma
+        else:
+            vsig = np.nan
         result_table['vsig_gas'][i] = vsig
         mask = r < halo['r90']
         if(mask.any()):
@@ -602,14 +614,16 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         result_table['vsig_gas_r50'][i] = vsig_r50
         
         # metal
-        metal = np.average(cells['metal'], weights=mass)
+        if(debug)and(i==0): print(" [CalcFunc] > metal")
+        metal = np.average(cells['metal'], weights=mass) if(len(mass)>0) else np.nan
         result_table['metal_gas'][i] = metal
 
         # Chem and dust
         clists = ['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'd1','d2','d3','d4']
         for clist in clists:
             if(clist in result_table.dtype.names):
-                value = np.average(cells[clist], weights=mass)
+                if(debug)and(i==0): print(f" [CalcFunc] > {clist}")
+                value = np.average(cells[clist], weights=mass) if(len(mass)>0) else np.nan
                 result_table[clist][i] = value
 
 
