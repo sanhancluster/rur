@@ -552,7 +552,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         cdist = np.sqrt( (cells['x']-cx)**2 + (cells['y']-cy)**2 + (cells['z']-cz)**2 )
         rmask = cdist < halo['r']
         if(np.sum(rmask) < 8):
-            rmask = cdist < (halo['r'] + (1/2**cells['level'])/2)
+            rmask = cdist < (halo['r'] + (1 / 2**cells['level'])/2)
 
         cells = cells[rmask]; cdist = cdist[rmask]
         dx = 1 / 2**cells['level']
@@ -592,8 +592,11 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         rotunit = np.cross(Lvec, runit)
         vrot = np.sum(np.vstack([vx,vy,vz]).T * rotunit, axis=1)
         vnorm = np.sqrt(vx**2 + vy**2 + vz**2)
-        sigma = np.sqrt( np.average((vnorm - vmean)**2, weights=mass) )
-        vsig = np.average(vrot, weights=mass) / sigma
+        if(len(mass)>0):
+            sigma = np.sqrt( np.average((vnorm - vmean)**2, weights=mass) )
+            vsig = np.average(vrot, weights=mass) / sigma
+        else:
+            vsig = np.nan
         result_table['vsig_gas'][i] = vsig
         mask = r < halo['r90']
         if(mask.any()):
@@ -612,7 +615,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         
         # metal
         if(debug)and(i==0): print(" [CalcFunc] > metal")
-        metal = np.average(cells['metal'], weights=mass)
+        metal = np.average(cells['metal'], weights=mass) if(len(mass)>0) else np.nan
         result_table['metal_gas'][i] = metal
 
         # Chem and dust
@@ -620,7 +623,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         for clist in clists:
             if(clist in result_table.dtype.names):
                 if(debug)and(i==0): print(f" [CalcFunc] > {clist}")
-                value = np.average(cells[clist], weights=mass)
+                value = np.average(cells[clist], weights=mass) if(len(mass)>0) else np.nan
                 result_table[clist][i] = value
 
 
