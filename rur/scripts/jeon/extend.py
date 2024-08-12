@@ -1,5 +1,4 @@
 import numpy as np
-from rur.utool import dump, load
 from rur import uri
 from rur.sci.photometry import measure_magnitude,measure_luminosity
 from multiprocessing import shared_memory
@@ -7,6 +6,26 @@ import os
 #-------------------------------------------------------------------
 # Configure
 #-------------------------------------------------------------------
+def datdump(data, path, msg=False):
+    assert isinstance(data[0], np.ndarray), "Data should be numpy.ndarray"
+    assert isinstance(data[1], str)
+    leng = len(data[0])
+    with open(path, "wb") as f:
+        f.write(leng.to_bytes(4, byteorder='little'))
+        f.write(data[0].tobytes())
+        f.write(data[1].encode())
+    if(msg): print(f" `{path}` saved")
+
+def datload(path, msg=False):
+    with open(path, "rb") as f:
+        leng = int.from_bytes(f.read(4), byteorder='little')
+        data = np.frombuffer(f.read(8*leng), dtype='f8')
+        name = f.read().decode()
+    if(msg): print(f" `{path}` loaded")
+    return data, name
+
+
+
 def match_sim(text):
     ncs = ['newcluster', 'newcluster2', 'nc', 'new cluster']
     nhs = ['newhorizon', 'newhorizon', 'nh', 'new horizon']
@@ -161,39 +180,39 @@ def skip_func(path, galaxy, iout, names, verbose):
     # Radius
     bandsuffixs = ['', 'u', 'g', 'r', 'i', 'z']
     radsuffixs = ['', '_r50', '_r90']
-    fname = f"{full_path}/r90z_{iout:05d}.pkl"
+    fname = f"{full_path}/r90z_{iout:05d}.dat"
     if(os.path.exists(fname)):
         for suffix in bandsuffixs:
             # if(verbose): print(f" [SkipFunc] > No need r50{suffix}, r90{suffix}")
             del nnames[f'r50{suffix}']
             del nnames[f'r90{suffix}']
     # SFR
-    fname = f"{full_path}/SFR10_r90_{iout:05d}.pkl"
+    fname = f"{full_path}/SFR10_r90_{iout:05d}.dat"
     if(os.path.exists(fname)):
         for suffix in radsuffixs:
             # if(verbose): print(f" [SkipFunc] > No need sfr10{suffix}")
             del nnames[f'sfr{suffix}']
             del nnames[f'sfr10{suffix}']
     # Mag
-    fname = f"{full_path}/zmag_{iout:05d}.pkl"
+    fname = f"{full_path}/zmag_{iout:05d}.dat"
     if(os.path.exists(fname)):
         for suffix in bandsuffixs[1:]:
             # if(verbose): print(f" [SkipFunc] > No need {suffix}mag")
             del nnames[f'{suffix}mag']
     # Age
-    fname = f"{full_path}/agez_{iout:05d}.pkl"
+    fname = f"{full_path}/agez_{iout:05d}.dat"
     if(os.path.exists(fname)):
         for suffix in bandsuffixs:
             # if(verbose): print(f" [SkipFunc] > No need age{suffix}")
             del nnames[f'age{suffix}']
     # V/sigma
-    fname = f"{full_path}/vsig_r90_{iout:05d}.pkl"
+    fname = f"{full_path}/vsig_r90_{iout:05d}.dat"
     if(os.path.exists(fname)):
         for suffix in radsuffixs:
             # if(verbose): print(f" [SkipFunc] > No need vsig{suffix}")
             del nnames[f'vsig{suffix}']
     # Metal
-    fname = f"{full_path}/metal_{iout:05d}.pkl"
+    fname = f"{full_path}/metal_{iout:05d}.dat"
     if(os.path.exists(fname)):
         # if(verbose): print(f" [SkipFunc] > No need metal")
         del nnames[f'metal']
@@ -205,19 +224,19 @@ def skip_func(path, galaxy, iout, names, verbose):
             hkeys.append(key)
             hvals.append(val[0])
     for hkey, hval in zip(hkeys, hvals):
-        fname = f"{full_path}/{hval}_{iout:05d}.pkl"
+        fname = f"{full_path}/{hval}_{iout:05d}.dat"
         if(os.path.exists(fname)):
             # if(verbose): print(f" [SkipFunc] > No need {hval}")
             del nnames[hkey]
     # SB
-    fname = f"{full_path}/SBz_r90_{iout:05d}.pkl"
+    fname = f"{full_path}/SBz_r90_{iout:05d}.dat"
     if(os.path.exists(fname)):
         for bsuffix in bandsuffixs[1:]:
             for rsuffix in radsuffixs:
                 # if(verbose): print(f" [SkipFunc] > No need SB{bsuffix}{rsuffix}")
                 del nnames[f'SB{bsuffix}{rsuffix}']
     # BH
-    fname = f"{full_path}/dBH_{iout:05d}.pkl"
+    fname = f"{full_path}/dBH_{iout:05d}.dat"
     if(os.path.exists(fname)):
         # if(verbose): print(f" [SkipFunc] > No need MBH, dBH")
         del nnames[f'MBH']
@@ -244,8 +263,8 @@ def pre_func(keys, table, snapm, members, snap, part_memory, cell_memory, full_p
     needr50 = True in np.isin(needr50s, keys, assume_unique=True)
     if(not 'r90' in keys)&(needr50): # r50, r90 already done
         if(verbose): print(f" [PreFunc] > Prepare r50, r90")
-        r50s = load(f"{full_path}/r50_{snap.iout:05d}.pkl", msg=False)[0]
-        r90s = load(f"{full_path}/r90_{snap.iout:05d}.pkl", msg=False)[0]
+        r50s = datload(f"{full_path}/r50_{snap.iout:05d}.dat", msg=False)[0]
+        r90s = datload(f"{full_path}/r90_{snap.iout:05d}.dat", msg=False)[0]
         odtype = table.dtype
         ndtype = odtype.descr + [('r50','f8'), ('r90','f8')]
         ntable = np.empty(len(table), dtype=ndtype)
@@ -599,5 +618,4 @@ def dump_func(result_table, full_path, iout, names, verbose):
     for key, val in names.items():
         title = val[0]
         desc = val[1]
-        # print(f"DUMP TEST) {key}: `{full_path}/{title}_{iout:05d}.pkl`")
-        dump((result_table[key], desc), f"{full_path}/{title}_{iout:05d}.pkl", msg=verbose)
+        datdump((result_table[key], desc), f"{full_path}/{title}_{iout:05d}.dat", msg=verbose)

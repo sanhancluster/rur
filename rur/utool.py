@@ -114,7 +114,7 @@ def domload(path, msg=False):
 def datload(path, msg=False):
     with open(path, "rb") as f:
         leng = int.from_bytes(f.read(4), byteorder='little')
-        data = np.frombuffer(f.read(leng), dtype='f8')
+        data = np.frombuffer(f.read(8*leng), dtype='f8')
         name = f.read().decode()
     if(msg): print(f" `{path}` loaded")
     return data, name
