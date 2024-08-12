@@ -38,6 +38,17 @@ def getmem(members, cparts, i):
     else:
         return members.table[cparts[i]:cparts[i+1]]
 
+def domload(path, msg=False):
+    with open(path, "rb") as f:
+        leng = int.from_bytes(f.read(4), byteorder='little')
+        domain = [None]*leng
+        for i in range(leng):
+            v=f.readline()
+            if(len(v)%2 != 0):
+                v = v[:-1]
+            domain[i] = np.frombuffer(v, dtype='i2')
+    if(msg): print(f" `{path}` loaded")
+    return domain
 # --------------------------------------------------------------
 # Main Function
 # --------------------------------------------------------------
@@ -134,10 +145,10 @@ def calc_extended(
 
     # Load Raw data
     if(need_part)or(need_cell):
-        domain = f"{path}/{path_in_repo}/{prefix}_{iout:05d}/domain_{iout:05d}.pkl"
+        domain = f"{path}/{path_in_repo}/{prefix}_{iout:05d}/domain_{iout:05d}.dat"
         if(os.path.exists(domain)):
             if(verbose): print(f" > Load domain")
-            domain = load(domain, msg=verbose)
+            domain = domload(domain, msg=verbose)
             cpulist = np.unique(np.concatenate(domain))
         else:
             if(verbose): print(f" > Get halos cpu list")
