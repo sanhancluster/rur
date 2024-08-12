@@ -860,7 +860,7 @@ class PhantomTree:
                     iterator.close()
                     break
 
-            halo, part_ids = HaloMaker.load(snap, load_parts=True, path_in_repo=path_in_repo_halomaker, full_path=full_path_halomaker,**kwargs)
+            halo, part_ids = HaloMaker.load(snap, load_parts=True, path_in_repo=path_in_repo_halomaker, full_path=full_path_halomaker, extend=False, **kwargs)
             if(halo.size == 0):
                 if(skip_jumps):
                     if(uri.timer.verbose>0): f"Skip jump due to zero-size halo at {iout}"
