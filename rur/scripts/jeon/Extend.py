@@ -289,8 +289,9 @@ if __name__ == "__main__":
     nout.sort()
     
     # Run!
-    iterator = nout# if verbose else tqdm(nout)
+    iterator = nout[::-1]# if verbose else tqdm(nout)
     for iout in iterator:
+        # if(iout>411): continue
         names = skip_func(path, galaxy, iout, default_names, verbose)
         skip = len(names)==0
         if(skip):

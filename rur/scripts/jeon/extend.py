@@ -187,11 +187,16 @@ def skip_func(path, galaxy, iout, names, verbose):
             del nnames[f'r50{suffix}']
             del nnames[f'r90{suffix}']
     # SFR
+    fname = f"{full_path}/SFR_r90_{iout:05d}.dat"
+    if(os.path.exists(fname)):
+        for suffix in radsuffixs:
+            # if(verbose): print(f" [SkipFunc] > No need sfr{suffix}")
+            del nnames[f'sfr{suffix}']
+    # SFR10
     fname = f"{full_path}/SFR10_r90_{iout:05d}.dat"
     if(os.path.exists(fname)):
         for suffix in radsuffixs:
             # if(verbose): print(f" [SkipFunc] > No need sfr10{suffix}")
-            del nnames[f'sfr{suffix}']
             del nnames[f'sfr10{suffix}']
     # Mag
     fname = f"{full_path}/zmag_{iout:05d}.dat"
