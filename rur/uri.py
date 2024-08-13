@@ -960,7 +960,7 @@ class RamsesSnapshot(object):
             if (timer.verbose>0):
                 warnings.warn(f"Warning! No `hydro_file_descriptor.txt` found, using default dtype", UserWarning)
             hydro_names = ['rho', 'vx', 'vy', 'vz', 'P', 'metal', 'refmask']
-            veryolds = ['dm_only', 'none', 'ng']
+            veryolds = ['dm_only', 'ng']
             olds = ['hagn','yzics','yzics_dm_only']
             if(self.mode in veryolds): hydro_names = hydro_names[:5]
             if(self.mode in olds): hydro_names = hydro_names[:6]
