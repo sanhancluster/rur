@@ -16,7 +16,7 @@ def set_boundaries(data, range):
 def read_YEPS_table(alpha=1):
     yeps_dir = pkg_resources.resource_filename('rur', 'YEPS/')
     if(alpha == 0):
-        path = join(yeps_dir, 'wHB_ABMAG.mag')
+        path = join(yeps_dir, 'wHB_ABMAG.dat')
     elif(alpha == 1):
         path = join(yeps_dir, 'wHB_ABMAGa0.mag')
     else:
@@ -141,7 +141,8 @@ def measure_magnitude(stars, filter_name, alpha=1, total=False, model='cb07'):
     elif(model == 'YEPS'):
         table = read_YEPS_table(alpha)
         ages = np.log10(stars['age', 'Gyr'])
-        FeHs = stars['FeH']
+        # FeHs = stars['FeH']
+        FeHs = 1.024*np.log10(stars['metal']) + 1.739
 
         ages[ages<=5.] = 5.
         FeHs[FeHs<=-2.5] = -2.5

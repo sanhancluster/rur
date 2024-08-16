@@ -2,7 +2,7 @@ import os
 from numpy.core.records import fromarrays
 import numpy as np
 from rur.utool import Timer, get_vector, dump, load, pairing, get_distance, rss, ss,\
-    set_vector, discrete_hist2d, weighted_quantile, expand_shape
+    set_vector, discrete_hist2d, weighted_quantile, expand_shape, datdump, datload
 from rur.readhtm import readhtm as readh
 from rur.fortranfile import FortranFile
 from rur import uri
@@ -13,7 +13,7 @@ import gc
 import string
 from multiprocessing import Process, Queue
 from multiprocessing import Pool, shared_memory
-from time import sleep
+from time import sleep, time
 import atexit, signal
 
 chars = string.ascii_lowercase
@@ -74,40 +74,85 @@ def fix_out_of_order_fields(array):
     output = fromarrays(arrays, names = names)
     return output
 
-def _read_one(shape, dtype, cursor, address, galaxy, path, hmid, nchem, timestep=None, target_fields=None):
+def _read_simple(shape, dtype, cursor, address, galaxy, path, hmid, timestep):
     if(galaxy): nomfich = os.path.join(path, f"gal_stars_{hmid:07d}")
     else: nomfich = os.path.join(path, f"halo_dms_{hmid:07d}")
     exist = shared_memory.SharedMemory(name=address)
     partmem = np.ndarray(shape=shape, dtype=dtype, buffer=exist.buf)
-    
 
     with FortranFile(nomfich, 'r') as f:
         f.skip_records(6)
         nparts, = f.read_ints()
         array = partmem[cursor:cursor+nparts].view()
         array['hmid'] = hmid
+        array['timestep'] = timestep
+        f.skip_records(7)
+        array['id'] = f.read_ints()
+
+
+def _read_one(shape, dtype, cursor, address, galaxy, path, hmid, nchem, timestep=None, target_fields=None, maxorder=20):
+    if(galaxy): nomfich = os.path.join(path, f"gal_stars_{hmid:07d}")
+    else: nomfich = os.path.join(path, f"halo_dms_{hmid:07d}")
+    exist = shared_memory.SharedMemory(name=address)
+    partmem = np.ndarray(shape=shape, dtype=dtype, buffer=exist.buf)
+
+    #DEBUG
+    # if(hmid%10==1):
+    #     print(f"*** {hmid} ", nomfich)
+    #     print(f"*** {hmid} ", partmem.shape)
+
+    iorder = 0
+    with FortranFile(nomfich, 'r') as f:
+        # if(hmid%10==1): print(f"*** {hmid} open")
+        f.skip_records(6)
+        # if(hmid%10==1): print(f"*** {hmid} skip")
+        nparts, = f.read_ints()
+        array = partmem[cursor:cursor+nparts].view()
+        array['hmid'] = hmid
         if(timestep is not None): array['timestep'] = timestep
-        if('x' in target_fields): array['x'] = f.read_reals()
-        else: f.skip_records(1)
-        if('y' in target_fields): array['y'] = f.read_reals()
-        else: f.skip_records(1)
-        if('z' in target_fields): array['z'] = f.read_reals()
-        else: f.skip_records(1)
-        if('vx' in target_fields): array['vx'] = f.read_reals()
-        else: f.skip_records(1)
-        if('vy' in target_fields): array['vy'] = f.read_reals()
-        else: f.skip_records(1)
-        if('vz' in target_fields): array['vz'] = f.read_reals()
-        else: f.skip_records(1)
-        if('m' in target_fields): array['m'] = f.read_reals()*1e11
-        else: f.skip_records(1)
-        if('id' in target_fields): array['id'] = f.read_ints()
-        else: f.skip_records(1)
+        if(iorder<=maxorder):
+            if('x' in target_fields): array['x'] = f.read_reals()
+            else: f.skip_records(1)
+            iorder+=1
+        if(iorder<=maxorder):
+            if('y' in target_fields): array['y'] = f.read_reals()
+            else: f.skip_records(1)
+            iorder+=1
+        if(iorder<=maxorder):
+            if('z' in target_fields): array['z'] = f.read_reals()
+            else: f.skip_records(1)
+            iorder+=1
+        if(iorder<=maxorder):
+            if('vx' in target_fields): array['vx'] = f.read_reals()
+            else: f.skip_records(1)
+            iorder+=1
+        if(iorder<=maxorder):
+            if('vy' in target_fields): array['vy'] = f.read_reals()
+            else: f.skip_records(1)
+            iorder+=1
+        if(iorder<=maxorder):
+            if('vz' in target_fields): array['vz'] = f.read_reals()
+            else: f.skip_records(1)
+            iorder+=1
+        if(iorder<=maxorder):
+            if('m' in target_fields): array['m'] = f.read_reals()*1e11
+            else: f.skip_records(1)
+            iorder+=1
+        if(iorder<=maxorder):
+            if('id' in target_fields): array['id'] = f.read_ints()
+            else: f.skip_records(1)
+            iorder+=1
         if(galaxy):
-            if('epoch' in target_fields): array['epoch'] = f.read_reals()
-            else: f.skip_records(1)
-            if('metal' in target_fields): array['metal'] = f.read_reals()
-            else: f.skip_records(1)
+            if(iorder<=maxorder):
+                if('epoch' in target_fields): array['epoch'] = f.read_reals()
+                else: f.skip_records(1)
+                iorder+=1
+            if(iorder<=maxorder):
+                if('metal' in target_fields): array['metal'] = f.read_reals()
+                else: f.skip_records(1)
+                iorder+=1
+        # if(hmid%10==1): print(f"*** {hmid} done")
+    return None
 
 class HaloMaker:
     @staticmethod
@@ -116,9 +161,15 @@ class HaloMaker:
         mass_unit = 1E11
         array['m'] *= mass_unit
         array['mvir'] *= mass_unit
+        if('m_bulge' in array.dtype.names):
+            array['m_bulge'] *= mass_unit 
         array['Lx'] *= mass_unit
         array['Ly'] *= mass_unit
         array['Lz'] *= mass_unit
+        array['ek'] *= mass_unit
+        array['ep'] *= mass_unit
+        array['et'] *= mass_unit
+        array['rho0'] *= mass_unit
 
         boxsize_physical = snap['boxsize_physical']
         pos = get_vector(array)
@@ -179,7 +230,7 @@ class HaloMaker:
 
 
     @staticmethod
-    def load(snap, path_in_repo=None, galaxy=False, full_path=None, load_parts=False, double_precision=None, copy_part_id=True):
+    def load(snap, path_in_repo=None, galaxy=False, full_path=None, load_parts=False, double_precision=True, copy_part_id=True, extend=True):
         # boxsize: comoving length of the box in Mpc
         repo = snap.repo
         start = snap.iout
@@ -234,6 +285,20 @@ class HaloMaker:
             else:
                 array = fromarrays([*readh.integer_table.T, *readh.real_table_dp.T], dtype=dtype)
         array = HaloMaker.unit_conversion(array, snap)
+        if(extend):
+            extend_path = f"{path}/extended/{start:05d}"
+            if(os.path.exists(extend_path)):
+                fnames = os.listdir(extend_path)
+                names = [f[:-10] for f in fnames if f.endswith('.dat')]
+                odtype = array.dtype
+                ndtype = odtype.descr + [(name, 'f8') for name in names]
+                narray = np.empty(array.size, dtype=ndtype)
+                for name in odtype.names:
+                    narray[name] = array[name]
+                for name in names:
+                    vals, desc = datload(f"{extend_path}/{name}_{start:05d}.dat", msg=False)
+                    narray[name] = vals
+                array = narray
 
         if(array.size==0):
             print("No tree_brick file found, or no halo found in %s" % path)
@@ -386,7 +451,7 @@ class HaloMaker:
         return uri.Particle(array, snap)
 
     @staticmethod
-    def read_member_parts(snap, hals:np.ndarray, nchem=0, galaxy=False, path_in_repo=None, full_path=None, usefortran=False, simple=False, target_fields=None, nthread=4):
+    def read_member_parts(snap, hals:np.ndarray, nchem=0, galaxy=False, path_in_repo=None, full_path=None, usefortran=False, simple=False, target_fields=None, nthread=4, copy=False):
         '''
         Return member particles(uri.Particle class) of multiple halos or galaxies.
         Also this supports multi-processing
@@ -399,6 +464,9 @@ class HaloMaker:
         else:
             ind = np.isin(dtype.names, target_fields, assume_unique=True)
             dtype = np.dtype([idt for idt, iid in zip(dtype.descr, ind) if(iid)]+[('hmid', 'i4')])
+        orders = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'm', 'id', 'epoch', 'metal']
+        args = np.where(np.isin(orders, target_fields))[0]
+        maxorder = np.max(args)
         if(full_path is None):
             if(path_in_repo is None):
                 if (galaxy):        
@@ -433,12 +501,25 @@ class HaloMaker:
 
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
         cursors = np.insert(np.cumsum(hals['nparts']), 0, 0)[:-1]
+        if(uri.timer.verbose>=1):
+            pbar = tqdm(total=len(hals), desc=f"Reading members")
+            def update(*a):
+                pbar.update()
+        else:
+            update = None
         with Pool(processes=nthread) as pool:
-            async_result = [pool.apply_async(_read_one, (part.shape, part.dtype, cursor, snap.part_mem.name, galaxy, path, hmid, nchem,None, target_fields)) for cursor, hmid in zip(cursors, hals['id'])]
-            iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading members") if(uri.timer.verbose>=1) else async_result
-            for r in iterobj:
+            async_result = [pool.apply_async(_read_one, (part.shape, part.dtype, cursor, snap.part_mem.name, galaxy, path, hmid, nchem,None, target_fields, maxorder), callback=update) for cursor, hmid in zip(cursors, hals['id'])]
+            # iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading members") if(uri.timer.verbose>=1) else async_result
+            # for r in iterobj:
+            for r in async_result:
                 r.get()
         signal.signal(signal.SIGTERM, snap.terminate)
+        if(copy):
+            part = part.copy()
+            snap.memory.remove(snap.part_mem)
+            snap.part_mem.close()
+            snap.part_mem.unlink()
+            snap.part_mem = None
         boxsize_physical = snap['boxsize_physical']
         if('x' in target_fields): part['x'] = part['x'] / boxsize_physical + 0.5
         if('y' in target_fields): part['y'] = part['y'] / boxsize_physical + 0.5
@@ -450,7 +531,7 @@ class HaloMaker:
         return uri.Particle(part, snap)
 
     @staticmethod
-    def read_member_general(snaps:uri.TimeSeries, hals:np.ndarray, nchem=0, galaxy=False, path_in_repo=None, usefortran=False, simple=False, target_fields=None, nthread=4):
+    def read_member_general(snaps:uri.TimeSeries, hals:np.ndarray, nchem=0, galaxy=False, path_in_repo=None, usefortran=False, simple=False, target_fields=None, nthread=4, copy=False):
         '''
         Return member particles(uri.Particle class) of multiple halos or galaxies.
         Also this supports multi-processing.
@@ -464,6 +545,8 @@ class HaloMaker:
         else:
             ind = np.isin(dtype.names, target_fields, assume_unique=True)
             dtype = np.dtype([idt for idt, iid in zip(dtype.descr, ind) if(iid)]+[('hmid', 'i4'), ('timestep', 'i4')])
+        if(simple):
+            dtype = [('id','i4'), ('timestep','i4'), ('hmid','i4')]
         if(snaps.iout_avail is None): snaps.read_iout_avail()
         fout = snaps.iout_avail[-1]['iout']
         fsnap = snaps.get_snap(fout)
@@ -476,7 +559,6 @@ class HaloMaker:
                 path_in_repo = default_path_in_repo['HaloMaker']
                 temp = "HAL"
         paths = [os.path.join(fsnap.repo, path_in_repo, f"{temp}_{iout:05d}") for iout in hals['timestep']]
-        
 
         part = np.empty(np.sum(hals['nparts']), dtype=dtype)
         shmname = 'galaxy' if(galaxy) else 'halo'
@@ -486,24 +568,42 @@ class HaloMaker:
 
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
         cursors = np.insert(np.cumsum(hals['nparts']), 0, 0)[:-1]
-        with Pool(processes=nthread) as pool:
-            async_result = [pool.apply_async(_read_one, (part.shape, part.dtype, cursor, fsnap.part_mem.name, galaxy, path, hmid, timestep, nchem, target_fields)) for cursor, hmid,timestep, path in zip(cursors, hals['id'], hals['timestep'], paths)]
-            iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading members") if(uri.timer.verbose>=1) else async_result
-            for r in iterobj:
-                r.get()
+        if(simple):
+            with Pool(processes=nthread) as pool:
+                async_result = [pool.apply_async(_read_simple, (part.shape, part.dtype, cursor, fsnap.part_mem.name, galaxy, path, hmid, timestep)) for cursor, hmid,timestep, path in zip(cursors, hals['id'], hals['timestep'], paths)]
+                iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading members") if(uri.timer.verbose>=1) else async_result
+                for r in iterobj:
+                    r.get()
+                pool.close()
+                pool.join()
+        else:
+            with Pool(processes=nthread) as pool:
+                async_result = [pool.apply_async(_read_one, (part.shape, part.dtype, cursor, fsnap.part_mem.name, galaxy, path, hmid, timestep, nchem, target_fields)) for cursor, hmid,timestep, path in zip(cursors, hals['id'], hals['timestep'], paths)]
+                iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading members") if(uri.timer.verbose>=1) else async_result
+                for r in iterobj:
+                    r.get()
         signal.signal(signal.SIGTERM, fsnap.terminate)
-        for timestep in np.unique(hals['timestep']):
-            mask = (part['timestep']==timestep)
-            snap = snaps.get_snap(timestep)
-            boxsize_physical = snap['boxsize_physical']
-            if('x' in target_fields): part['x'][mask] = part['x'][mask] / boxsize_physical + 0.5
-            if('y' in target_fields): part['y'][mask] = part['y'][mask] / boxsize_physical + 0.5
-            if('z' in target_fields): part['z'][mask] = part['z'][mask] / boxsize_physical + 0.5
-            if('m' in target_fields): part['m'][mask] = part['m'][mask]*snap.unit['Msol']
-            if('vx' in target_fields): part['vx'][mask] = part['vx'][mask]*snap.unit['km/s']
-            if('vy' in target_fields): part['vy'][mask] = part['vy'][mask]*snap.unit['km/s']
-            if('vz' in target_fields): part['vz'][mask] = part['vz'][mask]*snap.unit['km/s']
-        return uri.Particle(part, snap)
+        if(copy):
+            part = part.copy()
+            fsnap.memory.remove(fsnap.part_mem)
+            fsnap.part_mem.close()
+            fsnap.part_mem.unlink()
+            fsnap.part_mem = None
+        if(not simple):
+            for timestep in np.unique(hals['timestep']):
+                mask = (part['timestep']==timestep)
+                snap = snaps.get_snap(timestep)
+                boxsize_physical = snap['boxsize_physical']
+                if('x' in target_fields): part['x'][mask] = part['x'][mask] / boxsize_physical + 0.5
+                if('y' in target_fields): part['y'][mask] = part['y'][mask] / boxsize_physical + 0.5
+                if('z' in target_fields): part['z'][mask] = part['z'][mask] / boxsize_physical + 0.5
+                if('m' in target_fields): part['m'][mask] = part['m'][mask]*snap.unit['Msol']
+                if('vx' in target_fields): part['vx'][mask] = part['vx'][mask]*snap.unit['km/s']
+                if('vy' in target_fields): part['vy'][mask] = part['vy'][mask]*snap.unit['km/s']
+                if('vz' in target_fields): part['vz'][mask] = part['vz'][mask]*snap.unit['km/s']
+            return uri.Particle(part, snap)
+        else:
+            return part
 
     from rur.uri import RamsesSnapshot
     @staticmethod
@@ -688,8 +788,19 @@ class PhantomTree:
         
         *Written by Chat-GPT and modified by Seyoung
         """
+        print(f"\n------------------------------\n[PhantomTree] `from_halomaker`")
+        reft = time()
+        if(full_path_halomaker is None):
+            full_path_halomaker = os.path.join(snap.repo, path_in_repo_halomaker)
+        snap_iouts = os.listdir(full_path_halomaker)
+        snap_iouts = np.array([int(f[-5:]) for f in snap_iouts if f.startswith('tree_bricks')])
+        snap_iouts = np.sort(snap_iouts)[::-1]
+
         max_iout = snap.iout
-        snap_iouts = np.arange(max_iout, 0, -1)
+        if(max_iout < np.max(snap_iouts)):
+            print(f"Warning! You set the max_iout={max_iout}, but there is {np.max(snap_iouts)} in the snapshot directory.")
+        snap_iouts = snap_iouts[snap_iouts <= max_iout]
+        # snap_iouts = np.arange(max_iout, 0, -1)
         print(f'Building PhantomTree from HaloMaker data ({len(snap_iouts)} snapshots) in `{snap.repo}`')
 
         if (max_part_size is None):
@@ -706,23 +817,28 @@ class PhantomTree:
             if full_path_ptree is None: pfiles = os.listdir(f"{snap.repo}/{path_in_repo}")
             else: pfiles = os.listdir(full_path_ptree)
             pfiles = [pf for pf in pfiles if pf.startswith("ptree_0")]
-            nout = [int(pf[6:11]) for pf in pfiles]
-            print(f"\tFound {len(nout)} ptree files exist ({np.min(nout)} ~ {np.max(nout)})")
-            snap_iouts = snap_iouts[
-                # (snap_iouts <= np.min(nout) + 2*lookup + 1) |
-                (snap_iouts >= np.max(nout) - 2*lookup - 1) ]
+            nout = np.array([int(pf[6:11]) for pf in pfiles])
+            omitted = snap_iouts[~np.isin(snap_iouts, nout)]
+            min_omit = np.min(omitted)
+            print(f"\tNo pbricks after {min_omit}th snapshot")
+            # print(f"\tFound {len(nout)} ptree files exist ({np.min(nout)} ~ {np.max(nout)})")
+            # snap_iouts = snap_iouts[
+            #     (snap_iouts >= np.max(nout) - 2*lookup - 1) ]
+            snap_iouts = snap_iouts[ snap_iouts >= (min_omit - lookup - 1) ]
+            print(f"\t > Recalculate for {len(snap_iouts)} snapshots:\n\t{snap_iouts}")
             for snap_iout in snap_iouts:
                 if(snap_iout in nout):
                     if full_path_ptree is None: path = os.path.join(snap.repo, path_in_repo, ptree_file_format % snap_iout)
+                    # path=ptree_xxxxx.pkl
                     else: path = os.path.join(full_path_ptree, ptree_file_format % snap_iout)
                     if(os.path.isfile(path)):
                         brick = load(path, format='pkl', msg=False)
                         dump(brick, path+".old", format='pkl', msg=False)
                         if(uri.timer.verbose>0): print(f"\tBackup `{path}` to `{path}.old`")
-            print(f"\tCheck {len(snap_iouts)} snapshots")
             
         iterator = tqdm(snap_iouts, unit='snapshot') if uri.timer.verbose>0 else snap_iouts
         for iout in iterator: # Main calculation loop (longest: few miutes per snapshot)
+            # Start from most recent snapshot
             iterator.set_description(f"[{iout:04d}]")
             # Add `desc` and `npass` fields to `halo` table
             # And then, save it as a pickle file (name: `ptree_{iout:05d}.pkl`)
@@ -731,7 +847,10 @@ class PhantomTree:
             # Step 1: Check skip or not, and load halo data
             # ---------------------------------------------
             try:
+                oldverbose = uri.timer.verbose * 1
+                uri.timer.verbose = 0
                 snap = snap.switch_iout(iout)
+                uri.timer.verbose = oldverbose
             except FileNotFoundError:
                 if(skip_jumps):
                     if(uri.timer.verbose>0): f"Skip jump due to no snapshot at {iout}"
@@ -741,7 +860,7 @@ class PhantomTree:
                     iterator.close()
                     break
 
-            halo, part_ids = HaloMaker.load(snap, load_parts=True, path_in_repo=path_in_repo_halomaker, full_path=full_path_halomaker,**kwargs)
+            halo, part_ids = HaloMaker.load(snap, load_parts=True, path_in_repo=path_in_repo_halomaker, full_path=full_path_halomaker, extend=False, **kwargs)
             if(halo.size == 0):
                 if(skip_jumps):
                     if(uri.timer.verbose>0): f"Skip jump due to zero-size halo at {iout}"
@@ -812,7 +931,7 @@ class PhantomTree:
             halo = merge_arrays([halo, tree_data], fill_value=-2, flatten=True, usemask=False)
 
             dump(halo, path, msg=False)
-
+        print(f"[PhantomTree] `from_halomaker` Done ({(time()-reft)/60:.2f} min)\n")
 
     @staticmethod
     def find_desc(hid_arr, prog_n=None, next_n=None, rankup=1):
@@ -839,6 +958,8 @@ class PhantomTree:
 
     @staticmethod
     def merge_ptree(repo, iout_max, full_path=None, path_in_repo=path_in_repo, ptree_file=ptree_file, ptree_file_format=ptree_file_format, skip_jumps=False, dtype_id='i8'):
+        print(f"\n------------------------------\n[PhantomTree] `merge_ptree`")
+        reft = time()
         dirpath = os.path.join(repo, path_in_repo) if full_path is None else full_path
         iout = iout_max
         tree_fname = os.path.join(dirpath, ptree_file) # 'ptree.pkl'
@@ -866,7 +987,7 @@ class PhantomTree:
                 brick = load(brick_fname, msg=False)
                 try: brick = drop_fields(brick, 'mcontam', usemask=False)
                 except: pass
-                if(add==0): print(brick.dtype)
+                # if(add==0): print(brick.dtype)
                 ptree.append(brick)
                 add += 1
             iout -= 1
@@ -877,6 +998,7 @@ class PhantomTree:
             ptree = np.concatenate(ptree)
             ptree = PhantomTree.set_pairing_id(ptree, dtype_id=dtype_id)
             dump(ptree, tree_fname)
+        print(f"[PhantomTree] `from_halomaker` Done ({(time()-reft)/60:.2f} min)\n")
 
     @staticmethod
     def set_pairing_id(ptree, save_hmid=True, dtype_id='i8'):
@@ -919,9 +1041,13 @@ class PhantomTree:
 
     @staticmethod
     def build_tree(ptree, overwrite=False, jump_ratio=0.5):
+        print(f"\n------------------------------\n[PhantomTree] `build_tree`")
+        reft = time()
         print('Building tree from %d halo-nodes...' % ptree.size)
         names = ['fat', 'son', 'score_fat', 'score_son']
-        ptree.sort(order='id')
+        argsort = np.argsort(ptree['id'])
+        ptree = ptree[argsort]
+        # ptree.sort(order='id')
         if(overwrite):
             ptree = drop_fields(ptree, names, usemask=False)
         id_ini = np.full(ptree.size, -1, dtype='i8')
@@ -965,6 +1091,7 @@ class PhantomTree:
         ptree['fat'][desc_idx] = ptree['id'][prog_idx]
         ptree['score_fat'][desc_idx] = score[mask]
 
+        print(f"[PhantomTree] `build_tree` Done ({(time()-reft)/60:.2f} min)\n")
         return ptree
 
     @staticmethod
@@ -993,6 +1120,8 @@ class PhantomTree:
         An updated ptree table
 
         """
+        print(f"\n------------------------------\n[PhantomTree] `add_tree_info`")
+        reft = time()
         print('Adding tree info from %d halo-nodes...' % ptree.size)
         names = ['nprog', 'ndesc', 'first', 'last', 'first_rev', 'last_rev']
         if(overwrite):
@@ -1059,7 +1188,7 @@ class PhantomTree:
 
         search_tree_reverse('son', 'fat', 'last', 'ndesc')
         search_tree_reverse('fat', 'son', 'first', 'nprog')
-
+        print(f"[PhantomTree] `add_tree_info` Done ({(time()-reft)/60:.2f} min)\n")
         return ptree
 
 

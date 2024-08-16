@@ -100,28 +100,31 @@ class Timer:
         self.verbose = verbose
         self.verbose_lim = 1
 
-    def start(self, message=None, verbose_lim=None):
+    def start(self, message=None, verbose_lim=None, tab=0):
         if (verbose_lim is not None):
             self.verbose_lim = verbose_lim
 
         if self.verbose >= self.verbose_lim and message is not None:
-            print(message)
+            ntab = '\t'*tab
+            print(f"{ntab}{message}")
         self.t = time.time()
 
     def time(self):
         return (time.time() - self.t) / self.unit
 
-    def record(self, verbose_lim=None):
+    def record(self, verbose_lim=None, tab=0):
         if verbose_lim is not None:
             self.verbose_lim = verbose_lim
 
         if self.verbose >= self.verbose_lim:
-            print('Done (%.3f%s).' % (self.time(), self.unitl))
+            # print('Done (%.3f%s).' % (self.time(), self.unitl))
+            ntab = '\t'*tab
+            print(f"{ntab}Done ({self.time():.3f}{self.unitl}).")
 
-    def measure(self, func, message=None, **kwargs):
-        self.start(message)
+    def measure(self, func, message=None, tab=0, **kwargs):
+        self.start(message, tab=tab)
         result = func(**kwargs)
-        self.record()
+        self.record(tab=tab)
         return result
 
 
@@ -137,6 +140,9 @@ oct_offset = np.array([
     -0.5, -0.5,  0.5,  0.5, -0.5, -0.5,  0.5,  0.5,
     -0.5, -0.5, -0.5, -0.5,  0.5,  0.5,  0.5,  0.5 
     ]).reshape(3,8).T
+oct_x = oct_offset[:, 0].reshape(8, 1)
+oct_y = oct_offset[:, 1].reshape(8, 1)
+oct_z = oct_offset[:, 2].reshape(8, 1)
 
 # path_related parameters
 # avaiable modes: none, ng, nh, etc.
@@ -397,7 +403,7 @@ def custom_extra_fields(snap, type='common'):
             'cs': lambda table: np.sqrt(gamma * table['P'] / table['rho']),  # sound speed
             'mach': lambda table: rss(table['vel']) / np.sqrt(gamma * table['P'] / table['rho']),  # mach number
             'e': lambda table: table['P'] / (gamma - 1) + 0.5 * table['rho'] * ss(table['vel']),  # total energy density
-            'dx': lambda table: 1 / 2 ** table['level'],  # spatial resolution
+            'dx': lambda table: snap.boxlen / 2 ** table['level'],  # spatial resolution
         })
 
     elif type == 'particle':
@@ -406,7 +412,7 @@ def custom_extra_fields(snap, type='common'):
             'age': lambda table: (snap.age - snap.epoch_to_age(table['epoch'])) * snap.unit['Gyr'],  # stellar age
             'aform': lambda table: snap.epoch_to_aexp(table['epoch']),  # formation epoch
             'zform': lambda table: 1. / table['aform'] - 1,  # formation epoch
-            'dx': lambda table: 0.5 ** table['level'],  # spatial resolution
+            'dx': lambda table: snap.boxlen / 2 ** table['level'],  # spatial resolution
         })
 
     elif type == 'halo':

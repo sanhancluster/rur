@@ -16,7 +16,7 @@ from os.path import dirname, join, abspath
 
 def colorline(
         x, y, z=None, cmap=plt.get_cmap('copper'), norm=plt.Normalize(0.0, 1.0),
-        linewidth=3, alpha=1.0, zorder=0):
+        linewidth=3, alpha=1.0, zorder=0, ax=None):
     """
     http://nbviewer.ipython.org/github/dpsanders/matplotlib-examples/blob/master/colorline.ipynb
     http://matplotlib.org/examples/pylab_examples/multicolored_line.html
@@ -39,7 +39,8 @@ def colorline(
     lc = mcoll.LineCollection(segments, array=z, cmap=cmap, norm=norm,
                               linewidth=linewidth, alpha=alpha, zorder=zorder)
 
-    ax = plt.gca()
+    if ax is None:
+        ax = plt.gca()
     ax.add_collection(lc)
 
     return lc
@@ -70,7 +71,7 @@ def remove_keys(dic, keys):
     return dic
 
 
-def axlabel(text, pos='right top', loc=None, offset=0.03, **kwargs):
+def axlabel(text, pos='right top', loc=None, offset=0.03, ax=None, **kwargs):
     # ha: right, left
     # va: top (or upper), bottom (or lower)
 
@@ -100,7 +101,9 @@ def axlabel(text, pos='right top', loc=None, offset=0.03, **kwargs):
         va = 'center'
     else:
         raise ValueError("Unknown vertical position")
-    plt.text(x, y, text, ha=ha, va=va, transform=plt.gca().transAxes, **kwargs)
+    if ax is None:
+        ax = plt.gca()
+    ax.text(x, y, text, ha=ha, va=va, transform=ax.transAxes, **kwargs)
 
 
 def bmask(arr, bet):
@@ -346,7 +349,10 @@ def cic_img(x, y, lims, reso=100, weights=None):
         indices_int = np.floor(indices_float - dx).astype(int)
 
         offsets = indices_float - indices_int
-        areas = np.product(1-np.abs(offsets - 1), axis=-1)
+        if(np.__version__ >= '1.25.0'):
+            areas = np.prod(1-np.abs(offsets - 1), axis=-1)
+        else:
+            areas = np.product(1-np.abs(offsets - 1), axis=-1)
 
         mask = np.all((indices_int >= 0) & (indices_int < shape_array), axis=-1)
         np.add.at(pool, (indices_int[mask, 0], indices_int[mask, 1]), (areas * weights)[mask])
