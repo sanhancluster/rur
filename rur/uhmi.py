@@ -996,7 +996,7 @@ class PhantomTree:
             id_key = np.argsort(ptree['id'])
 
             # first fill end-nodes (leafs and roots)
-            # nodes without son indicates they are either roots or branches
+            # nodes without son indicates they are either roots or branches (in merger 'tree')
             last_idx = np.where(ptree[son_name]==-1)[0]
             ptree[last_name] = ptree['id']
             #ptree[last_name][last_idx] = ptree['id'][last_idx]

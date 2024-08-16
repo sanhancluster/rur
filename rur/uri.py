@@ -2134,8 +2134,8 @@ class RamsesSnapshot(object):
             print('Total gas mass: %.3e Msol' % gas_tot)
             print('Max. gas density    : %.3e H/cc' % np.max(self.cell['rho', 'H/cc']))
             print('Max. gas temperature: %.3e K' % np.max(self.cell['T', 'K']))
-            print('Max. gas sound speed: %.3e km/s', np.max(cell['cs', 'km/s']))
-            print('Max. gas velocity   : %.3e km/s', np.max(utool.rss(cell['vel', 'km/s'])))
+            print('Max. gas sound speed: %.3e km/s' % np.max(cell['cs', 'km/s']))
+            print('Max. gas velocity   : %.3e km/s' % np.max(utool.rss(cell['vel', 'km/s'])))
 
             if('refmask' in cell.dtype.names):
                 contam = 1.-np.sum(cell[cell['refmask']>0.01]['m'])/np.sum(cell['m'])

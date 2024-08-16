@@ -16,8 +16,9 @@ def mgal_mbh(tag, logscale=False):
             'BM19': [1.64, 1E11, 7.88],  # Baron & Ménard 2019 (All?)
             'S20a': [1.64, 1, -10.29],  # Suh+ 2020 (All)
             'S20b': [0.78, 1, -0.33],  # Suh+ 2020 (High-z AGNs)
+            'S20c': [1.473, 1E11,  7.620],  # Suh+ 2020 (All AGNs), derived from Figure 5
             'Z23': [0.98, 1, -1.92],  # Zhang+ 2023 (z~2 Type I AGNs)
-
+            'KH13b': [1.19, 1E11, np.log10(0.49*1E9)],  # Kormendy & Ho 2013 (E/CBs)
         }
     except KeyError:
         raise ValueError("Available tags: RV15a, RV15b, BM19, S20a, S20b")
