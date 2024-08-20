@@ -195,7 +195,7 @@ class Particle(Table):
                         self.snap.part = None
                         self.snap.box_part = None
                         cpulist = np.unique(self.snap.cpulist_part) if (
-                                self.snap.box is None or np.array_equal(self.snap.box, default_box)) else None
+                                self.snap.box is None or np.array_equal(self.snap.box, self.default_box)) else None
                         self.snap.cpulist_part = np.array([], dtype='i4')
                         self.snap.bound_part = np.array([0], dtype='i4')
                         part = self.snap.get_part(box=self.snap.box, target_fields=self.table.dtype.names,
@@ -690,6 +690,8 @@ class RamsesSnapshot(object):
 
         self.path = join(self.snap_path, output_format.format(snap=self))
         self.params = {}
+        self.unitmode = 'code' # 'code', 'physical'
+        self.unitfactor = 1
 
         self.mode = mode
         self.info_path = join(self.path, f'info_{self.iout:05d}.txt')
@@ -725,12 +727,15 @@ class RamsesSnapshot(object):
         self.read_params(snap)
         if (box is not None):
             self.box = np.array(box)
+            self.default_box = default_box
         else:
             if(self.params['boxlen']==1):
                 self.box = default_box
+                self.default_box = default_box
             else:
                 boxlen = self.params['boxlen']
                 self.box = np.array([[0, boxlen], [0, boxlen], [0, boxlen]])
+                self.default_box = np.array([[0, boxlen], [0, boxlen], [0, boxlen]])
         self.region = BoxRegion(self.box)
         self.box_cell = None
         self.box_part = None
@@ -767,6 +772,63 @@ class RamsesSnapshot(object):
                 signal.signal(signal.SIGTERM, signal.SIG_DFL)
         except:
             pass
+
+    def switch_unitmode(self):
+        if (self.unitmode == 'code'):
+            self.unitmode = 'physical'
+            print("Switched to physical unit mode (kpc and km/s)")
+            self.box = self.box/self.unit['kpc']
+            self.default_box = self.default_box/self.unit['kpc']
+            self.unitfactor = self.unit['kpc']
+            if(self.part is not None):
+                self.part.snap = self
+                for key in dim_keys: self.part_data[key] /= self.unit['kpc']
+                for key in vel_keys: self.part_data[key] /= self.unit['km/s']
+                if(id(self.part.table) != id(self.part_data)):
+                    for key in dim_keys: self.part[key] /= self.unit['kpc']
+                    for key in vel_keys: self.part[key] /= self.unit['km/s']
+            if(self.cell is not None):
+                self.cell.snap = self
+                for key in dim_keys: self.cell_data[key] /= self.unit['kpc']
+                for key in vel_keys: self.cell_data[key] /= self.unit['km/s']
+                if(id(self.cell.table) != id(self.cell_data)):
+                    for key in dim_keys: self.cell[key] /= self.unit['kpc']
+                    for key in vel_keys: self.cell[key] /= self.unit['km/s']
+            if(self.sink is not None):
+                self.sink.snap = self
+                for key in dim_keys: self.sink_data[key] /= self.unit['kpc']
+                for key in vel_keys: self.sink_data[key] /= self.unit['km/s']
+                if(id(self.sink.table) != id(self.sink_data)):
+                    for key in dim_keys: self.sink[key] /= self.unit['kpc']
+                    for key in vel_keys: self.sink[key] /= self.unit['km/s']
+        else:
+            self.unitmode = 'code'
+            print("Switched to code unit mode")
+            self.box = self.box*self.unit['kpc']
+            self.default_box = self.default_box*self.unit['kpc']
+            self.unitfactor = 1
+            if(self.part is not None):
+                self.part.snap = self
+                for key in dim_keys: self.part_data[key] *= self.unit['kpc']
+                for key in vel_keys: self.part_data[key] *= self.unit['km/s']
+                if(id(self.part.table) != id(self.part_data)):
+                    for key in dim_keys: self.part[key] *= self.unit['kpc']
+                    for key in vel_keys: self.part[key] *= self.unit['km/s']
+            if(self.cell is not None):
+                self.cell.snap = self
+                for key in dim_keys: self.cell_data[key] *= self.unit['kpc']
+                for key in vel_keys: self.cell_data[key] *= self.unit['km/s']
+                if(id(self.cell.table) != id(self.cell_data)):
+                    for key in dim_keys: self.cell[key] *= self.unit['kpc']
+                    for key in vel_keys: self.cell[key] *= self.unit['km/s']
+            if(self.sink is not None):
+                self.sink.snap = self
+                for key in dim_keys: self.sink_data[key] *= self.unit['kpc']
+                for key in vel_keys: self.sink_data[key] *= self.unit['km/s']
+                if(id(self.sink.table) != id(self.sink_data)):
+                    for key in dim_keys: self.sink[key] *= self.unit['kpc']
+                    for key in vel_keys: self.sink[key] *= self.unit['km/s']
+
 
     def __del__(self):
         atexit.unregister(self.flush)
@@ -901,6 +963,8 @@ class RamsesSnapshot(object):
         center = get_vector(halo)
         if (use_halo_radius):
             extent = halo[radius_name] * radius * 2
+            if (self.unitmode == 'physical'):
+                extent /= self.unit['kpc']
         else:
             extent = radius * 2
         self.set_box(center, extent)
@@ -1078,6 +1142,8 @@ class RamsesSnapshot(object):
             box = self.box
         if (self.classic_format and not box is None):
             box = np.array(box)
+            if (self.unitmode != 'code'):
+                box = box * self.unit['kpc'] # kpc box -> code box
             maxlvl = self.params['levelmax']
 
             involved_cpu = get_cpulist(box, binlvl, maxlvl, self.bound_key, self.ndim, n_divide,
@@ -1347,6 +1413,9 @@ class RamsesSnapshot(object):
                     part = fromndarrays(arrs, dtype)
                 readr.close()
             timer.record()
+            if(self.unitmode != 'code'):
+                for key in dim_keys: part[key] /= self.unit['kpc']
+                for key in vel_keys: part[key] /= self.unit['km/s']
             if(bound is None):
                 timer.start('Compute boundary on cpumap... ', 1)
                 bound = compute_boundary(part['cpu'], cpulist)
@@ -1576,6 +1645,9 @@ class RamsesSnapshot(object):
                     cell = fromndarrays(arrs, dtype)
                 readr.close()
             timer.record()
+            if(self.unitmode != 'code'):
+                for key in dim_keys: cell[key] /= self.unit['kpc']
+                for key in vel_keys: cell[key] /= self.unit['km/s']
             if(bound is None):
                 timer.start('Compute boundary on cpumap... ', 1)
                 bound = compute_boundary(cell['cpu'], cpulist)
@@ -1676,6 +1748,9 @@ class RamsesSnapshot(object):
             readr.read_sink(self.snap_path, self.iout, cpulist, self.levelmin, self.levelmax)
             arr = [*readr.integer_table, *readr.real_table[:19]]
             sink = fromarrays(arr, sink_dtype)
+            if(self.unitmode != 'code'):
+                for key in dim_keys: sink[key] /= self.unit['kpc']
+                for key in vel_keys: sink[key] /= self.unit['km/s']
             self.sink_data = sink
             timer.record()
 
@@ -1763,6 +1838,9 @@ class RamsesSnapshot(object):
             raise ValueError('Number of fields mismatch\n'
                              'Received: %d, Allocated: %d' % (arrs[0].shape[1] + arrs[1].shape[1], len(dtype)))
         sink = fromndarrays(arrs, dtype=dtype)
+        if (self.unitmode != 'code'):
+            for key in dim_keys: sink[key] /= self.unit['kpc']
+            for key in vel_keys: sink[key] /= self.unit['km/s']
         timer.record()
         aexp = np.copy(readr.aexp)
         readr.close()
@@ -1836,6 +1914,9 @@ class RamsesSnapshot(object):
 
         timer.start('Building table for %d smbhs...' % arrs[0].shape[0])
         sink = fromndarrays(arrs, dtype=dtype)
+        if (self.unitmode != 'code'):
+            for key in dim_keys: sink[key] /= self.unit['kpc']
+            for key in vel_keys: sink[key] /= self.unit['km/s']
         sink = append_fields(sink, ['aexp', 'icoarse'], [aexp_table, icoarse_table], usemask=False)
 
         timer.record()
@@ -1911,6 +1992,8 @@ class RamsesSnapshot(object):
         -------
 
         """
+        if(self.unitmode != 'code'):
+            self.switch_unitmode()
         self.box = None
         self.pcmap = None
         if (part):
@@ -1994,33 +2077,13 @@ class RamsesSnapshot(object):
         self.ref = np.concatenate(amr_refs)
         self.cpu = np.concatenate(amr_cpus)
 
-    def get_cell_instant(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None,
-                         read_grav=False, ripses=False, python=True, nthread=8):
-        '''
-        Use only if you want to read part data from already loaded whole snapshot.
-        It will not affect attributes of `RamsesSnapshot` class if all CPUlist are satisfied.
-        '''
-        cpulist = self.get_involved_cpu(box=box)
-        ind = np.isin(cpulist, self.cpulist_cell, assume_unique=True)
-        if (not ind.all()):
-            if (timer.verbose >= 1): print(f"Extend CPU list...\n->{cpulist[~ind]}")
-            self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist[~ind], python=python,
-                           nthread=nthread)
-        if (ind.all() & np.isin(self.cpulist_cell, cpulist).all()):
-            cell = self.cell_data
-        else:
-            cell = domain_slice(self.cell_data, cpulist, self.cpulist_cell, self.bound_cell)
-        mask = box_mask_table(cell, box, snap=self, size=self.cell_extra['dx'](cell), nthread=nthread)
-        cell = cell[mask]
-        return Cell(cell, self)
-
     def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False,
                  ripses=False, python=True, nthread=8, use_cache=False):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
         if (cpulist is None):
-            if (self.box is None or np.array_equal(self.box, default_box)):
+            if (self.box is None or np.array_equal(self.box, self.default_box)):
                 # box is default box or None: load the whole volume
                 domain_slicing = False
                 exact_box = False
@@ -2076,6 +2139,9 @@ class RamsesSnapshot(object):
         '''
         Corrects the unit to follow `boxlen` unit
         '''
+        if(self.unitmode == 'physical'):
+            warnings.warn("You must do this when `unitmode`='code'!", UserWarning)
+            return
         boxlen = self.params['boxlen']
         print(f"Current: {l1}~{l2}")
         print(f"Desired: 0~{boxlen}")
@@ -2086,33 +2152,13 @@ class RamsesSnapshot(object):
         self.cell['y'] *= boxlen/(l2-l1)
         self.cell['z'] *= boxlen/(l2-l1)
 
-
-    def get_part_instant(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None,
-                         pname=None, python=True, nthread=8):
-        '''
-        Use only if you want to read part data from already loaded whole snapshot.
-        It will not affect attributes of `RamsesSnapshot` class if all CPUlist are satisfied.
-        '''
-        cpulist = self.get_involved_cpu(box=box)
-        ind = np.isin(cpulist, self.cpulist_part, assume_unique=True)
-        if (not ind.all()):
-            if (timer.verbose >= 1): print(f"Extend CPU list...\n->{cpulist[~ind]}")
-            self.read_part(target_fields=target_fields, cpulist=cpulist, pname=pname, nthread=nthread, python=python)
-        if (ind.all() & np.isin(self.cpulist_part, cpulist).all()):
-            part = self.part_data
-        else:
-            part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
-        mask = box_mask_table(part, box, snap=self, nthread=nthread)
-        part = part[mask]
-        return Particle(part, self, ptype=pname)
-
     def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None,
                  python=True, nthread=8, use_cache=False):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
         if (cpulist is None):
-            if (self.box is None or np.array_equal(self.box, default_box)):
+            if (self.box is None or np.array_equal(self.box, self.default_box)):
                 # box is default box or None: load the whole volume
                 domain_slicing = False
                 exact_box = False
@@ -2169,7 +2215,7 @@ class RamsesSnapshot(object):
 
     def get_sink(self, box=None, all=False):
         if (all):
-            self.box_sink = default_box
+            self.box_sink = self.default_box
             self.read_sink()
             self.sink = Particle(self.sink_data, self)
             return self.sink
@@ -2336,7 +2382,7 @@ class RamsesSnapshot(object):
 
     def write_contam_part(self, mdm_cut):
         self.clear()
-        self.get_part(box=default_box, pname='dm', target_fields=['x', 'y', 'z', 'm', 'cpu'])
+        self.get_part(box=self.default_box, pname='dm', target_fields=['x', 'y', 'z', 'm', 'cpu'])
         part = self.part
         contam_part = part[part['m'] > mdm_cut]
         dirpath = join(self.repo, 'contam')
@@ -2628,6 +2674,7 @@ def box_mask(coo, box, size=None, exclusive=False):
 
 
 def interpolate_part(part1, part2, name, fraction=0.5, periodic=False):
+    assert (part1.snap.unitmode == 'code') and (part2.snap.unitmode == 'code'), "Interpolation is only available in code unit."
     # Interpolates two particle snapshots based on their position and fraction
     timer.start('Interpolating %d, %d particles...' % (part1.size, part2.size), 2)
 
@@ -2681,6 +2728,7 @@ def interpolate_part(part1, part2, name, fraction=0.5, periodic=False):
 
 
 def interpolate_part_pos(part1, part2, Gyr_interp, fraction=0.5):
+    assert (part1.snap.unitmode == 'code') and (part2.snap.unitmode == 'code'), "Interpolation is only available in code unit."
     # Interpolates two particle snapshots based on their position and fraction
     timer.start('Interpolating %d, %d particles...' % (part1.size, part2.size), 2)
 
@@ -2727,6 +2775,7 @@ def interp_term(pos, vel, fraction, time_interval, vel_sign=1):
 
 
 def sync_tracer(tracer, cell, copy=False, **kwargs):
+    assert (tracer.snap.unitmode == 'code') and (cell.snap.unitmode == 'code'), "sync_tracer is only available in code unit."
     tid, cid = match_tracer(tracer, cell, **kwargs)
     tracer[tid] = utool.set_vector(tracer, cell[cid]['vel'], prefix='v', copy=copy)
     if (copy):
@@ -2734,6 +2783,7 @@ def sync_tracer(tracer, cell, copy=False, **kwargs):
 
 
 def match_part_to_cell(part, cell, n_search=16):
+    assert (part.snap.unitmode == 'code') and (cell.snap.unitmode == 'code'), "match_part_to_cell is only available in code unit."
     tree = KDTree(cell['pos'])
     dists, idx_cell = tree.query(part['pos'], k=n_search, p=np.inf)
 
@@ -2754,6 +2804,7 @@ def match_part_to_cell(part, cell, n_search=16):
 
 
 def match_tracer(tracer, cell, min_dist_pc=1, use_cell_size=False):
+    assert (tracer.snap.unitmode == 'code') and (cell.snap.unitmode == 'code'), "match_tracer is only available in code unit."
     # match MC gas tracer particles to cell
     timer.start("Matching %d tracers and %d cells..." % (tracer.size, cell.size), 1)
     tree = KDTree(tracer['pos'])
