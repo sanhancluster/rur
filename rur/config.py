@@ -399,10 +399,11 @@ def custom_extra_fields(snap, type='common'):
 
     elif type == 'cell':
         # cell extra keys
+        mfactor = 1 if(snap.unitmode == 'code') else snap.unit['Msol']
         extra_fields.update({
             'T': lambda table: table['P'] / table['rho'],  # temperature
             'vol': lambda table: table['dx'] ** 3,  # cell volume
-            'm': lambda table: table['vol'] * table['rho'],  # cell mass
+            'm': lambda table: table['vol'] * table['rho']/mfactor,  # cell mass
             'cs': lambda table: np.sqrt(gamma * table['P'] / table['rho']),  # sound speed
             'mach': lambda table: rss(table['vel']) / np.sqrt(gamma * table['P'] / table['rho']),  # mach number
             'e': lambda table: table['P'] / (gamma - 1) + 0.5 * table['rho'] * ss(table['vel']),  # total energy density

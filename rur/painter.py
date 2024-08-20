@@ -343,7 +343,7 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
 
     known_lvls = np.unique(lvl)
     minlvl, maxlvl, basebin, edge = set_bins(known_lvls, minlvl, maxlvl, box_proj, shape, boxlen=tracer_part.snap.boxlen)
-    edge = edge / cell.snap.unitfactor
+    edge = edge / tracer_part.snap.unitfactor
 
     known_lvls = np.arange(minlvl, np.max(known_lvls) + 1)
 
@@ -366,7 +366,10 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
         binsize = basebin * 2 ** (binlvl - minlvl)
 
         xm = get_vector(cell_lvl)
-        qm = cell_lvl['m', unit] / 0.5 ** (binlvl * 2)
+        if(tracer_part.snap.unitmode == 'code'):
+            qm = cell_lvl['m', unit] / 0.5 ** (binlvl * 2)
+        else:
+            qm = cell_lvl['m'] / 0.5 ** (binlvl * 2)
         if mode == 'crho':
             qm *= depth
 
@@ -380,7 +383,7 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
             image = rescale(image, 2, mode='constant', order=0)
     image /= depth
 
-    crop_range = ((box_proj.T / cell.snap.unitfactor - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
+    crop_range = ((box_proj.T / tracer_part.snap.unitfactor - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
     if subpx_crop:
         image = crop_float(image, crop_range, output_shape=shape)
     else:
@@ -590,7 +593,7 @@ def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_ran
     mass_scale = None
     if box is None and isinstance(smbh, uri.Particle):
         box = smbh.snap.box
-        mass = smbh['m', 'Msol']
+        mass = smbh['m', 'Msol'] if(smbh.snap.unitmode == 'code') else smbh['m']
         if mass_range is None:
             m_max = np.max(mass)
             m_min = np.min(mass)

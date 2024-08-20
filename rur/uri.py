@@ -784,9 +784,13 @@ class RamsesSnapshot(object):
                 self.part.snap = self
                 for key in dim_keys: self.part_data[key] /= self.unit['kpc']
                 for key in vel_keys: self.part_data[key] /= self.unit['km/s']
+                self.part_data['m'] /= self.unit['Msol']
+                if('m0' in self.part_data.dtype.names): self.part_data['m0'] /= self.unit['Msol']
                 if(id(self.part.table) != id(self.part_data)):
                     for key in dim_keys: self.part[key] /= self.unit['kpc']
                     for key in vel_keys: self.part[key] /= self.unit['km/s']
+                    self.part['m'] /= self.unit['Msol']
+                    if('m0' in self.part.dtype.names): self.part['m0'] /= self.unit['Msol']
             if(self.cell is not None):
                 self.cell.snap = self
                 for key in dim_keys: self.cell_data[key] /= self.unit['kpc']
@@ -798,9 +802,17 @@ class RamsesSnapshot(object):
                 self.sink.snap = self
                 for key in dim_keys: self.sink_data[key] /= self.unit['kpc']
                 for key in vel_keys: self.sink_data[key] /= self.unit['km/s']
+                self.sink_data['m'] /= self.unit['Msol']
+                self.sink_data['dM'] /= self.unit['Msol']
+                self.sink_data['dMBH'] /= self.unit['Msol']
+                self.sink_data['dMEd'] /= self.unit['Msol']
                 if(id(self.sink.table) != id(self.sink_data)):
                     for key in dim_keys: self.sink[key] /= self.unit['kpc']
                     for key in vel_keys: self.sink[key] /= self.unit['km/s']
+                    self.sink['m'] /= self.unit['Msol']
+                    self.sink['dM'] /= self.unit['Msol']
+                    self.sink['dMBH'] /= self.unit['Msol']
+                    self.sink['dMEd'] /= self.unit['Msol']
         else:
             self.unitmode = 'code'
             print("Switched to code unit mode")
@@ -811,9 +823,13 @@ class RamsesSnapshot(object):
                 self.part.snap = self
                 for key in dim_keys: self.part_data[key] *= self.unit['kpc']
                 for key in vel_keys: self.part_data[key] *= self.unit['km/s']
+                self.part_data['m'] *= self.unit['Msol']
+                if('m0' in self.part_data.dtype.names): self.part_data['m0'] *= self.unit['Msol']
                 if(id(self.part.table) != id(self.part_data)):
                     for key in dim_keys: self.part[key] *= self.unit['kpc']
                     for key in vel_keys: self.part[key] *= self.unit['km/s']
+                    self.part['m'] *= self.unit['Msol']
+                    if('m0' in self.part.dtype.names): self.part['m0'] *= self.unit['Msol']
             if(self.cell is not None):
                 self.cell.snap = self
                 for key in dim_keys: self.cell_data[key] *= self.unit['kpc']
@@ -825,9 +841,17 @@ class RamsesSnapshot(object):
                 self.sink.snap = self
                 for key in dim_keys: self.sink_data[key] *= self.unit['kpc']
                 for key in vel_keys: self.sink_data[key] *= self.unit['km/s']
+                self.sink_data['m'] *= self.unit['Msol']
+                self.sink_data['dM'] *= self.unit['Msol']
+                self.sink_data['dMBH'] *= self.unit['Msol']
+                self.sink_data['dMEd'] *= self.unit['Msol']
                 if(id(self.sink.table) != id(self.sink_data)):
                     for key in dim_keys: self.sink[key] *= self.unit['kpc']
                     for key in vel_keys: self.sink[key] *= self.unit['km/s']
+                    self.sink['m'] *= self.unit['Msol']
+                    self.sink['dM'] *= self.unit['Msol']
+                    self.sink['dMBH'] *= self.unit['Msol']
+                    self.sink['dMEd'] *= self.unit['Msol']
 
 
     def __del__(self):
@@ -1416,6 +1440,8 @@ class RamsesSnapshot(object):
             if(self.unitmode != 'code'):
                 for key in dim_keys: part[key] /= self.unit['kpc']
                 for key in vel_keys: part[key] /= self.unit['km/s']
+                part['m'] /= self.unit['Msol']
+                if('m0' in part.dtype.names): part['m0'] /= self.unit['Msol']
             if(bound is None):
                 timer.start('Compute boundary on cpumap... ', 1)
                 bound = compute_boundary(part['cpu'], cpulist)
@@ -1751,6 +1777,7 @@ class RamsesSnapshot(object):
             if(self.unitmode != 'code'):
                 for key in dim_keys: sink[key] /= self.unit['kpc']
                 for key in vel_keys: sink[key] /= self.unit['km/s']
+                for key in ['m','dM','dMBH','dMEd']: sink[key] /= self.unit['Msol']
             self.sink_data = sink
             timer.record()
 
@@ -1917,6 +1944,7 @@ class RamsesSnapshot(object):
         if (self.unitmode != 'code'):
             for key in dim_keys: sink[key] /= self.unit['kpc']
             for key in vel_keys: sink[key] /= self.unit['km/s']
+            sink['m']
         sink = append_fields(sink, ['aexp', 'icoarse'], [aexp_table, icoarse_table], usemask=False)
 
         timer.record()
@@ -1994,7 +2022,7 @@ class RamsesSnapshot(object):
         """
         if(self.unitmode != 'code'):
             self.switch_unitmode()
-        self.box = None
+        self.box = self.default_box
         self.pcmap = None
         if (part):
             self.part_data = None
