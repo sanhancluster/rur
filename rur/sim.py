@@ -9,7 +9,7 @@ class NewHorizon(uri.RamsesSnapshot):
 
 class NewHorizon2(uri.RamsesSnapshot):
     def __init__(self, iout, box=None):
-        repo = '/storage6/NewHorizon2'
+        repo = '/storage7/NH2'
         super().__init__(repo, iout, mode='nh2', box=box)
 
 
