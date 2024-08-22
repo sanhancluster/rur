@@ -9,3 +9,5 @@
 **genmod**
 *.i90
 *.mod
+rur/scripts/jeon/trashcan/*
+rur/scripts/jeon/*.ipynb
