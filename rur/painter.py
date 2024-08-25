@@ -1265,6 +1265,25 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
                               weights=lums)
             colorbar_label = 'Surface brightness\nmag'
             mode_label = 'Stars'
+        elif mode_now == 'tracer':
+            tracer = part['tracer']
+            im = draw_tracermap(tracer, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='crho', cmap=ccm.hesperia,
+                                method=cell_method, unit='Msol/pc2')
+            colorbar_label = 'Column Density'
+            mode_label = 'Tracer'
+        elif mode_now == 'star_tracer':
+            tracer = part['star_tracer']
+            im = draw_partmap(tracer, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
+                              unit='Msol/pc2')
+            colorbar_label = 'Column Density'
+            mode_label = 'Star Tracer'
+        elif mode_now == 'gas_tracer':
+            tracer = part['gas_tracer']
+            im = draw_tracermap(tracer, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='crho',
+                                cmap=ccm.hesperia,
+                                method=cell_method, unit='Msol/pc2')
+            colorbar_label = 'Column Density'
+            mode_label = 'Gas Tracer'
         elif mode_now == 'sdss':
             star = part['star']
             filters = ['SDSS_i', 'SDSS_r', 'SDSS_g']
