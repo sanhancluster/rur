@@ -1170,6 +1170,9 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
         'd2': 0.01,
         'd3': 0.01,
         'd4': 0.01,
+        'star_tracer': 3E4,
+        'gas_tracer': 3E3,
+        'tracer': 3E4,
     }
 
     qscale_dict = {
@@ -1184,6 +1187,9 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
         'temp': 4,
         'phot': 5,
         'sdss': None,
+        'tracer': 5,
+        'star_tracer': 5,
+        'gas_tracer': 3,
     }
 
     if box is not None:
@@ -1193,7 +1199,7 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
         snap.box, target = quick_target_box(snap, center, target, catalog, source, rank, rank_order, id, id_name,
                                             radius, radius_unit, drag_part)
 
-    if (np.any(np.isin(['star', 'dm', 'sdss', 'phot'], mode)) or True in show_smbh
+    if (np.any(np.isin(['star', 'dm', 'sdss', 'phot', 'tracer'], mode)) or True in show_smbh
             or np.any(np.isin(['sfr', 'contam'], mode))):
         snap.get_part()
         if target is not None and align:
