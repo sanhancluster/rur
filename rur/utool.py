@@ -42,10 +42,18 @@ if (type_of_script() == 'jupyter'):
 else:
     from tqdm import tqdm
 
+'''
+
+For Numpy2, its pickle is not compatible with Numpy1.
+For Numpy >= 1.26.1, it can read Numpy2's pickle
+'''
+npver = np.__version__
 
 # pickle load/save
 def uopen(path, mode):
     # create directory if there's no one
+    if(not '/' in path):
+        return open(path, mode)
     path = os.path.expanduser(path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     return open(path, mode)
@@ -56,8 +64,14 @@ def dump(data, path, msg=True, format='pkl'):
     path = os.path.expanduser(path)
 
     if (format == 'pkl'):
-        with uopen(path, 'wb') as opened:
-            pkl.dump(data, opened, protocol=4)
+        if(npver >= '2.0.0'): # Numpy >= 2.0.0
+            if(path[-3:] == 'pkl'): path = path[:-3] + 'pkl2'
+            if(path[-6:] == 'pickle'): path = path[:-3] + 'pickle2'
+            with uopen(path, 'wb') as opened:
+                pkl.dump(data, opened, protocol=4)
+        else:
+            with uopen(path, 'wb') as opened:
+                pkl.dump(data, opened, protocol=4)
 
     elif (format == 'hdf5'):
         with h5py.File(path, 'w') as f:
@@ -89,6 +103,11 @@ def load(path, msg=True, format=None):
     if (format == 'pkl'):
         with open(path, 'rb') as opened:
             data = pkl.load(opened, encoding='latin1')
+    elif (format == 'pkl2'):
+        if(npver < '1.26.1'):
+            warnings.warn("Numpy version is lower than 1.26.1, so it may not read Numpy2's pickle")
+        with open(path, 'rb') as opened:
+            data = pkl.load(opened)
     elif (format == 'hdf5'):
         f = h5py.File(path, 'r')
         data = f['table']

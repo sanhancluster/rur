@@ -13,7 +13,7 @@ import gc
 import string
 from multiprocessing import Process, Queue
 from multiprocessing import Pool, shared_memory
-from time import sleep, time
+from time import sleep, time, gmtime, strftime
 import atexit, signal
 
 chars = string.ascii_lowercase
@@ -712,6 +712,175 @@ class HaloMaker:
             uri.timer.verbose = iverbose
         return jout, halo_ids[mask][arg][::-1], occurence[mask][arg][::-1]
 
+    @staticmethod
+    def extend_table(table, snap, galaxy=True, nthread=1, part=True, gas=True, chem=True, individual=None):
+        pnames=[
+            'umag','gmag','rmag','imag','zmag',
+            'r50','r50g','r50i','r50r','r50u','r50z',
+            'r90','r90g','r90i','r90r','r90u','r90z',
+            'age','ageg','agei','ager','ageu','agez',
+            'SFR','SFR_r50','SFR_r90','SFR10','SFR10_r50','SFR10_r90',
+            'vsig','vsig_r50','vsig_r90',
+            'SBu','SBu_r50','SBu_r90',
+            'SBg','SBg_r50','SBg_r90',
+            'SBr','SBr_r50','SBr_r90',
+            'SBi','SBi_r50','SBi_r90',
+            'SBz','SBz_r50','SBz_r90',
+            'metal','MBH','dBH',
+            ] if(part) else []
+        gnames=[
+            'M_gas','M_gas_r50','M_gas_r90',
+            'Mcold_gas','Mcold_gas_r50','Mcold_gas_r90',
+            'Mdense_gas','Mdense_gas_r50','Mdense_gas_r90',
+            'vsig_gas','vsig_gas_r50','vsig_gas_r90',
+            'metal_gas',
+            ] if(gas) else []
+        cnames=[
+            'H_gas','O_gas','Fe_gas','Mg_gas','C_gas','N_gas',
+            'Si_gas','S_gas','D_gas',
+            'CDustLarge_gas','CDustSmall_gas','SiDustLarge_gas','SiDustSmall_gas',
+            ] if(chem) else []
+        names = pnames + gnames + cnames
+        names = [n for n in names if(not n in table.dtype.names)]
+        if(len(names)==0):
+            if(uri.timer.verbose>0): print("No new columns to extend!")
+            return table
+
+        path_in_repo = 'galaxy' if(galaxy) else 'halo'
+        path = f"{snap.repo}/{path_in_repo}/extended"
+        avail = load(f"{path}/avail.pkl", msg=False)
+        av_nout = avail['nout']
+        av_names = avail['names']
+        av_avail = avail['avail']
+        nout = np.unique(table['timestep'])
+        mask = np.isin(av_nout, nout)
+        av_avail = av_avail[mask]
+        mask = np.all(av_avail, axis=0)
+        colname = [name for i, name in enumerate(av_names) if(mask[i])and(name in names)]
+        if(len(colname)==0):
+            if(uri.timer.verbose>0): print("Not available in extended data!")
+            return table
+        if(uri.timer.verbose>0): print(f"Extending table with {colname} ...")
+        idkey = 'hmid' if ('hmid' in table.dtype.names) else 'id'
+
+        odtype = table.dtype
+        ndtype = odtype.descr + [(name, 'f8') for name in colname]
+        ntable = np.empty(table.shape, dtype=ndtype)
+        #-----------------------------------------------------
+        # Method 1
+        #-----------------------------------------------------
+        if(individual is None):
+            individual = False if(len(nout) < len(ntable)/10)or(len(ntable)>5000) else True
+        if(not individual):
+            nthread = min(nthread, len(nout))
+            # Single-thread
+            if(nthread<4):
+                if(uri.timer.verbose>0): print("Single-thread mode")
+                iterobj = tqdm(nout, desc="Extending table", unit='output') if(uri.timer.verbose>0) else nout
+                for iout in iterobj:
+                    mask = table['timestep'] == iout
+                    ind = table[mask][idkey]
+                    for col in colname:
+                        fname = f"{path}/{iout:05d}/{col}_{iout:05d}.dat"
+                        data, _ = datload(fname, msg=False)
+                        ntable[col][mask] = data[ind-1]
+            # Multi-thread
+            else:
+                if(uri.timer.verbose>0): print("Multi-thread mode")
+                now = strftime("%Y%m%d_%H%M%S", gmtime())
+                memory = shared_memory.SharedMemory(name=f"uhmi_extend1_{now}",create=True, size=ntable.nbytes)
+                mtable = np.ndarray(ntable.shape, dtype=ntable.dtype, buffer=memory.buf)
+                pbar = tqdm(total=len(nout), desc='Extending table')
+                def update(*a): pbar.update()
+                with Pool(nthread) as pool:
+                    async_results = []
+                    for iout in nout:
+                        mask = table['timestep'] == iout
+                        ind = table[mask][idkey]
+                        async_results.append(
+                            pool.apply_async(_extend1, (f"uhmi_extend1_{now}", ntable.shape, ntable.dtype, path, iout, mask, ind, colname), callback=update) )
+                    for r in async_results:
+                        r.get()
+                pbar.close()
+                for col in colname: ntable[col] = mtable[col]
+                memory.close()
+                memory.unlink()
+        #-----------------------------------------------------
+        # Method 2
+        #-----------------------------------------------------
+        else:
+            nthread = min(nthread, len(table))
+            pcolname = [c for c in colname if(c in pnames)]
+            gcolname = [c for c in colname if(c in gnames)]
+            ccolname = [c for c in colname if(c in cnames)]
+            # Single-thread
+            if(nthread<4):
+                if(uri.timer.verbose>0): print("Single-thread mode")
+                iterobj = tqdm(range(len(table)), desc="Extending table", unit='gal') if(uri.timer.verbose>0) else range(len(table))
+                for i in iterobj:
+                    iout = table['timestep'][i]
+                    iid = table[idkey][i]
+                    if(part)and(len(pcolname)>0):
+                        parr = load(f"{path}/{iout:05d}/part/{iid:07d}.pkl", msg=False)
+                        pnames = parr.dtype.names
+                        ntable[pcolname][i] = parr[pcolname]
+                    if(gas)and(len(gcolname)>0):
+                        garr = load(f"{path}/{iout:05d}/gas/{iid:07d}.pkl", msg=False)
+                        gnames = garr.dtype.names
+                        ntable[gcolname][i] = garr[gcolname]
+                    if(chem)and(len(ccolname)>0):
+                        carr = load(f"{path}/{iout:05d}/chem/{iid:07d}.pkl", msg=False)
+                        cnames = carr.dtype.names
+                        ntable[ccolname][i] = carr[ccolname]
+            # Multi-thread
+            else:
+                if(uri.timer.verbose>0): print("Multi-thread mode")
+                pgc = (part,gas,chem,pcolname,gcolname,ccolname)
+                now = strftime("%Y%m%d_%H%M%S", gmtime())
+                memory = shared_memory.SharedMemory(name=f"uhmi_extend2_{now}",create=True, size=ntable.nbytes)
+                mtable = np.ndarray(ntable.shape, dtype=ntable.dtype, buffer=memory.buf)
+                pbar = tqdm(total=len(table), desc='Extending table')
+                def update(*a): pbar.update()
+                with Pool(nthread) as pool:
+                    async_results = []
+                    for i in range(len(table)):
+                        iout = table['timestep'][i]
+                        iid = table[idkey][i]
+                        async_results.append(
+                            pool.apply_async(_extend2, (f"uhmi_extend2_{now}", ntable.shape, ntable.dtype, path, i, iout, iid, pgc), callback=update) )
+                    for r in async_results:
+                        r.get()
+                pbar.close()
+                for col in colname: ntable[col] = mtable[col]
+                memory.close()
+                memory.unlink()
+        
+        for oname in odtype.names: ntable[oname] = table[oname]
+        return ntable
+
+def _extend1(address, shape, dtype, path, iout, mask, ind, colname):
+    exist = shared_memory.SharedMemory(name=address)
+    mtable = np.ndarray(shape, dtype=dtype, buffer=exist.buf)
+
+    for col in colname:
+        fname = f"{path}/{iout:05d}/{col}_{iout:05d}.dat"
+        data, _ = datload(fname, msg=False)
+        mtable[col][mask] = data[ind-1]
+def _extend2(address, shape, dtype, path, i, iout, iid, pgc):
+    exist = shared_memory.SharedMemory(name=address)
+    mtable = np.ndarray(shape, dtype=dtype, buffer=exist.buf)
+    
+    part,gas,chem,pcolname,gcolname,ccolname = pgc
+    if(part)and(len(pcolname)>0):
+        parr = load(f"{path}/{iout:05d}/part/{iid:07d}.pkl", msg=False)
+        mtable[pcolname][i] = parr[pcolname]
+    if(gas)and(len(gcolname)>0):
+        garr = load(f"{path}/{iout:05d}/gas/{iid:07d}.pkl", msg=False)
+        mtable[gcolname][i] = garr[gcolname]
+    if(chem)and(len(ccolname)>0):
+        carr = load(f"{path}/{iout:05d}/chem/{iid:07d}.pkl", msg=False)
+        mtable[ccolname][i] = carr[ccolname]
+
 class GalaxyMaker(HaloMaker):
     @staticmethod
     def load(snap, galaxy=True, **kwargs):
@@ -968,7 +1137,9 @@ class PhantomTree:
             ptree = load(tree_fname, msg=True)
             if(np.max(ptree['timestep']) < iout_max): complete = False
             else: complete = True
+            print(f"`{tree_fname}` already exists. (complete={complete})")
             complete = np.max(ptree['timestep']) >= iout_max
+            print(f"Again Complete: {complete}")
         ptree = []
 
         add = 0
@@ -982,7 +1153,6 @@ class PhantomTree:
                         iout -= 1
                         continue
                 else: break
-            
             if(not os.path.isfile(tree_fname))or(not complete):
                 brick = load(brick_fname, msg=False)
                 try: brick = drop_fields(brick, 'mcontam', usemask=False)
@@ -991,7 +1161,7 @@ class PhantomTree:
                 ptree.append(brick)
                 add += 1
             iout -= 1
-        if(len(ptree) == 0):
+        if(len(ptree) == 0)and(not complete):
             raise FileNotFoundError('No ptree file found in %s' % dirpath)
 
         if add>0:

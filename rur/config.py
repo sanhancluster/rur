@@ -58,6 +58,9 @@ class Table:
                     return self.table[item]
         elif isinstance(item, tuple):  # if unit is given
             letter, unit = item
+            if(letter in dim_keys)or(letter in vel_keys):
+                if(self.snap.unitmode != 'code'):
+                    print(f"Warning! Current unit is already physical! Don't trust this result!")
             return self.__getitem__(letter, return_code_unit=True) / self.snap.unit[unit]
         else:
             return self.__copy__(self.table[item])
@@ -396,14 +399,15 @@ def custom_extra_fields(snap, type='common'):
 
     elif type == 'cell':
         # cell extra keys
+        mfactor = 1 if(snap.unitmode == 'code') else snap.unit['Msol']
         extra_fields.update({
             'T': lambda table: table['P'] / table['rho'],  # temperature
             'vol': lambda table: table['dx'] ** 3,  # cell volume
-            'm': lambda table: table['vol'] * table['rho'],  # cell mass
+            'm': lambda table: table['vol'] * table['rho']/mfactor,  # cell mass
             'cs': lambda table: np.sqrt(gamma * table['P'] / table['rho']),  # sound speed
             'mach': lambda table: rss(table['vel']) / np.sqrt(gamma * table['P'] / table['rho']),  # mach number
             'e': lambda table: table['P'] / (gamma - 1) + 0.5 * table['rho'] * ss(table['vel']),  # total energy density
-            'dx': lambda table: snap.boxlen / 2 ** table['level'],  # spatial resolution
+            'dx': lambda table: snap.boxlen / snap.unitfactor / 2 ** table['level'],  # spatial resolution
         })
 
     elif type == 'particle':
@@ -412,7 +416,7 @@ def custom_extra_fields(snap, type='common'):
             'age': lambda table: (snap.age - snap.epoch_to_age(table['epoch'])) * snap.unit['Gyr'],  # stellar age
             'aform': lambda table: snap.epoch_to_aexp(table['epoch']),  # formation epoch
             'zform': lambda table: 1. / table['aform'] - 1,  # formation epoch
-            'dx': lambda table: snap.boxlen / 2 ** table['level'],  # spatial resolution
+            'dx': lambda table: snap.boxlen / snap.unitfactor / 2 ** table['level'],  # spatial resolution
         })
 
     elif type == 'halo':

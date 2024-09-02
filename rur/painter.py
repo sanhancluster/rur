@@ -65,6 +65,7 @@ def get_box_proj(box, proj):
 
 
 def set_bins(known_lvls, minlvl, maxlvl, box_proj, shape, boxlen=1):
+    # box_proj should be in code unit
     if minlvl is None:
         minlvl = np.min(known_lvls)
     else:
@@ -103,13 +104,14 @@ def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, sub
 
     lvl = cell['level']
 
-    box_proj = get_box_proj(box, proj)
+    box_proj = get_box_proj(box, proj) * cell.snap.unitfactor # code unit box
 
     if np.isscalar(shape):
         shape = np.repeat(shape, 2)
 
     known_lvls = np.unique(lvl)
     minlvl, maxlvl, basebin, edge = set_bins(known_lvls, minlvl, maxlvl, box_proj, shape, boxlen=cell.snap.boxlen)
+    edge = edge / cell.snap.unitfactor
 
     known_lvls = np.arange(minlvl, maxlvl + 1)
 
@@ -141,7 +143,7 @@ def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, sub
         if ilvl < maxlvl:
             image = rescale(image, 2, order=0)
 
-    crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
+    crop_range = ((box_proj.T / cell.snap.unitfactor - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
     if subpx_crop:
         image = crop_float(image, crop_range, output_shape=shape)
     else:
@@ -219,7 +221,7 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
 
     lvl = cell['level']
 
-    box_proj = get_box_proj(box, proj)
+    box_proj = get_box_proj(box, proj) * cell.snap.unitfactor # code unit box
 
     if np.isscalar(shape):
         shape = np.repeat(shape, 2)
@@ -229,6 +231,7 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
 
     known_lvls = np.unique(lvl)
     minlvl, maxlvl, basebin, edge = set_bins(known_lvls, minlvl, maxlvl, box_proj, shape, boxlen=cell.snap.boxlen)
+    edge = edge / cell.snap.unitfactor
 
     known_lvls = np.arange(minlvl, np.max(known_lvls) + 1)
 
@@ -298,7 +301,7 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
                 image /= 4
             depth_map = rescale(depth_map, 2, mode='constant', order=interp_order)
 
-    crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
+    crop_range = ((box_proj.T / cell.snap.unitfactor - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
     if subpx_crop:
         image = crop_float(image, crop_range, output_shape=shape)
     else:
@@ -309,7 +312,6 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
     timer.record()
     return image.T
 
-
 def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho', unit=None, minlvl=None, maxlvl=None,
                 subpx_crop=True, interp_order=0, weights=None, quantity=None, method='hist', **kwargs):
     if box is None and hasattr(cell, 'snap'):
@@ -318,7 +320,7 @@ def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho',
     image = gasmap(cell, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl,
                    subpx_crop=subpx_crop, interp_order=interp_order, weights=weights, quantity=quantity, method=method)
 
-    box_proj = get_box_proj(box, proj)
+    box_proj = get_box_proj(box, proj) # code unit box
     if extent is None:
         extent = np.concatenate(box_proj)
 
@@ -331,7 +333,7 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
         box = tracer_part.snap.box
 
     lvl = tracer_part['level']
-    box_proj = get_box_proj(box, proj)
+    box_proj = get_box_proj(box, proj) * tracer_part.snap.unitfactor # code unit box
 
     if np.isscalar(shape):
         shape = np.repeat(shape, 2)
@@ -341,6 +343,7 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
 
     known_lvls = np.unique(lvl)
     minlvl, maxlvl, basebin, edge = set_bins(known_lvls, minlvl, maxlvl, box_proj, shape, boxlen=tracer_part.snap.boxlen)
+    edge = edge / tracer_part.snap.unitfactor
 
     known_lvls = np.arange(minlvl, np.max(known_lvls) + 1)
 
@@ -363,7 +366,10 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
         binsize = basebin * 2 ** (binlvl - minlvl)
 
         xm = get_vector(cell_lvl)
-        qm = cell_lvl['m', unit] / 0.5 ** (binlvl * 2)
+        if(tracer_part.snap.unitmode == 'code'):
+            qm = cell_lvl['m', unit] / 0.5 ** (binlvl * 2)
+        else:
+            qm = cell_lvl['m'] / 0.5 ** (binlvl * 2)
         if mode == 'crho':
             qm *= depth
 
@@ -377,7 +383,7 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
             image = rescale(image, 2, mode='constant', order=0)
     image /= depth
 
-    crop_range = ((box_proj.T - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
+    crop_range = ((box_proj.T / tracer_part.snap.unitfactor - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
     if subpx_crop:
         image = crop_float(image, crop_range, output_shape=shape)
     else:
@@ -397,7 +403,7 @@ def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, m
     image = tracermap(tracer_part, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl,
                       subpx_crop=subpx_crop)
 
-    box_proj = get_box_proj(box, proj)
+    box_proj = get_box_proj(box, proj) * tracer_part.snap.unitfactor # code unit box
     if extent is None:
         extent = np.concatenate(box_proj)
 
@@ -417,7 +423,7 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
         x = x - focus
         x = geo.euler_angle(x, angles, order=order) + focus
 
-    box_proj = get_box_proj(box, proj)
+    box_proj = get_box_proj(box, proj) * part.snap.unitfactor # code unit box
 
     dims = np.arange(3)
     los = dims[np.isin(dims, proj, invert=True, assume_unique=True)][0]
@@ -471,7 +477,7 @@ def draw_partmap(part, box=None, proj=[0, 1], shape=500, extent=None, weights=No
     image = partmap(part, box, proj, shape, weights, unit, method, smooth=smooth, crho=crho, angles=angles, order=order,
                     **kwargs_partmap)
 
-    box_proj = get_box_proj(box, proj)
+    box_proj = get_box_proj(box, proj) * part.snap.unitfactor # code unit box
 
     if extent is None:
         extent = np.concatenate(box_proj)
@@ -587,7 +593,7 @@ def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_ran
     mass_scale = None
     if box is None and isinstance(smbh, uri.Particle):
         box = smbh.snap.box
-        mass = smbh['m', 'Msol']
+        mass = smbh['m', 'Msol'] if(smbh.snap.unitmode == 'code') else smbh['m']
         if mass_range is None:
             m_max = np.max(mass)
             m_min = np.min(mass)
@@ -603,7 +609,7 @@ def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_ran
 
     poss = uri.get_vector(smbh)
     if box is not None:
-        box_proj = get_box_proj(box, proj)
+        box_proj = get_box_proj(box, proj) * smbh.snap.unitfactor # code unit box
         mask = uri.box_mask(poss, box)
         plt.xlim(box_proj[0])
         plt.ylim(box_proj[1])
@@ -697,10 +703,11 @@ def draw_grid(cell, box=None, ax=None, proj=[0, 1], minlvl=None, maxlvl=None, co
 
     lvl = cell['level']
 
-    box_proj = get_box_proj(box, proj)
+    box_proj = get_box_proj(box, proj) * cell.snap.unitfactor # code unit box
 
     known_lvls = np.unique(lvl)
     minlvl, maxlvl, basebin, edge = set_bins(known_lvls, minlvl, maxlvl, box_proj, None, boxlen=cell.snap.boxlen)
+    edge = edge / cell.snap.unitfactor
 
     known_lvls = np.arange(minlvl, maxlvl + 1)
 
@@ -725,7 +732,7 @@ def draw_grid(cell, box=None, ax=None, proj=[0, 1], minlvl=None, maxlvl=None, co
 
         xm, ym = np.meshgrid(xarr, yarr)
         mesh = np.stack([xm, ym], axis=-1)
-        size = cell.snap.boxlen * 0.5 ** ilvl
+        size = cell.snap.boxlen / cell.snap.unitfactor * 0.5 ** ilvl
         coords = mesh[hist_map > draw_threshold] - size / 2
         progress = (ilvl - minlvl) / (maxlvl - minlvl)
         alpha = (1. - progress) / 2 + 0.5
@@ -738,8 +745,8 @@ def draw_grid(cell, box=None, ax=None, proj=[0, 1], minlvl=None, maxlvl=None, co
                                    zorder=100, **kwargs))
 
     if box is not None:
-        ax.set_xlim(box_proj[0])
-        ax.set_ylim(box_proj[1])
+        ax.set_xlim(box_proj[0] / cell.snap.unitfactor)
+        ax.set_ylim(box_proj[1] / cell.snap.unitfactor)
 
 
 def draw_vector(pos, vec, box=None, ax=None, proj=[0, 1], length=None, **kwargs):
@@ -972,6 +979,7 @@ def norm(v, vmin=None, vmax=None, qscale=3., mode='log', nanzero=False):
 
 
 def draw_partmap_polar(part, pos=None, radius=0.5, qscale=3):
+    assert part.snap.unitmode == 'code', "Only code unit is supported for now."
     if pos is None:
         pos = [0.5, 0.5, 0.5]
     coo = utool.get_polar_coord(part['pos'], pos)
@@ -984,6 +992,7 @@ def draw_partmap_polar(part, pos=None, radius=0.5, qscale=3):
 
 
 def set_ticks_unit(snap, proj=[0, 1], unit='kpc', nticks=4, centered=True):
+    assert snap.unitmode == 'code', "Only code unit is supported for now."
     box_proj = get_box_proj(snap.box, proj)
     xr = np.array(box_proj[0])
     yr = np.array(box_proj[1])
@@ -1036,6 +1045,8 @@ def get_tickvalues(range, nticks=4):
 def quick_target_box(snap: uri.RamsesSnapshot, center=None, target=None, catalog=None, source='GalaxyMaker',
                      rank=None, rank_order=None, id=None, id_name='id', radius=None, radius_unit='kpc', drag_part=True):
     # complex parameter handling comes here...
+    if(snap.unitmode != 'code'):
+        snap.switch_unitmode()
     if radius is None:
         radius = 10.
     if radius_unit in snap.unit:
@@ -1049,7 +1060,7 @@ def quick_target_box(snap: uri.RamsesSnapshot, center=None, target=None, catalog
         # if center is specified, use it
         pass
     elif (rank is None and id is None and target is None
-          and not (np.array_equal(snap.box, default_box) or snap.box is None)):
+          and not (np.array_equal(snap.box, snap.default_box) or snap.box is None)):
         # if there is predefined box in snap, use it
         pass
     else:
@@ -1107,7 +1118,7 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
     - catalog
     - source
     """
-
+    if(snap.unitmode != 'code'): snap.switch_unitmode()
     cell = None
     part = None
     smbh = None
