@@ -1137,7 +1137,9 @@ class PhantomTree:
             ptree = load(tree_fname, msg=True)
             if(np.max(ptree['timestep']) < iout_max): complete = False
             else: complete = True
+            print(f"`{tree_fname}` already exists. (complete={complete})")
             complete = np.max(ptree['timestep']) >= iout_max
+            print(f"Again Complete: {complete}")
         ptree = []
 
         add = 0
@@ -1151,7 +1153,6 @@ class PhantomTree:
                         iout -= 1
                         continue
                 else: break
-            
             if(not os.path.isfile(tree_fname))or(not complete):
                 brick = load(brick_fname, msg=False)
                 try: brick = drop_fields(brick, 'mcontam', usemask=False)
@@ -1160,7 +1161,7 @@ class PhantomTree:
                 ptree.append(brick)
                 add += 1
             iout -= 1
-        if(len(ptree) == 0):
+        if(len(ptree) == 0)and(not complete):
             raise FileNotFoundError('No ptree file found in %s' % dirpath)
 
         if add>0:

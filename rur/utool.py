@@ -52,6 +52,8 @@ npver = np.__version__
 # pickle load/save
 def uopen(path, mode):
     # create directory if there's no one
+    if(not '/' in path):
+        return open(path, mode)
     path = os.path.expanduser(path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     return open(path, mode)
