@@ -1088,7 +1088,6 @@ class RamsesSnapshot(object):
         # read float data
         line = opened.readline().strip()
         while len(line) > 0:
-            line = opened.readline().strip()
             matched = float_regex.search(line)
             if (not matched):
                 raise ValueError("A line in the info file is not recognized: %s" % line)
