@@ -725,18 +725,19 @@ class RamsesSnapshot(object):
             self.classic_format = True
 
         self.read_params(snap)
-        if (box is not None):
+
+        # set initial box and default box from boxlen
+        self.default_box = default_box * self.param['boxlen']
+        if box is not None:
+            # if box exists as input
             self.box = np.array(box)
-            self.default_box = default_box
         else:
-            if(self.params['boxlen']==1):
-                self.box = default_box
-                self.default_box = default_box
-            else:
-                boxlen = self.params['boxlen']
-                self.box = np.array([[0, boxlen], [0, boxlen], [0, boxlen]])
-                self.default_box = np.array([[0, boxlen], [0, boxlen], [0, boxlen]])
+            # if not, set as default box
+            self.box = self.default_box
+
         self.region = BoxRegion(self.box)
+
+        # individual box by type for reducing redundant calculation
         self.box_cell = None
         self.box_part = None
         self.box_sink = None
