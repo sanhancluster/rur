@@ -1172,7 +1172,8 @@ class RamsesSnapshot(object):
                 box = box * self.unit['kpc'] # kpc box -> code box
             maxlvl = self.params['levelmax']
 
-            involved_cpu = get_cpulist(box, binlvl, maxlvl, self.bound_key, self.ndim, n_divide,
+            box_unit = box / self.params['boxlen']
+            involved_cpu = get_cpulist(box_unit, binlvl, maxlvl, self.bound_key, self.ndim, n_divide,
                                        ncpu=self.params['ncpu'])
         else:
             involved_cpu = np.arange(self.params['ncpu']) + 1
@@ -2936,16 +2937,24 @@ def time_series(repo, iouts, halo_table, mode='none', extent=None, unit=None):
     return snaps
 
 
-def get_cpulist(box, binlvl, maxlvl, bound_key, ndim, n_divide, ncpu=None):
-    # get list of cpus involved in selected box.
-    volume = np.prod([box[:, 1] - box[:, 0]])
+def get_cpulist(box_unit, binlvl, maxlvl, bound_key, ndim, n_divide, ncpu=None):
+    # get list of cpu domains involved in selected box using hilbert key.
+    # box_unit should be in unit (0, 1)^3
+    # calculate volume
+    volume = np.prod([box_unit[:, 1] - box_unit[:, 0]])
+    
+    # set level of bin to compute hilbery curve (larger is finer, slower)
     if (binlvl is None):
         binlvl = int(np.log2(1. / (volume + 1E-20)) / ndim) + n_divide
+    # avoid too large binlvl
     if (binlvl > 64 // ndim):
         binlvl = 64 // ndim - 1
-    lower, upper = np.floor(box[:, 0] * 2 ** binlvl).astype(int), np.ceil(box[:, 1] * 2 ** binlvl).astype(int)
+
+    # compute the indices of minimum bounding box of the current box in binlvl
+    lower, upper = np.floor(box_unit[:, 0] * 2 ** binlvl).astype(int), np.ceil(box_unit[:, 1] * 2 ** binlvl).astype(int)
     bbox = np.stack([lower, upper], axis=-1)
 
+    # do cartesian product to list all bins within the bounding box 
     bin_list = utool.cartesian(
         np.arange(bbox[0, 0], bbox[0, 1]),
         np.arange(bbox[1, 0], bbox[1, 1]),
@@ -2953,17 +2962,19 @@ def get_cpulist(box, binlvl, maxlvl, bound_key, ndim, n_divide, ncpu=None):
 
     if (timer.verbose >= 2):
         print("Setting bin level as %d..." % binlvl)
-        print("Input box:", box)
+        print("Input box:", box_unit)
         print("Bounding box:", bbox)
         ratio = np.prod([bbox[:, 1] / 2 ** binlvl - bbox[:, 0] / 2 ** binlvl]) / volume
         print("Volume ratio:", ratio)
         print("N. of Blocks:", bin_list.shape[0])
 
+    # compute hilbert key of all bins
     keys = hilbert3d(*(bin_list.T), binlvl, bin_list.shape[0])
     keys = np.array(keys)
     key_range = np.stack([keys, keys + 1], axis=-1)
     key_range = key_range.astype('f8')
 
+    # check all involved domains
     involved_cpu = np.zeros(ncpu, dtype='?')
     icpu_ranges = np.searchsorted(bound_key / 2. ** (ndim * (maxlvl - binlvl + 1)), key_range)
     icpu_ranges = np.unique(icpu_ranges, axis=0)
