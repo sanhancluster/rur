@@ -1077,22 +1077,23 @@ class RamsesSnapshot(object):
 
         params = {}
         # read integer data
-        for _ in range(6):
-            line = opened.readline().strip()
+        line = opened.readline().strip()
+        while len(line) > 0:
             matched = int_regex.search(line)
             if (not matched):
                 raise ValueError("A line in the info file is not recognized: %s" % line)
             params[matched.group('name')] = int(matched.group('data'))
-
-        opened.readline()
+            line = opened.readline().strip()
 
         # read float data
-        for _ in range(11):
+        line = opened.readline().strip()
+        while len(line) > 0:
             line = opened.readline().strip()
             matched = float_regex.search(line)
             if (not matched):
                 raise ValueError("A line in the info file is not recognized: %s" % line)
             params[matched.group('name')] = float(matched.group('data'))
+            line = opened.readline().strip()
 
         # some cosmological calculations
         params['unit_m'] = params['unit_d'] * params['unit_l'] ** 3
@@ -1105,7 +1106,7 @@ class RamsesSnapshot(object):
         params['icoarse'] = params['nstep_coarse']
 
         if (self.classic_format):
-            opened.readline()
+            # read hilbert key boundaries
             line = opened.readline().strip()
             params['ordering'] = str_regex.search(line).group('data')
             opened.readline()
@@ -1131,6 +1132,7 @@ class RamsesSnapshot(object):
                 self.params['star'] = False
         else:
             self.params['star'] = True
+        
         part_dtype, chem = self.part_desc()
         hydro_names, hchem = self.hydro_desc()
         if(not np.array_equal(chem, hchem)):
