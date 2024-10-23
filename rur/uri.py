@@ -727,7 +727,7 @@ class RamsesSnapshot(object):
         self.read_params(snap)
 
         # set initial box and default box from boxlen
-        self.default_box = default_box * self.param['boxlen']
+        self.default_box = default_box * self.params['boxlen']
         if box is not None:
             # if box exists as input
             self.box = np.array(box)
