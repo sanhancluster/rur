@@ -1403,6 +1403,20 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
         save_figure(savefile)
     return fig, axes
 
+def add_ruler(snap, ruler_size=None, proj_now=[0, 1], direction='horizontal', unit='kpc', fontsize=8, thickness=0.02, xy_offset=(0.075, 0.1)):
+    """
+    adds horizontal ruler in current panel
+    """
+    extent_in_unit = (snap.box[proj_now[0], 1] - snap.box[proj_now[0], 0]) / snap.unit[unit]
+    if ruler_size is None:
+        ruler_size = int(extent_in_unit / 5)
+    bar_length = ruler_size / extent_in_unit
+    rect = Rectangle(xy_offset, bar_length, thickness, transform=plt.gca().transAxes, color='white', zorder=100)
+    plt.gca().add_patch(rect)
+    plt.text(0.075 + bar_length / 2, xy_offset[1]-thickness, '%g %s' % (ruler_size, unit), ha='center',
+                va='top', color='white', transform=plt.gca().transAxes, fontsize=fontsize)
+
+
 
 def sdss_rgb(star, filename=None, **kwargs):
     mags = phot.measure_magnitude(star, 'SDSS_g')
