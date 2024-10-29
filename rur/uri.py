@@ -498,24 +498,10 @@ def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, cell=None, nsize=
     ndim = amr_kwargs['ndim']
     twotondim = amr_kwargs['twotondim']
     skip_amr = amr_kwargs['skip_amr']
-    nxyz = amr_kwargs['nx'], amr_kwargs['ny'], amr_kwargs['nz']
     boxlen = amr_kwargs['boxlen']
-
-    # does not work if boundaries are asymmetric, which can only be determined in namelist
-    coarse_min = [0, 0, 0]
-    key = ['i', 'j', 'k']
-    if nboundary > 0:
-        for i in range(ndim):
-            if nxyz[i] == 3:
-                coarse_min[i] += 1
-            if nxyz[i] == 2:
-                nml = self.read_namelist()
-                if nx == 2:
-                    bound_min = np.array(str_to_tuple(nml['BOUNDARY_PARAMS']['%sbound_min' % key[i]]))
-                    bound_max = np.array(str_to_tuple(nml['BOUNDARY_PARAMS']['%sbound_max' % key[i]]))
-                    if np.any(((bound_min * bound_max) == 1) & bound_min == -1):
-                        coarse_min += 1
-    icoarse_min, jcoarse_min, kcoarse_min = tuple(coarse_min)
+    icoarse_min = amr_kwargs['icoarse_min']
+    jcoarse_min = amr_kwargs['jcoarse_min']
+    kcoarse_min = amr_kwargs['kcoarse_min']
 
     # 1) Read headers
     hydro_fname = f"{repo}/output_{iout:05d}/hydro_{iout:05d}.out{icpu:05d}"
@@ -1501,10 +1487,33 @@ class RamsesSnapshot(object):
             nboundary, = f.read_ints()
             f.skip_records(1)
             boxlen, = f.read_reals()
+
+        # measures x, y, z offset based on the boundary condition
+        # does not work if boundaries are asymmetric, which can only be determined in namelist
+        coarse_min = [0, 0, 0]
+        key = ['i', 'j', 'k']
+        nxyz = [nx, ny, nz]
+        if nboundary > 0:
+            for i in range(ndim):
+                if nxyz[i] == 3:
+                    coarse_min[i] += 1
+                if nxyz[i] == 2:
+                    nml = self.read_namelist()
+                    if len(nml) == 0:
+                        warinings.warn("Assymetric boundaries detected, which cannot be determined without namelist file. \
+                                      Move namelist.txt file to the output directory or manually apply offset to the cell position.")
+                    else:
+                        bound_min = np.array(str_to_tuple(nml['BOUNDARY_PARAMS']['%sbound_min' % key[i]]))
+                        bound_max = np.array(str_to_tuple(nml['BOUNDARY_PARAMS']['%sbound_max' % key[i]]))
+                        if np.any(((bound_min * bound_max) == 1) & bound_min == -1):
+                            coarse_min += 1
+        icoarse_min, jcoarse_min, kcoarse_min = tuple(coarse_min)
+
         amr_kwargs = {
             'nboundary': nboundary, 'nlevelmax': nlevelmax, 'ndim': ndim,
             'ncpu': ncpu, 'twotondim': 2 ** ndim, 'skip_amr': 3 * (2 ** ndim + ndim) + 1,
-            'nx': nx, 'ny': ny, 'nz': nz, 'boxlen': boxlen,}
+            'nx': nx, 'ny': ny, 'nz': nz, 'boxlen': boxlen,
+            'icoarse_min': icoarse_min, 'jcoarse_min': jcoarse_min, 'kcoarse_min': kcoarse_min,}
 
         # 2) Read Hydro params
         fname = self.get_path('hydro', 1)
@@ -2458,9 +2467,13 @@ class RamsesSnapshot(object):
 
     def read_namelist(self):
         # reads namelist file (if there is) and returns dictionary of strings
-        path = self.get_path('namelist')
-        data = parse_namelist(path)
-        return data
+        if self.namelist_data is None:
+            path = self.get_path('namelist')
+            try:
+                self.namelist_data = parse_namelist(path)
+            except FileNotFoundError:
+                self.namelist_data = {}
+        return self.namelist_data
 
 Snapshot = RamsesSnapshot
 
@@ -2860,7 +2873,7 @@ def match_part_to_cell(part, cell, n_search=16):
     min_dists = np.min(dists_cand, axis=-1)
     if (np.any(min_dists > 0.5)):
         print(min_dists)
-        raise RuntimeWarning(
+        raise RuntimeError(
             "%d particles are not matched corretly. Try increasing n_search. If it doesn't work, it could mean your cell data is incomplete." % np.sum(
                 min_dists > 0.5))
 
@@ -3367,4 +3380,4 @@ def parse_namelist(filename):
     return namelist_data
 
 def str_to_tuple(input_data):
-    return tuple(map(int, input_string.split(',')))
+    return tuple(map(int, input_data.split(',')))
