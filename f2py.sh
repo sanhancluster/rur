@@ -4,7 +4,7 @@ FILES='readr.f90 readhtm.f90 hilbert3d.f90 io_ramses.f90'
 # FILES='readhtm.f90'
 F2PY=f2py
 FORT=gfortran # or "ifort"
-MACHINE="gc" # or "tardis"
+MACHINE="tardis" # or "tardis"
 BASEDIR=$(dirname "$0")
 
 cd $BASEDIR/rur

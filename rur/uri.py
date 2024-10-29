@@ -28,6 +28,7 @@ from copy import deepcopy
 from multiprocessing import Pool, shared_memory
 import atexit, signal
 from sys import exit
+import configparser
 
 
 class TimeSeries(object):
@@ -497,6 +498,24 @@ def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, cell=None, nsize=
     ndim = amr_kwargs['ndim']
     twotondim = amr_kwargs['twotondim']
     skip_amr = amr_kwargs['skip_amr']
+    nxyz = amr_kwargs['nx'], amr_kwargs['ny'], amr_kwargs['nz']
+    boxlen = amr_kwargs['boxlen']
+
+    # does not work if boundaries are asymmetric, which can only be determined in namelist
+    coarse_min = [0, 0, 0]
+    key = ['i', 'j', 'k']
+    if nboundary > 0:
+        for i in range(ndim):
+            if nxyz[i] == 3:
+                coarse_min[i] += 1
+            if nxyz[i] == 2:
+                nml = self.read_namelist()
+                if nx == 2:
+                    bound_min = np.array(str_to_tuple(nml['BOUNDARY_PARAMS']['%sbound_min' % key[i]]))
+                    bound_max = np.array(str_to_tuple(nml['BOUNDARY_PARAMS']['%sbound_max' % key[i]]))
+                    if np.any(((bound_min * bound_max) == 1) & bound_min == -1):
+                        coarse_min += 1
+    icoarse_min, jcoarse_min, kcoarse_min = tuple(coarse_min)
 
     # 1) Read headers
     hydro_fname = f"{repo}/output_{iout:05d}/hydro_{iout:05d}.out{icpu:05d}"
@@ -565,6 +584,12 @@ def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, cell=None, nsize=
                                 add=oct_y / 2 ** (ilevel + 1))
             z = readorskip_real(f_amr, np.float64, 'z', target_fields,
                                 add=oct_z / 2 ** (ilevel + 1))
+            
+            # Convert xyz coordinate to boxlen unit
+            x = (x - icoarse_min) * boxlen
+            y = (y - jcoarse_min) * boxlen
+            z = (z - kcoarse_min) * boxlen
+
             f_amr.skip_records(2 * ndim + 1)  # Skip father index & nbor index
             # Read son index to check refinement
             ileaf = f_amr.read_arrays(twotondim) == 0
@@ -880,6 +905,8 @@ class RamsesSnapshot(object):
         return self.__getitem__(item)
 
     def get_path(self, type='amr', icpu=1):
+        if(type == 'namelist'):
+            return join(self.path, "namelist.txt")
         if(self.mode=='ng'): return join(self.path, f"{type}.out{icpu:05d}")
         return join(self.path, f"{type}_{self.iout:05d}.out{icpu:05d}")
 
@@ -1463,21 +1490,24 @@ class RamsesSnapshot(object):
 
     def read_cell_py(self, cpulist: Iterable, target_fields: Iterable = None, nthread: int = 8, read_grav: bool = False, use_cache=True):
         # 1) Read AMR params
-        sequential = nthread == 1
-        fname = f"{self.snap_path}/output_{self.iout:05d}/amr_{self.iout:05d}.out00001"
+        sequential = nthread == 1   
+        fname = self.get_path('amr', 1)
         with FortranFile(fname, mode='r') as f:
             ncpu, = f.read_ints()
             ndim, = f.read_ints()
-            f.skip_records(1)
+            nx, ny, nz, = f.read_ints()
             nlevelmax, = f.read_ints()
             f.skip_records(1)
             nboundary, = f.read_ints()
+            f.skip_records(1)
+            boxlen, = f.read_reals()
         amr_kwargs = {
             'nboundary': nboundary, 'nlevelmax': nlevelmax, 'ndim': ndim,
-            'ncpu': ncpu, 'twotondim': 2 ** ndim, 'skip_amr': 3 * (2 ** ndim + ndim) + 1}
+            'ncpu': ncpu, 'twotondim': 2 ** ndim, 'skip_amr': 3 * (2 ** ndim + ndim) + 1,
+            'nx': nx, 'ny': ny, 'nz': nz, 'boxlen': boxlen,}
 
         # 2) Read Hydro params
-        fname = f"{self.snap_path}/output_{self.iout:05d}/hydro_{self.iout:05d}.out00001"
+        fname = self.get_path('hydro', 1)
         with FortranFile(fname, mode='r') as f:
             f.skip_records(1)
             nhvar, = f.read_ints()
@@ -2426,6 +2456,11 @@ class RamsesSnapshot(object):
         readr.count_cell(self.snap_path, self.iout, cpulist, self.mode)
         return readr.ncell_table
 
+    def read_namelist(self):
+        # reads namelist file (if there is) and returns dictionary of strings
+        path = self.get_path('namelist')
+        data = parse_namelist(path)
+        return data
 
 Snapshot = RamsesSnapshot
 
@@ -3310,3 +3345,26 @@ def quad_to_f16(by):
     exponent = ((asint >> 112) & 0x7FFF) - 16383
     significand = np.float128((asint & ((1 << 112) - 1)) | (1 << 112))
     return sign * significand * 2.0 ** np.float128(exponent - 112)
+
+def parse_namelist(filename):
+    config = configparser.ConfigParser(allow_no_value=True)
+    with open(filename, 'r') as file:
+        lines = []
+        for line in file:
+            # Replace "&groupname" with "[groupname]"
+            if line.strip().startswith("&"):
+                line = "[" + line.strip()[1:] + "]\n"
+            # Skip the "/" end group notation
+            elif line.strip() == "/":
+                continue
+            lines.append(line)
+        
+        # Parse the adapted config
+        config.read_string("".join(lines))
+    
+    # Convert config to dictionary format
+    namelist_data = {s: dict(config.items(s)) for s in config.sections()}
+    return namelist_data
+
+def str_to_tuple(input_data):
+    return tuple(map(int, input_string.split(',')))
