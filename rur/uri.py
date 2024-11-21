@@ -1215,7 +1215,7 @@ class RamsesSnapshot(object):
                     if(family in header.keys()): header[family] += count
                     if('tracer' in family): header['tracer'] += count
                     header['total'] += count
-                    header[it[0].lower()] = int(it[1])
+                    header[family.lower()] = count
                 header['sink'] = int(header['cloud']/2109)
         else:
             warnings.warn(f"Warning! No `{fname}` found.", UserWarning)
