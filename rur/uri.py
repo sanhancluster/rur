@@ -1222,11 +1222,14 @@ class RamsesSnapshot(object):
                 header['cloud'] = int(texts[7])*2109
             else: # Normal Case
                 for it in texts:
-                    family, count = it[0], int(it[1])
+                    if(len(it)==1):
+                        s=it[0]; family = s.rstrip('0123456789'); count = int(s[len(family):])
+                    else:
+                        family, count = it[0], int(it[1])
                     if(family in header.keys()): header[family] += count
                     if('tracer' in family): header['tracer'] += count
                     header['total'] += count
-                    header[it[0].lower()] = int(it[1])
+                    header[family.lower()] = count
                 header['sink'] = int(header['cloud']/2109)
         else:
             warnings.warn(f"Warning! No `{fname}` found.", UserWarning)

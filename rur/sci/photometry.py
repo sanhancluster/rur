@@ -9,9 +9,14 @@ from collections import defaultdict
 cb07_table = None
 
 def set_boundaries(data, range):
-    data[(data<=range[0]) | np.isnan(data)] = range[0]
-    data[data>range[1]] = range[1]
+    data = np.clip(data, range[0], range[1])
+    isnan = np.isnan(data)
+    if(np.any(isnan)):
+        data[isnan] = range[0]
     return data
+    # data[(data<=range[0]) | np.isnan(data)] = range[0]
+    # data[data>range[1]] = range[1]
+    # return data
 
 def read_YEPS_table(alpha=1):
     yeps_dir = pkg_resources.resource_filename('rur', 'YEPS/')
@@ -98,6 +103,83 @@ def read_cb07_table():
 #    table = np.concatenate(table)
 #    return table
 
+def measure_magnitudes(stars, filter_names, alpha=1, total=False, model='cb07'):
+    # measures absolute magnitude from stellar ages & metallicities
+    filter_aliases = alias_dict()
+    filter_aliases.update({
+        'SDSS_u': 'u',
+        'SDSS_g': 'g',
+        'SDSS_r': 'r',
+        'SDSS_i': 'i',
+        'SDSS_z': 'z',
+        'CFHT_u': 'u_1',
+        'CFHT_g': 'g_1',
+        'CFHT_r': 'r_1',
+        'CFHT_i': 'i_1',
+        'CFHT_y': 'y',
+        'CFHT_z': 'z_1',
+        'CFHT_Ks': 'Ks',
+    })
+    # measure magnitude from star data and population synthesis model.
+    if(model == 'cb07'):
+        table = read_cb07_table()
+
+        log_ages = np.zeros(stars.size, 'f8')
+        ages = stars['age', 'yr']
+        log_ages = np.where(ages>0, np.log10(ages), -np.inf)
+        log_metals = np.log10(stars['metal'])
+
+        grid1 = table['logageyr']
+        grid2 = np.log10(table['metal'])
+
+        log_ages = set_boundaries(log_ages, [np.min(grid1), np.max(grid1)])
+        log_metals = set_boundaries(log_metals, [np.min(grid2), np.max(grid2)])
+
+        arr1 = log_ages
+        arr2 = log_metals
+        m_unit = 1.
+
+    elif(model == 'YEPS'):
+        table = read_YEPS_table(alpha)
+        ages = np.log10(stars['age', 'Gyr'])
+        # FeHs = stars['FeH']
+        FeHs = 1.024*np.log10(stars['metal']) + 1.739
+
+        ages[ages<=5.] = 5.
+        FeHs[FeHs<=-2.5] = -2.5
+        FeHs[FeHs>=0.5] = 0.5
+
+        arr1 = np.log10(ages)
+        arr2 = FeHs
+
+        grid1 = np.log10(table['age'])
+        grid2 = table['FeH']
+
+        m_unit = 1E7
+
+    else:
+        raise ValueError("Unknown model '%s'" % model)
+    stacked = np.stack([grid1, grid2], axis=-1)
+    msols = stars['m', 'Msol']
+    magdict = {}
+    ip = None
+    for filter_name in filter_names:
+        if(ip is None):
+            try:
+                ip = LinearNDInterpolator(stacked, table[filter_aliases[filter_name]], fill_value=np.nan)
+            except:
+                ip = LinearNDInterpolator(stacked, table[filter_name], fill_value=np.nan)
+        else:
+            ip.values = table[filter_aliases[filter_name]].reshape(-1,1).copy() # C-contiguous
+        mags = ip(arr1, arr2)
+        mags = mags - 2.5*np.log10(msols/m_unit)
+        if(total):
+            mags = mags[~np.isnan(mags)]
+            magdict[filter_name] = -2.5*np.log10(np.sum(10**(0.4*-mags)))
+        else:
+            magdict[filter_name] = mags
+    return magdict
+
 def measure_magnitude(stars, filter_name, alpha=1, total=False, model='cb07'):
     # measures absolute magnitude from stellar ages & metallicities
     filter_aliases = alias_dict()
@@ -117,15 +199,11 @@ def measure_magnitude(stars, filter_name, alpha=1, total=False, model='cb07'):
     })
     # measure magnitude from star data and population synthesis model.
     if(model == 'cb07'):
-
         table = read_cb07_table()
 
         log_ages = np.zeros(stars.size, 'f8')
         ages = stars['age', 'yr']
-        valid = ages>0.
-        log_ages[valid] = np.log10(ages[valid])
-        log_ages[~valid] = -np.inf
-
+        log_ages = np.where(ages>0, np.log10(ages), -np.inf)
         log_metals = np.log10(stars['metal'])
 
         grid1 = table['logageyr']
