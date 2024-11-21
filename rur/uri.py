@@ -729,6 +729,7 @@ class RamsesSnapshot(object):
             self.box = np.array(box)
             self.default_box = default_box
         else:
+            # if not, set as default box
             self.box = self.default_box
         self.region = BoxRegion(self.box)
         self.box_cell = None
