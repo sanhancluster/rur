@@ -731,6 +731,7 @@ class RamsesSnapshot(object):
         else:
             # if not, set as default box
             self.box = self.default_box
+
         self.region = BoxRegion(self.box)
         self.box_cell = None
         self.box_part = None
