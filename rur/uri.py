@@ -729,15 +729,7 @@ class RamsesSnapshot(object):
             self.box = np.array(box)
             self.default_box = default_box
         else:
-            if(self.params['boxlen']==1):
-                self.box = default_box
-                self.default_box = default_box
-            else:
-                # Assume: Boxlen is code unit
-                #   ex: Yohan's idealized simulation boxlen=600 but it's in kpc
-                boxlen = self.params['boxlen']
-                self.box = np.array([[0, boxlen], [0, boxlen], [0, boxlen]])
-                self.default_box = np.array([[0, boxlen], [0, boxlen], [0, boxlen]])
+            self.box = self.default_box
         self.region = BoxRegion(self.box)
         self.box_cell = None
         self.box_part = None
