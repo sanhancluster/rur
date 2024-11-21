@@ -733,6 +733,8 @@ class RamsesSnapshot(object):
                 self.box = default_box
                 self.default_box = default_box
             else:
+                # Assume: Boxlen is code unit
+                #   ex: Yohan's idealized simulation boxlen=600 but it's in kpc
                 boxlen = self.params['boxlen']
                 self.box = np.array([[0, boxlen], [0, boxlen], [0, boxlen]])
                 self.default_box = np.array([[0, boxlen], [0, boxlen], [0, boxlen]])
@@ -1206,7 +1208,10 @@ class RamsesSnapshot(object):
                 header['cloud'] = int(texts[7])*2109
             else: # Normal Case
                 for it in texts:
-                    family, count = it[0], int(it[1])
+                    if(len(it)==1):
+                        s=it[0]; family = s.rstrip('0123456789'); count = int(s[len(family):])
+                    else:
+                        family, count = it[0], int(it[1])
                     if(family in header.keys()): header[family] += count
                     if('tracer' in family): header['tracer'] += count
                     header['total'] += count
