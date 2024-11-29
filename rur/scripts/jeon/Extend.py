@@ -10,7 +10,7 @@ import time
 import datetime
 import signal
 
-print("ex: python3 Extend.py --mode nc --title R50 --verbose")
+print("ex: python3 Extend.py --mode nc --nthread 24 --verbose --chem")
 parser = argparse.ArgumentParser(description='Extend HaloMaker (syj3514@yonsei.ac.kr)')
 parser.add_argument("-m", "--mode", default='nc', required=False, help='Simulation mode', type=str)
 parser.add_argument("-n", "--nthread", default=8, required=False, help='Ncore', type=int)
