@@ -251,7 +251,7 @@ def readorskip_int(f: FortranFile, dtype: type, key: str, search: Iterable, add=
         f.skip_records()
 
 
-def _classify(pname: str, npart:int, ids=None, epoch=None, m=None, family=None, sizeonly: bool = False):
+def _classify(pname: str, npart:int, ids=None, epoch=None, m=None, family=None, sizeonly: bool = False, isstar=True):
     if (pname is None):
         mask = np.full(npart, True, dtype=bool)
         nsize = npart
@@ -269,7 +269,8 @@ def _classify(pname: str, npart:int, ids=None, epoch=None, m=None, family=None, 
                 mask = (ids < 0) & (m > 0) & (epoch == 0)
             nsize = np.count_nonzero(mask)
         elif (ids is not None):
-            warnings.warn("Warning: either `family` or `epoch` should be given to classify particles.", UserWarning)
+            if (isstar):
+                warnings.warn("Warning: either `family` or `epoch` should be given to classify particles.", UserWarning)
             if (pname == 'dm'):
                 mask = ids > 0
                 nsize = np.count_nonzero(mask)
@@ -303,7 +304,7 @@ def _calc_npart(fname: str, kwargs: dict, sizeonly=False):
         f.skip_records(2)
         npart = f.read_ints(np.int32)
         if(pname is None):
-            result = _classify(pname, npart, ids=ids, epoch=epoch, m=m, family=family, sizeonly=sizeonly)
+            result = _classify(pname, npart, ids=ids, epoch=epoch, m=m, family=family, sizeonly=sizeonly, isstar=isstar)
             return result[0], result[1], int(fname[-5:])
         f.skip_records(5)
         if (isfamily):
@@ -316,7 +317,7 @@ def _calc_npart(fname: str, kwargs: dict, sizeonly=False):
             if (isstar):
                 f.skip_records(1)
                 epoch = f.read_reals(np.float64)
-        result = _classify(pname, npart, ids=ids, epoch=epoch, m=m, family=family, sizeonly=sizeonly)
+        result = _classify(pname, npart, ids=ids, epoch=epoch, m=m, family=family, sizeonly=sizeonly, isstar=isstar)
     if (not exists(cache))and(use_cache):
         if(not exists(f"{repo}/cache")):
             try: os.makedirs(f"{repo}/cache")
@@ -385,7 +386,7 @@ def _read_part(fname: str, kwargs: dict, part=None, mask=None, nsize=None, curso
 
         # Masking
         if (mask is None)or(nsize is None):
-            mask, nsize = _classify(pname, npart, ids=ids, epoch=epoch, m=m, family=family, sizeonly=False)
+            mask, nsize = _classify(pname, npart, ids=ids, epoch=epoch, m=m, family=family, sizeonly=False, isstar=isstar)
             if (isinstance(mask, np.ndarray)):
                 assert np.sum(mask) == nsize
         # Allocating
@@ -1416,7 +1417,7 @@ class RamsesSnapshot(object):
                                         'epoch' in target_fields) else None
                         if (pname != 'dm') and (pname != 'star'):
                             m = arr[np.where(np.array(target_fields) == 'm')[0][0]] if ('m' in target_fields) else None
-                    mask, _ = _classify(pname, len(arr[0]), ids=ids, epoch=epoch, m=m, family=family)
+                    mask, _ = _classify(pname, len(arr[0]), ids=ids, epoch=epoch, m=m, family=family, isstar=self.star[0])
                     if (pname is not None): arr = [iarr[mask] for iarr in arr]
                     part = fromarrays(arr, dtype=dtype)
                 else:
@@ -1451,7 +1452,7 @@ class RamsesSnapshot(object):
                         ids = names.pop('id', None)
                         epoch = names.pop('epoch', None)
                         m = names.pop('m', None)
-                    mask, _ = _classify(pname, arrs[0].shape[0], ids=ids, epoch=epoch, m=m, family=family)
+                    mask, _ = _classify(pname, arrs[0].shape[0], ids=ids, epoch=epoch, m=m, family=family, isstar=self.star[0])
                     if (pname is not None): arrs = [arr[mask] for arr in arrs]
                     part = fromndarrays(arrs, dtype)
                 readr.close()
