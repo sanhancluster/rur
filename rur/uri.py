@@ -710,6 +710,7 @@ class RamsesSnapshot(object):
         if(self.mode=='ng'): self.info_path = join(self.path, f'info.txt')
 
         self.memory = []
+        self.shmprefix = 'rur'
         self.tracer_mem = None
         self.part_mem = None
         self.cell_mem = None
@@ -1074,10 +1075,12 @@ class RamsesSnapshot(object):
 
     def make_shm_name(self, kind):
         now = datetime.datetime.now()
-        fname = f"rur_{kind}_{self.mode.replace('_','')}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S_%f')}"
+        try: shmprefix = self.shmprefix
+        except: shmprefix = 'rur'
+        fname = f"{shmprefix}_{kind}_{self.mode.replace('_','')}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S_%f')}"
         count = 0
         while(exists(f"/dev/shm/{fname}")):
-            fname = f"rur_{kind}_{self.mode.replace('_','')}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S_%f')}r{count}"
+            fname = f"{shmprefix}_{kind}_{self.mode.replace('_','')}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S_%f')}r{count}"
             count += 1
         return fname
 
