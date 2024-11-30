@@ -1,7 +1,7 @@
 import numpy as np
 from rur import uri, uhmi
 from rur.utool import load
-import os, glob
+import os, glob, sys
 # import read_bricks
 from multiprocessing import Pool, shared_memory
 from tqdm import tqdm
@@ -9,6 +9,12 @@ import argparse
 import time
 import datetime
 import signal
+
+def delprint(n=1):
+    """Delete the last line in the STDOUT."""
+    for _ in range(n):
+        sys.stdout.write("\x1b[1A")  # cursor up one line
+        sys.stdout.write("\x1b[2K")  # delete the last line
 
 print("ex: python3 Extend.py --mode nc --nthread 24 --verbose --chem")
 parser = argparse.ArgumentParser(description='Extend HaloMaker (syj3514@yonsei.ac.kr)')
@@ -82,6 +88,8 @@ def calc_extended(
     get_additional=None, func_additional=None,
     **kwargs):
     global mode
+    walltimes = []
+    ref = time.time()
 
     # Setting database
     path_in_repo = 'galaxy' if galaxy else 'halo'
@@ -91,7 +99,7 @@ def calc_extended(
     if(not os.path.exists(full_path)):
         os.makedirs(full_path)
     uri.timer.verbose=0
-    snap = uri.RamsesSnapshot(path, iout)
+    snap = uri.RamsesSnapshot(path, iout); snap.shmprefix = "extend"
     uri.timer.verbose = 1 if verbose else 0
 
     # Check names
@@ -134,12 +142,14 @@ def calc_extended(
         'age':['m', 'epoch','metal'],
         'zmag':['m', 'epoch', 'metal'],
     }
-    fields = []
+    ftmp = []
+    fields = ['x', 'y', 'z', 'vx','vy','vz', 'm', 'epoch', 'metal']
     for name in names:
         if(name in need_members):
-            fields += need_members[name]
-    if(len(fields)>0):
-        fields = list(set(fields))
+            ftmp += need_members[name]
+    if(len(ftmp)>0):
+        ftmp = list(set(ftmp))
+        fields = [field for field in fields if field in ftmp]
         mtarget_fields = fields
         need_member = True
         if(verbose): print(f" > Member fields: {fields}")
@@ -152,12 +162,16 @@ def calc_extended(
         'H':['x','y','z','rho','level','H','O','Fe','Mg','C','Si','N','S','D'] if chem else ['x','y','z','rho','level'],
         'd1':['x','y','z','rho','level','d1','d2','d3','d4'] if chem else ['x','y','z','rho','level'],
     }
-    ctarget_fields = []
+    ctmp = []
+    ctarget_fields = [
+        'x', 'y', 'z', 'vx','vy','vz', 'rho','P','level','metal',
+        'H', 'O', 'Fe', 'Mg', 'C', 'Si', 'N', 'S', 'D', 'd1', 'd2', 'd3', 'd4']
     for name in names:
         if(name in need_cells):
-            ctarget_fields += need_cells[name]
-    if(len(ctarget_fields)>0):
-        ctarget_fields = list(set(ctarget_fields))
+            ctmp += need_cells[name]
+    if(len(ctmp)>0):
+        ctmp = list(set(ctmp))
+        ctarget_fields = [field for field in ctarget_fields if field in ctmp]
         need_cell = True
         if(verbose): print(f" > Cell fields: {ctarget_fields}")
        
@@ -173,6 +187,7 @@ def calc_extended(
     table = uhmi.HaloMaker.load(snap,galaxy=galaxy, extend=False)
     if(verbose): print(f" > Calculate for {len(table)} {path_in_repo}s")
     domain = [None for _ in range(len(table))]
+    walltime = ("Preparation", time.time()-ref); walltimes.append(walltime); ref = time.time()
 
     # Load Member particles
     snapm = None
@@ -180,11 +195,13 @@ def calc_extended(
     part_memory = (None, None, None, None, None)
     cell_memory = (None, None, None, None, None)
     if(need_member):
-        if(verbose): print(f" > Read member particles")
-        snapm = uri.RamsesSnapshot(path, iout)
+        if(verbose): print(f" > Read member particles ({np.sum(table['nparts'])})")
+        snapm = uri.RamsesSnapshot(path, iout); snapm.shmprefix = "extend"
         members = uhmi.HaloMaker.read_member_parts(snapm, table, galaxy=galaxy, nthread=nthread, copy=True, target_fields=mtarget_fields)
         nparts = table['nparts']
         cparts = np.cumsum(nparts); cparts = np.insert(cparts, 0, 0)
+        delprint(2)
+    walltime = ("Read member", time.time()-ref); walltimes.append(walltime); ref = time.time()
 
     # Load Raw data
     if(need_part)or(need_cell):
@@ -210,24 +227,27 @@ def calc_extended(
             bound_cell = snap.bound_cell
             cell_memory = (cshape, caddress, cdtype, cpulist_cell, bound_cell)
             result_dtype = check_chems(result_dtype, snap.hydro_names)
+        walltime = ("Read raw", time.time()-ref); walltimes.append(walltime); ref = time.time()
     
     # Preprocess
     if(pre_func is not None):
         if(verbose): print(f" > Preprocess datasets")
-        table, snapm, members, snap, part_memory, cell_memory = pre_func(names, table, snapm, members, snap, part_memory, cell_memory, full_path, verbose)
+        table, snapm, members, snap, part_memory, cell_memory = pre_func(names, table, snapm, members, snap, part_memory, cell_memory, full_path, nthread, verbose)
+        walltime = ("Preprocess", time.time()-ref); walltimes.append(walltime); ref = time.time()
 
     # Additional data
     send = None
     if(func_additional is not None):
         if(verbose): print(f" > Get additional data")
         dat = get_additional(table, snapm, members, snap, part_memory, cell_memory)
+        delprint(2)
         send = func_additional(dat)
+        walltime = ("Additional data", time.time()-ref); walltimes.append(walltime); ref = time.time()
 
     # Assign shared memory
     if(verbose): print(f" > Make shared memory")
     shmname = f"extend_{mode}_{path_in_repo}_{snap.iout:05d}"
-    if(os.path.exists(f"/dev/shm/{shmname}")):
-        os.remove(f"/dev/shm/{shmname}")
+    if(os.path.exists(f"/dev/shm/{shmname}")): os.remove(f"/dev/shm/{shmname}")
     result_table = np.empty(len(table), dtype=result_dtype)
     memory = shared_memory.SharedMemory(name=shmname, create=True, size=result_table.nbytes)
     result_table = np.ndarray(result_table.shape, dtype=result_dtype, buffer=memory.buf)
@@ -254,18 +274,19 @@ def calc_extended(
         signal.signal(signal.SIGTERM, snap.terminate)
     if(verbose):
         pbar.close()
-        print(f" > Done ({time.time()-reft:.2f} sec)")
-    
+        delprint(1)
+    walltime = ("Get results", time.time()-ref); walltimes.append(walltime); ref = time.time()
+
     # Dump and relase memory
     if(verbose): print(f" > Dumping")
     dump_func(result_table, full_path, iout, name_dicts, verbose)
-    memory.close()
-    memory.unlink()
-    if(snap is not None):
-        snap.clear()
-    if(snapm is not None):
-        snapm.clear()
+    memory.close(); memory.unlink()
+    if(snap is not None): snap.clear()
+    if(snapm is not None): snapm.clear()
     if(verbose): print(f" Done\n")
+    walltime = ("Dump", time.time()-ref); walltimes.append(walltime); ref = time.time()
+    if(verbose):
+        for name, walltime in walltimes: print(f" > {name}: {walltime:.2f} sec")
     # raise ValueError("Done")
 # --------------------------------------------------------------
 
