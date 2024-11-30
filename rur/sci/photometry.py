@@ -4,6 +4,7 @@ from scipy.interpolate import LinearNDInterpolator
 from numpy.lib.recfunctions import append_fields
 from numpy.lib.recfunctions import merge_arrays
 from collections import defaultdict
+from multiprocessing import Pool, shared_memory
 
 # This module contains useful functions related to galaxy photometry.
 cb07_table = None
@@ -102,8 +103,9 @@ def read_cb07_table():
 #        table.append(subtable)
 #    table = np.concatenate(table)
 #    return table
-
-def measure_magnitudes(stars, filter_names, alpha=1, total=False, model='cb07'):
+import time
+from tqdm import tqdm
+def measure_magnitudes(stars, filter_names, alpha=1, total=False, model='cb07', chunk=False, nchunk = int(1e5), nthread=1, verbose=False, dev=False):
     # measures absolute magnitude from stellar ages & metallicities
     filter_aliases = alias_dict()
     filter_aliases.update({
@@ -121,12 +123,14 @@ def measure_magnitudes(stars, filter_names, alpha=1, total=False, model='cb07'):
         'CFHT_Ks': 'Ks',
     })
     # measure magnitude from star data and population synthesis model.
+    nstar = len(stars)
     if(model == 'cb07'):
         table = read_cb07_table()
 
-        log_ages = np.zeros(stars.size, 'f8')
+        # log_ages = np.zeros(stars.size, 'f8')
         ages = stars['age', 'yr']
-        log_ages = np.where(ages>0, np.log10(ages), -np.inf)
+        with np.errstate(invalid='ignore'):
+            log_ages = np.where(ages>0, np.log10(ages), -np.inf)
         log_metals = np.log10(stars['metal'])
 
         grid1 = table['logageyr']
@@ -171,7 +175,41 @@ def measure_magnitudes(stars, filter_names, alpha=1, total=False, model='cb07'):
                 ip = LinearNDInterpolator(stacked, table[filter_name], fill_value=np.nan)
         else:
             ip.values = table[filter_aliases[filter_name]].reshape(-1,1).copy() # C-contiguous
-        mags = ip(arr1, arr2)
+        # NO CHUNK
+        if(nstar < nthread*nchunk)or(not chunk):
+            mags = ip(arr1, arr2)
+        # YES CHUNK
+        else:
+            mags = np.zeros(nstar)
+            njob = nstar//nchunk + 1
+            # Multi-Procesing
+            if (njob>1) and (nthread>1):
+                now = datetime.datetime.now()
+                shmname = f"mag_chunk_{now.strftime('%Y%m%d%H%M%S_%f')}"
+                shm = shared_memory.SharedMemory(name=shmname,create=True, size=mags.nbytes)
+                sarr = np.ndarray(mags.shape, dtype=mags.dtype, buffer=shm.buf)
+                if verbose:
+                    pbar = tqdm(total=njob, desc=f"MagChunk{min(njob, nthread)}")
+                    def update(*a): pbar.update()
+                else:
+                    update = None
+                signal.signal(signal.SIGTERM, signal.SIG_DFL)
+                with Pool(min(njob, nthread)) as pool:
+                    results = [
+                        pool.apply_async(_magchunk, (ip, arr1[i:i+nchunk].view(), arr2[i:i+nchunk].view(), sarr.shape, shmname, i, nchunk), callback=update) for i in range(0, nstar, nchunk)
+                        ]
+                    for r in results:
+                        r.get()
+                mags = sarr.copy()
+                if verbose: pbar.close()
+                shm.close()
+                shm.unlink()
+            # Single Processing
+            else:
+                iterobj = range(0, nstar, nchunk)
+                if verbose: iterobj = tqdm(iterobj, desc="MagChunk")
+                for i in iterobj:
+                    mags[i:i+nchunk] = ip(arr1[i:i+nchunk], arr2[i:i+nchunk])
         mags = mags - 2.5*np.log10(msols/m_unit)
         if(total):
             mags = mags[~np.isnan(mags)]
@@ -179,6 +217,11 @@ def measure_magnitudes(stars, filter_names, alpha=1, total=False, model='cb07'):
         else:
             magdict[filter_name] = mags
     return magdict
+
+def _magchunk(ip, ar1, ar2, shape, shmname, i, nchunk):
+    exist = shared_memory.SharedMemory(name=shmname)
+    mags = np.ndarray(shape, dtype=np.float64, buffer=exist.buf)
+    mags[i:i+nchunk] = ip(ar1, ar2)
 
 def measure_magnitude(stars, filter_name, alpha=1, total=False, model='cb07'):
     # measures absolute magnitude from stellar ages & metallicities
