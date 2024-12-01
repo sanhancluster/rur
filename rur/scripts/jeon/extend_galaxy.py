@@ -172,8 +172,8 @@ SioverSil=muSi*nsilSi/numtot
 #-------------------------------------------------------------------
 # Main functions
 #-------------------------------------------------------------------
-def skip_func(path, galaxy, iout, names, verbose):
-    path_in_repo = 'galaxy' if galaxy else 'halo'
+def skip_func(path, iout, names, verbose):
+    path_in_repo = 'galaxy'
     full_path = f"{path}/{path_in_repo}/extended/{iout:05d}"
     nnames = names.copy()
 
@@ -196,30 +196,25 @@ def skip_func(path, galaxy, iout, names, verbose):
     fname = f"{full_path}/SFR10_r90_{iout:05d}.dat"
     if(os.path.exists(fname)):
         for suffix in radsuffixs:
-            # if(verbose): print(f" [SkipFunc] > No need sfr10{suffix}")
             del nnames[f'sfr10{suffix}']
     # Mag
     fname = f"{full_path}/zmag_{iout:05d}.dat"
     if(os.path.exists(fname)):
         for suffix in bandsuffixs[1:]:
-            # if(verbose): print(f" [SkipFunc] > No need {suffix}mag")
             del nnames[f'{suffix}mag']
     # Age
     fname = f"{full_path}/agez_{iout:05d}.dat"
     if(os.path.exists(fname)):
         for suffix in bandsuffixs:
-            # if(verbose): print(f" [SkipFunc] > No need age{suffix}")
             del nnames[f'age{suffix}']
     # V/sigma
     fname = f"{full_path}/vsig_r90_{iout:05d}.dat"
     if(os.path.exists(fname)):
         for suffix in radsuffixs:
-            # if(verbose): print(f" [SkipFunc] > No need vsig{suffix}")
             del nnames[f'vsig{suffix}']
     # Metal
     fname = f"{full_path}/metal_{iout:05d}.dat"
     if(os.path.exists(fname)):
-        # if(verbose): print(f" [SkipFunc] > No need metal")
         del nnames[f'metal']
     # Hydro
     hkeys = []
@@ -231,19 +226,16 @@ def skip_func(path, galaxy, iout, names, verbose):
     for hkey, hval in zip(hkeys, hvals):
         fname = f"{full_path}/{hval}_{iout:05d}.dat"
         if(os.path.exists(fname)):
-            # if(verbose): print(f" [SkipFunc] > No need {hval}")
             del nnames[hkey]
     # SB
     fname = f"{full_path}/SBz_r90_{iout:05d}.dat"
     if(os.path.exists(fname)):
         for bsuffix in bandsuffixs[1:]:
             for rsuffix in radsuffixs:
-                # if(verbose): print(f" [SkipFunc] > No need SB{bsuffix}{rsuffix}")
                 del nnames[f'SB{bsuffix}{rsuffix}']
     # BH
     fname = f"{full_path}/dBH_{iout:05d}.dat"
     if(os.path.exists(fname)):
-        # if(verbose): print(f" [SkipFunc] > No need MBH, dBH")
         del nnames[f'MBH']
         del nnames[f'dBH']
     
