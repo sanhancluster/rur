@@ -107,6 +107,9 @@ def calc_extended(
     snap = uri.RamsesSnapshot(path, iout); snap.shmprefix = "extendhalo"
     uri.timer.verbose = 1 if verbose else 0
 
+    names = list(name_dicts.keys())
+    result_dtype = [(name, 'f8') for name in names]
+
     # Member need?
     need_members = {
         'mcontam':['m'],
