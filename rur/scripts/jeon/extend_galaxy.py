@@ -16,10 +16,14 @@ def datdump(data, path, msg=False):
         f.write(data[1].encode())
     if(msg): print(f" `{path}` saved")
 
-def datload(path, msg=False):
+def datload(path, msg=False, dtype='f8'):
     with open(path, "rb") as f:
         leng = int.from_bytes(f.read(4), byteorder='little')
-        data = np.frombuffer(f.read(8*leng), dtype='f8')
+        try:
+            data = np.frombuffer(f.read(8*leng), dtype='f8')
+        except:
+            f.seek(4)
+            data = np.frombuffer(f.read(4*leng), dtype='i4')
         name = f.read().decode()
     if(msg): print(f" `{path}` loaded")
     return data, name
@@ -229,7 +233,7 @@ def skip_func(path, iout, names, verbose):
         if(os.path.exists(fname)):
             if hkey in clists:
                 data = datload(fname, msg=False)[0]
-                if(np.sum(data)>0):
+                if(len(np.unique(data))>1):
                     del nnames[hkey]
             else:
                 del nnames[hkey]
@@ -270,12 +274,13 @@ def pre_func(keys, table, snapm, members, snap, part_memory, cell_memory, full_p
         if(verbose):
             print(f" [PreFunc] > Prepare r50, r90", end='\t'); ref = time.time()
         r50s = datload(f"{full_path}/r50_{snap.iout:05d}.dat", msg=False)[0]
+        if(len(r50s) != len(table)): r50s = r50s[table['id']-1] # Partitioned
         r90s = datload(f"{full_path}/r90_{snap.iout:05d}.dat", msg=False)[0]
+        if(len(r90s) != len(table)): r90s = r90s[table['id']-1] # Partitioned
         odtype = table.dtype
         ndtype = odtype.descr + [('r50','f8'), ('r90','f8')]
         ntable = np.empty(len(table), dtype=ndtype)
-        for name in odtype.names:
-            ntable[name] = table[name]
+        for name in odtype.names: ntable[name] = table[name]
         ntable['r50'] = r50s
         ntable['r90'] = r90s
         table = ntable
@@ -356,7 +361,7 @@ def pre_func(keys, table, snapm, members, snap, part_memory, cell_memory, full_p
 
 
 
-debug = True
+debug = False
 # This is used in multiprocessing
 def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_memory, cell_memory, cdomain, send=None):
     # Common
@@ -643,8 +648,44 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
 
 
 
-def dump_func(result_table, full_path, iout, names, verbose):
+def dump_func(result_table, table, full_path, iout, names, verbose, izip, partition):
+    ZIP = partition>0
+    nzip = 2**partition if ZIP else 1
+    suffix = f"{izip:02d}p{nzip}" if ZIP else ""
     for key, val in names.items():
         title = val[0]
         desc = val[1]
-        datdump((result_table[key], desc), f"{full_path}/{title}_{iout:05d}.dat", msg=verbose)
+        datdump((result_table[key], desc), f"{full_path}/{title}_{iout:05d}.dat{suffix}", msg=verbose)
+        if(ZIP): datdump((table['id'], "IDlist"), f"{full_path}/zipID_{iout:05d}.dat{suffix}", msg=False)
+    if(izip+1 == nzip)and(ZIP):
+        if(verbose): print(f" [DumpFunc] > Zipping"); ref = time.time()
+        
+        # Get table IDs
+        zipids={}; ntable = 0
+        for jzip in range(nzip):
+            suffix = f"{jzip:02d}p{nzip}"
+            ids = datload(f"{full_path}/zipID_{iout:05d}.dat{suffix}", msg=False)[0]
+            zipids[jzip] = ids
+            ntable += len(ids)
+        
+        # Merge
+        for key, val in names.items():
+            title = val[0]
+            desc = val[1]
+            zipped_table = np.zeros(ntable)
+            for jzip in range(nzip):
+                suffix = f"{jzip:02d}p{nzip}"
+                data = datload(f"{full_path}/{title}_{iout:05d}.dat{suffix}", msg=False)[0]
+                ids = zipids[jzip]
+                zipped_table[ids-1] = data
+            datdump((zipped_table, desc), f"{full_path}/{title}_{iout:05d}.dat", msg=True)
+        
+        # Delete
+        for jzip in range(nzip):
+            suffix = f"{jzip:02d}p{nzip}"
+            os.remove(f"{full_path}/zipID_{iout:05d}.dat{suffix}")
+            for key, val in names.items():
+                title = val[0]
+                os.remove(f"{full_path}/{title}_{iout:05d}.dat{suffix}")
+
+        if(verbose): print(f" Done ({time.time()-ref:.2f} sec)")
