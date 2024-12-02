@@ -246,7 +246,7 @@ def calc_extended(
     else: update = None
     if(snap is not None): signal.signal(signal.SIGTERM, signal.SIG_DFL)
     with Pool(processes=min(len(table),nthread)) as pool:
-        async_result = [pool.apply_async(calc_func, args=(i, table[i], shape, address, dtype, sparams, sunits, getmem(members, cparts, i), dm_memory, star_memory, cell_memory, domain[i], send), callback=update) for i in range(len(table))]
+        async_result = [pool.apply_async(calc_func, args=(i, table[i], shape, address, dtype, sparams, sunits, getmem(members, cparts, i), dm_memory, star_memory, cell_memory, domain[i]), callback=update) for i in range(len(table))]
         iterobj = async_result
         for result in iterobj: result.get()
     if(snap is not None): signal.signal(signal.SIGTERM, snap.terminate)

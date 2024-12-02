@@ -178,7 +178,7 @@ nostar = False
 # This is used in multiprocessing
 from scipy.ndimage import gaussian_filter1d
 from scipy.optimize import curve_fit
-def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memory, star_memory, cell_memory, cdomain, send=None):
+def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memory, star_memory, cell_memory, cdomain):
     # Common
     global nostar
     exist = shared_memory.SharedMemory(name=address)
