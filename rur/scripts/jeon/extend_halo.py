@@ -120,12 +120,17 @@ def skip_func(path, iout, names, verbose):
                 del nnames[f'{prefix}{suffix}']
 
     # Profile
-    fname = f"{full_path}/inslope_{iout:05d}.dat"
+    fname = f"{full_path}/rmaxcir_{iout:05d}.dat"
     if(os.path.exists(fname)):
-        for suffix in radsuffixs:
-            del nnames[f'vmaxcir{suffix}']
-            del nnames[f'cNFW{suffix}']
-            del nnames[f'inslope{suffix}']    
+        del nnames[f'vmaxcir']
+        del nnames[f'rmaxcir']
+
+    fname = f"{full_path}/inslopeerr_{iout:05d}.dat"
+    if(os.path.exists(fname)):
+        del nnames[f'cNFW']
+        del nnames[f'cNFWerr']
+        del nnames[f'inslope']    
+        del nnames[f'inslopeerr']
     return nnames
 
 
@@ -214,7 +219,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
         result_table['rmaxcir'][i] = rmaxcir
 
     # NFW profile
-    if('inslope' in result_table.dtype.names):
+    if('inslopeerr' in result_table.dtype.names):
         def NFW(r, rs, rho0):
             x = r / rs
             return rho0 / (x * (1 + x)**2)
@@ -258,7 +263,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             except:
                 slope, error = np.nan, np.nan
         result_table['inslope'][i] = slope
-        result_table['inslope_err'][i] = error
+        result_table['inslopeerr'][i] = error
     
     cells = None; cdist = None; cellmass=None
     def _get_cell(cells, cdist, cell_memory, return_dist=False):

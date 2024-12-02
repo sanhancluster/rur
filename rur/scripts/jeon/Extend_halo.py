@@ -288,7 +288,7 @@ if __name__ == "__main__":
     # Run!
     iterator = nout[::-1]# if verbose else tqdm(nout)
     for iout in iterator:
-        if(iout>100): continue
+        #if(iout>100): continue
         names = skip_func(path, iout, default_names, verbose)
         skip = len(names)==0
         if(skip):
