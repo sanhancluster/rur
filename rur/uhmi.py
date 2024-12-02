@@ -267,7 +267,7 @@ class HaloMaker:
         #print("Searching for tree_brick in ", path)
         readh.read_bricks(path, galaxy, start, end, load_parts, double_precision)
         contam=False
-        if(not galaxy):
+        if(not galaxy)and(not extend):
             fname = f"{path}/by-product/halos_contam.{start:04d}"
             if os.path.isfile(fname):
                 contam=True
