@@ -3,6 +3,8 @@ from rur import uri
 from rur.sci.photometry import measure_magnitude,measure_luminosity, measure_magnitudes
 from multiprocessing import shared_memory
 import os, time
+import warnings
+from scipy.optimize import OptimizeWarning
 #-------------------------------------------------------------------
 # Configure
 #-------------------------------------------------------------------
@@ -220,6 +222,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
 
     # NFW profile
     if('inslopeerr' in result_table.dtype.names):
+        warnings.filterwarnings("ignore", category=OptimizeWarning)
         def NFW(r, rs, rho0):
             x = r / rs
             return rho0 / (x * (1 + x)**2)
@@ -238,10 +241,10 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
         r = r[mask]; cmas = cmas[mask]; nums = nums[mask]
         poisson_error = 1/np.sqrt(nums)
         rho = cmas / (4/3*np.pi*r**3)
+        rvir = halo['rvir']
         try:
             popt, pcov = curve_fit(NFW, r, rho, p0=[halo['r'], rho[0]], sigma=poisson_error, absolute_sigma=True)
             rs = popt[0]; rserr = np.sqrt(pcov[0,0])
-            rvir = halo['rvir']
             cNFW = rvir / rs
             cNFWerr = cNFW * np.sqrt((rserr/rs)**2)
         except:
@@ -266,8 +269,9 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
         result_table['inslopeerr'][i] = error
     
     cells = None; cdist = None; cellmass=None
-    def _get_cell(cells, cdist, cell_memory, return_dist=False):
+    def _get_cell(halo, cells, cdist, cell_memory, return_dist=False):
         if cells is None:
+            cx=halo['x']; cy=halo['y']; cz=halo['z']
             cshape, caddress, cdtype, cpulist_cell, bound_cell = cell_memory
             cexist = shared_memory.SharedMemory(name=caddress)
             cells = np.ndarray(cshape, dtype=cdtype, buffer=cexist.buf)
@@ -279,8 +283,9 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
         if(return_dist): return cells, cdist
         return cells
     dms = None; ddist = None
-    def _get_dm(dms, ddist, dm_memory, return_dist=False):
+    def _get_dm(halo, dms, ddist, dm_memory, return_dist=False):
         if dms is None:
+            cx=halo['x']; cy=halo['y']; cz=halo['z']
             dshape, daddress, ddtype, cpulist_dm, bound_dm = dm_memory
             dexist = shared_memory.SharedMemory(name=daddress)
             dms = np.ndarray(dshape, dtype=ddtype, buffer=dexist.buf)
@@ -291,13 +296,14 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
         if(return_dist): return dms, ddist
         return dms
     stars = None; sdist = None
-    def _get_star(stars, sdist, star_memory, return_dist=False):
+    def _get_star(halo, stars, sdist, star_memory, return_dist=False):
         global nostar
         if stars is None:
             sshape, saddress, sdtype, cpulist_star, bound_star = star_memory
             if sshape is None:
                 nostar=True
             else:
+                cx=halo['x']; cy=halo['y']; cz=halo['z']
                 sexist = shared_memory.SharedMemory(name=saddress)
                 stars = np.ndarray(sshape, dtype=sdtype, buffer=sexist.buf)
                 stars = uri.domain_slice(stars, cdomain, cpulist_star, bound_star)
@@ -321,9 +327,9 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             rhoc /= (aexp**3) # Msol pkpc-3
 
             # Sorting
-            cells, cdist = _get_cell(cells, cdist, cell_memory, return_dist=True)
-            stars, sdist = _get_star(stars, sdist, star_memory, return_dist=True)
-            dms, ddist = _get_dm(dms, ddist, dm_memory, return_dist=True)
+            cells, cdist = _get_cell(halo, cells, cdist, cell_memory, return_dist=True)
+            stars, sdist = _get_star(halo, stars, sdist, star_memory, return_dist=True)
+            dms, ddist = _get_dm(halo, dms, ddist, dm_memory, return_dist=True)
             dx = 1 / 2**cells['level']; vol = dx**3
             cellmass = cells['rho']*vol / sunits['Msol']
             if nostar:
@@ -357,29 +363,31 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
 
     # Mstar
     if('mstar_r500' in result_table.dtype.names):
-        stars, sdist = _get_star(stars, sdist, star_memory, return_dist=True)
+        stars, sdist = _get_star(halo, stars, sdist, star_memory, return_dist=True)
         for suffix in ['','_rvir','_r200','_r500']:
             rname = suffix.replace('_','') if suffix != '' else 'r'
+            radius = halo[rname] if rname in halo.dtype.names else result_table[i][rname]
             if nostar:
                 result_table[f'mstar{suffix}'][i] = 0
             else:
-                mask = sdist < halo[rname]
+                mask = sdist < radius
                 result_table[f'mstar{suffix}'][i] = np.sum(stars['m'][mask]) / sunits['Msol']
             
     # Cell mass
     if('mgas_r500' in result_table.dtype.names):
-        cells, cdist = _get_cell(cells, cdist, cell_memory, return_dist=True)
+        cells, cdist = _get_cell(halo, cells, cdist, cell_memory, return_dist=True)
         if cellmass is None:
             dx = 1 / 2**cells['level']; vol = dx**3
             cellmass = cells['rho']*vol / sunits['Msol']
         for suffix in ['','_rvir','_r200','_r500']:
             rname = suffix.replace('_','') if suffix != '' else 'r'
-            mask = cdist < halo[rname]
+            radius = halo[rname] if rname in halo.dtype.names else result_table[i][rname]
+            mask = cdist < radius
             result_table[f'mgas{suffix}'][i] = np.sum(cellmass[mask])
 
     # temperature
     if('mdense_r500' in result_table.dtype.names):
-        cells, cdist = _get_cell(cells, cdist, cell_memory, return_dist=True)
+        cells, cdist = _get_cell(halo, cells, cdist, cell_memory, return_dist=True)
         if cellmass is None:
             dx = 1 / 2**cells['level']; vol = dx**3
             cellmass = cells['rho']*vol / sunits['Msol']
@@ -388,7 +396,8 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
         dense = (cells['rho'] / sunits['H/cc'] > 5) & (cold)
         for suffix in ['','_rvir','_r200','_r500']:
             rname = suffix.replace('_','') if suffix != '' else 'r'
-            mask = cdist < halo[rname]
+            radius = halo[rname] if rname in halo.dtype.names else result_table[i][rname]
+            mask = cdist < radius
             result_table[f'mcold{suffix}'][i] = np.sum(cellmass[mask & cold])
             result_table[f'mdense{suffix}'][i] = np.sum(cellmass[mask & dense])
 
