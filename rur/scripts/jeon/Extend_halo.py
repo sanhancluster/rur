@@ -253,6 +253,9 @@ def calc_extended(
     if(verbose):
         pbar.close(); delprint(1)
     walltime = ("Get results", time.time()-ref); walltimes.append(walltime); ref = time.time()
+    NnanNFW = np.sum(np.isnan(result_table['cNFW']))
+    Nnanslope = np.sum(np.isnan(result_table['inslope']))
+    print(f"#### {NnanNFW}, {Nnanslope} of {len(result_table)}failed fitting ####")
 
     # Dump and relase memory
     if(verbose): print(f" > Dumping")
@@ -288,7 +291,7 @@ if __name__ == "__main__":
     # Run!
     iterator = nout[::-1]# if verbose else tqdm(nout)
     for iout in iterator:
-        if(iout>100): continue
+        #if(iout>100): continue
         names = skip_func(path, iout, default_names, verbose)
         skip = len(names)==0
         if(skip):
