@@ -29,6 +29,7 @@ parser.add_argument("-p", "--partition", default=0, required=False, help='Divide
 parser.add_argument("--verbose", action='store_true')
 parser.add_argument("--nocell", action='store_true')
 parser.add_argument("--chem", action='store_true')
+parser.add_argument("--debug", action='store_true')
 args = parser.parse_args()
 print(args)
 # mode:
@@ -58,6 +59,7 @@ nocell = args.nocell
 #   If True, the chemical data will be loaded.
 chem = args.chem
 galaxy = True
+DEBUG = args.debug
 if(nocell): chem = False
 uri.timer.verbose = 1 if verbose else 0
 
@@ -126,8 +128,7 @@ def calc_extended(
     need_part=False, ptarget_fields=None,
     need_cell=False, ctarget_fields=None, 
     get_additional=None, func_additional=None,
-    izip=None, partition=-1, 
-    **kwargs):
+    izip=None, partition=-1, DEBUG=False, **kwargs):
     global mode
     walltimes = []
     ref = time.time()
@@ -262,7 +263,8 @@ def calc_extended(
         if(os.path.exists(fdomain)):
             if(verbose): print(f" > Load domain")
             domain = domload(fdomain, msg=verbose)
-            cpulist = np.unique( np.concatenate( [domain[ith-1] for ith in table['id']]) ) if(ZIP) else np.unique(np.concatenate(domain))
+            if(ZIP): domain = [domain[ith-1] for ith in table['id']]
+            cpulist = np.unique( np.concatenate( domain ) )
         else:
             if(verbose): print(f" > Get halos cpu list")
             cpulist, domain = snap.get_halos_cpulist(table, nthread=nthread, full=True)
@@ -270,7 +272,7 @@ def calc_extended(
         if(need_part):
             if(verbose): print(f" > Get Part")
             pname = 'star' if galaxy else 'dm'
-            snap.get_part(pname, nthread=nthread, target_fields=ptarget_fields, cpulist=cpulist)
+            snap.get_part(pname=pname, nthread=nthread, target_fields=ptarget_fields, cpulist=cpulist)
             pshape = snap.part.shape; paddress = snap.part_mem.name; pdtype = snap.part.dtype
             part_memory = (pshape, paddress, pdtype)        
         if(need_cell):
@@ -324,7 +326,7 @@ def calc_extended(
 
     # Dump and relase memory
     if(verbose): print(f" > Dumping")
-    dump_func(result_table, table, full_path, iout, name_dicts, verbose, izip, partition)
+    dump_func(result_table, table, full_path, iout, name_dicts, verbose, izip, partition, DEBUG)
     memory.close(); memory.unlink()
     if(snap is not None): snap.clear()
     if(snapm is not None): snapm.clear()
@@ -356,10 +358,10 @@ if __name__ == "__main__":
     # Run!
     iterator = nout[::-1]# if verbose else tqdm(nout)
     for iout in iterator:
-        # if(iout>580): continue
+        # if(iout>576): continue
         if sep>=0:
             if iout%4 != sep: continue
-        names = skip_func(path, iout, default_names, verbose)
+        names = skip_func(path, iout, default_names, verbose, DEBUG)
         skip = len(names)==0
         if(skip):
             print(f"\n=================\nSkip {iout}\n=================")
@@ -372,6 +374,6 @@ if __name__ == "__main__":
             skipped = calc_extended(
                 path, iout, names, 
                 pre_func, calc_func, dump_func, 
-                verbose=verbose, nthread=nthread,izip=izip, partition=partition)
+                verbose=verbose, nthread=nthread,izip=izip, partition=partition, DEBUG=DEBUG)
             if skipped: break
         if(not skipped): print(f"Done ({time.time()-ref:.2f} sec)")

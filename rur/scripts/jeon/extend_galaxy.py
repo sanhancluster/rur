@@ -176,7 +176,7 @@ SioverSil=muSi*nsilSi/numtot
 #-------------------------------------------------------------------
 # Main functions
 #-------------------------------------------------------------------
-def skip_func(path, iout, names, verbose):
+def skip_func(path, iout, names, verbose, DEBUG):
     path_in_repo = 'galaxy'
     full_path = f"{path}/{path_in_repo}/extended/{iout:05d}"
     nnames = names.copy()
@@ -220,6 +220,18 @@ def skip_func(path, iout, names, verbose):
     fname = f"{full_path}/metal_{iout:05d}.dat"
     if(os.path.exists(fname)):
         del nnames[f'metal']
+    # BH
+    fname = f"{full_path}/dBH_{iout:05d}.dat"
+    if(os.path.exists(fname)):
+        del nnames[f'MBH']
+        del nnames[f'dBH']
+    # SB
+    fname = f"{full_path}/SBz_r90_{iout:05d}.dat"
+    if(os.path.exists(fname)):
+        for bsuffix in bandsuffixs[1:]:
+            for rsuffix in radsuffixs:
+                del nnames[f'SB{bsuffix}{rsuffix}']
+    if(DEBUG): return nnames
     # Hydro
     hkeys = []
     hvals = []
@@ -237,18 +249,7 @@ def skip_func(path, iout, names, verbose):
                     del nnames[hkey]
             else:
                 del nnames[hkey]
-    # SB
-    fname = f"{full_path}/SBz_r90_{iout:05d}.dat"
-    if(os.path.exists(fname)):
-        for bsuffix in bandsuffixs[1:]:
-            for rsuffix in radsuffixs:
-                del nnames[f'SB{bsuffix}{rsuffix}']
-    # BH
-    fname = f"{full_path}/dBH_{iout:05d}.dat"
-    if(os.path.exists(fname)):
-        del nnames[f'MBH']
-        del nnames[f'dBH']
-    
+
     return nnames
 
 
@@ -566,12 +567,12 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         if(debug)and(i==0): print(" [CalcFunc] > Load cell")
         cshape, caddress, cdtype, cpulist_cell, bound_cell = cell_memory
         cexist = shared_memory.SharedMemory(name=caddress)
-        cells = np.ndarray(cshape, dtype=cdtype, buffer=cexist.buf)
-        cells = uri.domain_slice(cells, cdomain, cpulist_cell, bound_cell)
+        allcells = np.ndarray(cshape, dtype=cdtype, buffer=cexist.buf)
+        cells = uri.domain_slice(allcells, cdomain, cpulist_cell, bound_cell)
         cdist = np.sqrt( (cells['x']-cx)**2 + (cells['y']-cy)**2 + (cells['z']-cz)**2 )
-        rmask = cdist < halo['r']
+        rmask = cdist <= halo['r']
         if(np.sum(rmask) < 8):
-            rmask = cdist < (halo['r'] + (1 / 2**cells['level'])/2)
+            rmask = cdist <= (halo['r'] + (1 / 2**cells['level'])/2)
 
         cells = cells[rmask]; cdist = cdist[rmask]
         dx = 1 / 2**cells['level']
@@ -648,46 +649,56 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
 
 
 
-def dump_func(result_table, table, full_path, iout, names, verbose, izip, partition):
+def dump_func(result_table, table, full_path, iout, names, verbose, izip, partition, DEBUG):
     ZIP = partition>0
     nzip = 2**partition if ZIP else 1
     suffix = f"{izip:02d}p{nzip}" if ZIP else ""
     for key, val in names.items():
         title = val[0]
         desc = val[1]
-        datdump((result_table[key], desc), f"{full_path}/{title}_{iout:05d}.dat{suffix}", msg=verbose)
-    if(ZIP): datdump((table['id'], "IDlist"), f"{full_path}/zipID_{iout:05d}.dat{suffix}", msg=verbose)
-    if(izip+1 == nzip)and(ZIP):
-        if(verbose): print(f" [DumpFunc] > Zipping"); ref = time.time()
-        
-        # Get table IDs
-        zipids={}; ntable = 0
-        for jzip in range(nzip):
-            suffix = f"{jzip:02d}p{nzip}"
-            ids = datload(f"{full_path}/zipID_{iout:05d}.dat{suffix}", msg=False)[0]
-            zipids[jzip] = ids
-            ntable += len(ids)
-        
-        # Merge
-        for key, val in names.items():
-            title = val[0]
-            desc = val[1]
-            zipped_table = np.zeros(ntable)
+        if not DEBUG:
+            datdump((result_table[key], desc), f"{full_path}/{title}_{iout:05d}.dat{suffix}", msg=verbose)
+        else:
+            original = datload(f"{full_path}/{title}_{iout:05d}.dat{suffix}", msg=False)[0]
+            if(np.allclose(original, result_table[key])):
+                print(f"[DEBUG] > Same `{title}_{iout:05d}.dat{suffix}`")
+            else:
+                print(f"[DEBUG] > Different `{title}_{iout:05d}.dat{suffix}`")
+    if DEBUG:
+        raise ValueError("DEBUG")
+    if(ZIP):
+        datdump((table['id'], "IDlist"), f"{full_path}/zipID_{iout:05d}.dat{suffix}", msg=verbose)
+        if(izip+1 == nzip):
+            if(verbose): print(f" [DumpFunc] > Zipping"); ref = time.time()
+            
+            # Get table IDs
+            zipids={}; ntable = 0
             for jzip in range(nzip):
                 suffix = f"{jzip:02d}p{nzip}"
-                data = datload(f"{full_path}/{title}_{iout:05d}.dat{suffix}", msg=False)[0]
-                ids = zipids[jzip]
-                zipped_table[ids-1] = data
-            datdump((zipped_table, desc), f"{full_path}/{title}_{iout:05d}.dat", msg=True)
-        
-        # Delete
-        for jzip in range(nzip):
-            suffix = f"{jzip:02d}p{nzip}"
-            os.remove(f"{full_path}/zipID_{iout:05d}.dat{suffix}")
-            if(verbose): print(f" [DumpFunc] > Remove `zipID_{iout:05d}.dat{suffix}`")
+                ids = datload(f"{full_path}/zipID_{iout:05d}.dat{suffix}", msg=False)[0]
+                zipids[jzip] = ids
+                ntable += len(ids)
+            
+            # Merge
             for key, val in names.items():
                 title = val[0]
-                os.remove(f"{full_path}/{title}_{iout:05d}.dat{suffix}")
-                if(verbose): print(f" [DumpFunc] > Remove `{title}_{iout:05d}.dat{suffix}`")
+                desc = val[1]
+                zipped_table = np.zeros(ntable)
+                for jzip in range(nzip):
+                    suffix = f"{jzip:02d}p{nzip}"
+                    data = datload(f"{full_path}/{title}_{iout:05d}.dat{suffix}", msg=False)[0]
+                    ids = zipids[jzip]
+                    zipped_table[ids-1] = data
+                datdump((zipped_table, desc), f"{full_path}/{title}_{iout:05d}.dat", msg=True)
+            
+            # Delete
+            for jzip in range(nzip):
+                suffix = f"{jzip:02d}p{nzip}"
+                os.remove(f"{full_path}/zipID_{iout:05d}.dat{suffix}")
+                if(verbose): print(f" [DumpFunc] > Remove `zipID_{iout:05d}.dat{suffix}`")
+                for key, val in names.items():
+                    title = val[0]
+                    os.remove(f"{full_path}/{title}_{iout:05d}.dat{suffix}")
+                    if(verbose): print(f" [DumpFunc] > Remove `{title}_{iout:05d}.dat{suffix}`")
 
-        if(verbose): print(f" Done ({time.time()-ref:.2f} sec)")
+            if(verbose): print(f" Done ({time.time()-ref:.2f} sec)")

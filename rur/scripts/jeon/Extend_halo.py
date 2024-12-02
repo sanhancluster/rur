@@ -248,23 +248,22 @@ def calc_extended(
         if(os.path.exists(fdomain)):
             if(verbose): print(f" > Load domain")
             domain = domload(fdomain, msg=verbose)
-            cpulist = np.unique( np.concatenate( [domain[ith-1] for ith in table['id']]) ) if(ZIP) else np.unique(np.concatenate(domain))
+            if(ZIP): domain = [domain[ith-1] for ith in table['id']]
+            cpulist = np.unique( np.concatenate( domain ) )
         else:
             if(verbose): print(f" > Get halos cpu list")
             cpulist, domain = snap.get_halos_cpulist(table, nthread=nthread, full=True)
             if(not ZIP): domsave(fdomain, domain)
         if(need_dm):
             if(verbose): print(f" > Get DM")
-            pname = 'dm'
-            snap.get_part(pname, nthread=nthread, target_fields=dtarget_fields, cpulist=cpulist)
+            snap.get_part(pname='dm', nthread=nthread, target_fields=dtarget_fields, cpulist=cpulist)
             dshape = snap.part.shape; daddress = snap.part_mem.name; ddtype = snap.part.dtype
             cpulist_dm = snap.cpulist_part; bound_dm = snap.bound_part
             dm_memory = (dshape, daddress, ddtype, cpulist_dm, bound_dm)     
         if(need_star):
             if(verbose): print(f" > Get Star")
-            pname = 'star'
             if snapstar.star[0]:
-                snapstar.get_part(pname, nthread=nthread, target_fields=starget_fields, cpulist=cpulist)
+                snapstar.get_part(pname='star', nthread=nthread, target_fields=starget_fields, cpulist=cpulist)
                 sshape = snapstar.part.shape; saddress = snapstar.part_mem.name; sdtype = snapstar.part.dtype
                 cpulist_star = snapstar.cpulist_part; bound_star = snapstar.bound_part
                 star_memory = (sshape, saddress, sdtype, cpulist_star, bound_star)

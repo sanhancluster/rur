@@ -280,12 +280,12 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             cx=halo['x']; cy=halo['y']; cz=halo['z']
             cshape, caddress, cdtype, cpulist_cell, bound_cell = cell_memory
             cexist = shared_memory.SharedMemory(name=caddress)
-            cells = np.ndarray(cshape, dtype=cdtype, buffer=cexist.buf)
-            cells = uri.domain_slice(cells, cdomain, cpulist_cell, bound_cell)
-            cdist = np.sqrt( (cells['x']-cx)**2 + (cells['y']-cy)**2 + (cells['z']-cz)**2 )
-            rmask = cdist < halo['r']
-            if(np.sum(rmask) < 8): rmask = cdist < (halo['r'] + (1 / 2**cells['level'])/2)
-            cells = cells[rmask]; cdist = cdist[rmask]
+            allcells = np.ndarray(cshape, dtype=cdtype, buffer=cexist.buf)
+            domcells = uri.domain_slice(allcells, cdomain, cpulist_cell, bound_cell)
+            cdist = np.sqrt( (domcells['x']-cx)**2 + (domcells['y']-cy)**2 + (domcells['z']-cz)**2 )
+            rmask = cdist <= halo['r']
+            if(np.sum(rmask) < 8): rmask = cdist < (halo['r'] + (1 / 2**domcells['level'])/2)
+            cells = domcells[rmask]; cdist = cdist[rmask]
         if(return_dist): return cells, cdist
         return cells
     dms = None; ddist = None
@@ -294,11 +294,11 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             cx=halo['x']; cy=halo['y']; cz=halo['z']
             dshape, daddress, ddtype, cpulist_dm, bound_dm = dm_memory
             dexist = shared_memory.SharedMemory(name=daddress)
-            dms = np.ndarray(dshape, dtype=ddtype, buffer=dexist.buf)
-            dms = uri.domain_slice(dms, cdomain, cpulist_dm, bound_dm)
-            ddist = np.sqrt( (dms['x']-cx)**2 + (dms['y']-cy)**2 + (dms['z']-cz)**2 )
-            dmask = ddist < halo['r']
-            dms = dms[dmask]; ddist = ddist[dmask]
+            alldms = np.ndarray(dshape, dtype=ddtype, buffer=dexist.buf)
+            domdms = uri.domain_slice(alldms, cdomain, cpulist_dm, bound_dm)
+            ddist = np.sqrt( (domdms['x']-cx)**2 + (domdms['y']-cy)**2 + (domdms['z']-cz)**2 )
+            dmask = ddist <= halo['r']
+            dms = domdms[dmask]; ddist = ddist[dmask]
         if(return_dist): return dms, ddist
         return dms
     stars = None; sdist = None
@@ -311,11 +311,11 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             else:
                 cx=halo['x']; cy=halo['y']; cz=halo['z']
                 sexist = shared_memory.SharedMemory(name=saddress)
-                stars = np.ndarray(sshape, dtype=sdtype, buffer=sexist.buf)
-                stars = uri.domain_slice(stars, cdomain, cpulist_star, bound_star)
-                sdist = np.sqrt( (stars['x']-cx)**2 + (stars['y']-cy)**2 + (stars['z']-cz)**2 )
-                smask = sdist < halo['r']
-                stars = stars[smask]; sdist = sdist[smask]
+                allstars = np.ndarray(sshape, dtype=sdtype, buffer=sexist.buf)
+                domstars = uri.domain_slice(allstars, cdomain, cpulist_star, bound_star)
+                sdist = np.sqrt( (domstars['x']-cx)**2 + (domstars['y']-cy)**2 + (domstars['z']-cz)**2 )
+                smask = sdist <= halo['r']
+                stars = domstars[smask]; sdist = sdist[smask]
         if(return_dist): return stars, sdist
         return stars
 
