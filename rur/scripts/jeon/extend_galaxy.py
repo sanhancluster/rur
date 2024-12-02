@@ -16,7 +16,7 @@ def datdump(data, path, msg=False):
         f.write(data[1].encode())
     if(msg): print(f" `{path}` saved")
 
-def datload(path, msg=False, dtype='f8'):
+def datload(path, msg=False):
     with open(path, "rb") as f:
         leng = int.from_bytes(f.read(4), byteorder='little')
         try:
@@ -656,7 +656,7 @@ def dump_func(result_table, table, full_path, iout, names, verbose, izip, partit
         title = val[0]
         desc = val[1]
         datdump((result_table[key], desc), f"{full_path}/{title}_{iout:05d}.dat{suffix}", msg=verbose)
-        if(ZIP): datdump((table['id'], "IDlist"), f"{full_path}/zipID_{iout:05d}.dat{suffix}", msg=verbose)
+    if(ZIP): datdump((table['id'], "IDlist"), f"{full_path}/zipID_{iout:05d}.dat{suffix}", msg=verbose)
     if(izip+1 == nzip)and(ZIP):
         if(verbose): print(f" [DumpFunc] > Zipping"); ref = time.time()
         

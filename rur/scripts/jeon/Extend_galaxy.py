@@ -39,7 +39,7 @@ mode = args.mode
 #   Number of cores for multiprocessing.
 nthread = args.nthread
 # sep:
-#   If sep>0, only the iout%4==sep will be calculated.
+#   If sep>=0, only the iout%4==sep will be calculated.
 #   Recommend to use this option when you want to use multi tardis nodes.
 sep = args.sep
 # partition:
@@ -157,8 +157,9 @@ def calc_extended(
             delete = True
         if(delete): del name_dicts[name]
     if(len(name_dicts)==0):
-        print(f"Skip {iout}")
+        print(f"\n=================\nSkip {iout}\n=================")
         return True
+    print(f"Extend this: {names}")
     names = list(name_dicts.keys())
     result_dtype = [(name, 'f8') for name in names]
     if(verbose): print(f"\nExtended: {names} of {path_in_repo}\n")
@@ -173,6 +174,7 @@ def calc_extended(
             for name in ndtype.names: ndat[name] = dat[name]
             return ndat
         func_additional = _f2
+    # Member need?
     need_members = {
         'r50z':['x', 'y', 'z', 'm', 'epoch', 'metal'],
         'r50':['x', 'y', 'z', 'm'],
@@ -183,15 +185,14 @@ def calc_extended(
         'sfr10':['x', 'y', 'z', 'm', 'epoch'],
         'age':['m', 'epoch','metal'],
         'zmag':['m', 'epoch', 'metal']}
-    ftmp = []
-    fields = ['x', 'y', 'z', 'vx','vy','vz', 'm', 'epoch', 'metal']
+    ftmp = []; fields = ['x', 'y', 'z', 'vx','vy','vz', 'm', 'epoch', 'metal']
     for name in names:
         if(name in need_members): ftmp += need_members[name]
     if(len(ftmp)>0):
         mtarget_fields = [field for field in fields if field in list(set(ftmp))]
         need_member = True
-        if(verbose): print(f" > Member fields: {fields}")
-    
+        if(verbose): print(f" > Member fields: {mtarget_fields}")
+    # Cell need?
     need_cells = {
         'mgas_r90':['x', 'y', 'z', 'rho', 'level'],
         'mcold_r90':['x', 'y', 'z', 'rho', 'P', 'level'],
@@ -252,7 +253,7 @@ def calc_extended(
         members = uhmi.HaloMaker.read_member_parts(snapm, table, galaxy=galaxy, nthread=nthread, copy=True, target_fields=mtarget_fields)
         nparts = table['nparts']
         cparts = np.cumsum(nparts); cparts = np.insert(cparts, 0, 0)
-        delprint(2)
+        if(verbose): delprint(2)
     walltime = ("Read member", time.time()-ref); walltimes.append(walltime); ref = time.time()
 
     # Load Raw data
@@ -267,20 +268,20 @@ def calc_extended(
             cpulist, domain = snap.get_halos_cpulist(table, nthread=nthread, full=True)
             if(not ZIP): domsave(fdomain, domain)
         if(need_part):
-            if(verbose): print(f" > Get part")
+            if(verbose): print(f" > Get Part")
             pname = 'star' if galaxy else 'dm'
             snap.get_part(pname, nthread=nthread, target_fields=ptarget_fields, cpulist=cpulist)
             pshape = snap.part.shape; paddress = snap.part_mem.name; pdtype = snap.part.dtype
             part_memory = (pshape, paddress, pdtype)        
         if(need_cell):
-            if(verbose): print(f" > Get cell")
+            if(verbose): print(f" > Get Cell")
             snap.get_cell(target_fields=ctarget_fields, nthread=nthread, cpulist=cpulist)
             cshape = snap.cell.shape; caddress = snap.cell_mem.name; cdtype = snap.cell.dtype
             cpulist_cell = snap.cpulist_cell; bound_cell = snap.bound_cell
             cell_memory = (cshape, caddress, cdtype, cpulist_cell, bound_cell)
             result_dtype = check_chems(result_dtype, snap.hydro_names)
         walltime = ("Read raw", time.time()-ref); walltimes.append(walltime); ref = time.time()
-    
+
     # Preprocess
     if(pre_func is not None):
         if(verbose): print(f" > Preprocess datasets")
@@ -355,8 +356,8 @@ if __name__ == "__main__":
     # Run!
     iterator = nout[::-1]# if verbose else tqdm(nout)
     for iout in iterator:
-        if(iout>580): continue
-        if sep>0:
+        # if(iout>580): continue
+        if sep>=0:
             if iout%4 != sep: continue
         names = skip_func(path, iout, default_names, verbose)
         skip = len(names)==0
@@ -364,7 +365,7 @@ if __name__ == "__main__":
             print(f"\n=================\nSkip {iout}\n=================")
             continue
         now = datetime.datetime.now() 
-        now = f"V{now}V" if verbose else now
+        now = f"--{now}--" if verbose else now
         print(f"\n=================\nStart {iout} {now}\n================="); ref = time.time()
         nzip = 2**partition if ZIP else 1
         for izip in range(nzip):
@@ -373,4 +374,4 @@ if __name__ == "__main__":
                 pre_func, calc_func, dump_func, 
                 verbose=verbose, nthread=nthread,izip=izip, partition=partition)
             if skipped: break
-        print(f"Done ({time.time()-ref:.2f} sec)")
+        if(not skipped): print(f"Done ({time.time()-ref:.2f} sec)")
