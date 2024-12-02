@@ -656,7 +656,7 @@ def dump_func(result_table, table, full_path, iout, names, verbose, izip, partit
         title = val[0]
         desc = val[1]
         datdump((result_table[key], desc), f"{full_path}/{title}_{iout:05d}.dat{suffix}", msg=verbose)
-        if(ZIP): datdump((table['id'], "IDlist"), f"{full_path}/zipID_{iout:05d}.dat{suffix}", msg=False)
+        if(ZIP): datdump((table['id'], "IDlist"), f"{full_path}/zipID_{iout:05d}.dat{suffix}", msg=verbose)
     if(izip+1 == nzip)and(ZIP):
         if(verbose): print(f" [DumpFunc] > Zipping"); ref = time.time()
         
@@ -684,8 +684,10 @@ def dump_func(result_table, table, full_path, iout, names, verbose, izip, partit
         for jzip in range(nzip):
             suffix = f"{jzip:02d}p{nzip}"
             os.remove(f"{full_path}/zipID_{iout:05d}.dat{suffix}")
+            if(verbose): print(f" [DumpFunc] > Remove `zipID_{iout:05d}.dat{suffix}`")
             for key, val in names.items():
                 title = val[0]
                 os.remove(f"{full_path}/{title}_{iout:05d}.dat{suffix}")
+                if(verbose): print(f" [DumpFunc] > Remove `{title}_{iout:05d}.dat{suffix}`")
 
         if(verbose): print(f" Done ({time.time()-ref:.2f} sec)")
