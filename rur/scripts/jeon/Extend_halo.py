@@ -119,6 +119,9 @@ def calc_extended(
             elif '200' in name: del name_dicts[name]
             elif '500' in name: del name_dicts[name]
         names = list(name_dicts.keys())
+    if(len(names)==0):
+        print(f"\n=================\nSkip {iout}\n=================")
+        return
     print(f"Extend this: {names}")
 
 
