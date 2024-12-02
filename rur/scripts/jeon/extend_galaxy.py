@@ -219,6 +219,7 @@ def skip_func(path, iout, names, verbose):
     # Hydro
     hkeys = []
     hvals = []
+    clists = ['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'd1','d2','d3','d4']
     for key,val in nnames.items():
         if('gas' in val[0]):
             hkeys.append(key)
@@ -226,7 +227,12 @@ def skip_func(path, iout, names, verbose):
     for hkey, hval in zip(hkeys, hvals):
         fname = f"{full_path}/{hval}_{iout:05d}.dat"
         if(os.path.exists(fname)):
-            del nnames[hkey]
+            if hkey in clists:
+                data = datload(fname, msg=False)[0]
+                if(np.sum(data)>0):
+                    del nnames[hkey]
+            else:
+                del nnames[hkey]
     # SB
     fname = f"{full_path}/SBz_r90_{iout:05d}.dat"
     if(os.path.exists(fname)):
@@ -350,7 +356,7 @@ def pre_func(keys, table, snapm, members, snap, part_memory, cell_memory, full_p
 
 
 
-debug = False
+debug = True
 # This is used in multiprocessing
 def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_memory, cell_memory, cdomain, send=None):
     # Common
@@ -364,7 +370,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         argsort = np.argsort(dist)
         dist = dist[argsort]
         members = members[argsort]
-        mass = members['m'] / sunits['Msol']
+        memmass = members['m'] / sunits['Msol']
         
 
     # R50, R90
@@ -372,7 +378,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
     needr50 = True in np.isin(needr50s, result_table.dtype.names, assume_unique=True)
     if needr50:
         if('r90' in result_table.dtype.names):
-            cmas = np.cumsum(mass)
+            cmas = np.cumsum(memmass)
             r50 = dist [np.argmin(np.abs(cmas - cmas[-1]*0.5)) ]
             result_table['r50'][i] = r50
             r90 = dist[ np.argmin(np.abs(cmas - cmas[-1]*0.9)) ]
@@ -393,13 +399,13 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         sfr=0; sfr_r50=0; sfr_r90=0
         young = members['age'] < 0.1
         if(True in young):
-            sfr = np.sum(mass[young]) / 1e8 # Msol/yr
+            sfr = np.sum(memmass[young]) / 1e8 # Msol/yr
             young = young & (dist < r90)
             if(True in young):
-                sfr_r90 = np.sum(mass[young]) / 1e8
+                sfr_r90 = np.sum(memmass[young]) / 1e8
                 young = young & (dist < r50)
                 if(True in young):
-                    sfr_r50 = np.sum(mass[young]) / 1e8
+                    sfr_r50 = np.sum(memmass[young]) / 1e8
         result_table['sfr'][i] = sfr
         result_table['sfr_r50'][i] = sfr_r50
         result_table['sfr_r90'][i] = sfr_r90
@@ -408,13 +414,13 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         sfr10=0; sfr10_r50=0; sfr10_r90=0
         young = members['age'] < 0.01
         if(True in young):
-            sfr10 = np.sum(mass[young]) / 1e7 # Msol/yr
+            sfr10 = np.sum(memmass[young]) / 1e7 # Msol/yr
             young = young & (dist < r90)
             if(True in young):
-                sfr10_r90 = np.sum(mass[young]) / 1e7
+                sfr10_r90 = np.sum(memmass[young]) / 1e7
                 young = young & (dist < r50)
                 if(True in young):
-                    sfr10_r50 = np.sum(mass[young]) / 1e7
+                    sfr10_r50 = np.sum(memmass[young]) / 1e7
         result_table['sfr10'][i] = sfr10
         result_table['sfr10_r50'][i] = sfr10_r50
         result_table['sfr10_r90'][i] = sfr10_r90
@@ -426,12 +432,12 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
             result_table[f'{band}mag'][i] = -2.5*np.log10(np.sum(10**(-0.4*mags)))
     # Age
     if('age' in result_table.dtype.names):
-        result_table['age'][i] = np.average(members['age'], weights=mass)
+        result_table['age'][i] = np.average(members['age'], weights=memmass)
         for band in global_bands:
             result_table[f'age{band}'][i] = np.average(members['age'], weights=members[f'{band}lum'])
     # Metallicity
     if('metal' in result_table.dtype.names):
-        result_table['metal'][i] = np.average(members['metal'], weights=mass)
+        result_table['metal'][i] = np.average(members['metal'], weights=memmass)
     # V/sigma
     if('vsig_r90' in result_table.dtype.names):
         vsig=0; vsig_r50=0; vsig_r90=0
@@ -459,22 +465,22 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         rotunit = np.cross(Lvec, runit)
         vrot = np.sum(np.vstack([vx,vy,vz]).T * rotunit, axis=1)
         vnorm = np.sqrt(vx**2 + vy**2 + vz**2)
-        sigma = np.sqrt( np.average((vnorm - vmean)**2, weights=mass) )
-        vsig = np.average(vrot, weights=mass) / sigma
+        sigma = np.sqrt( np.average((vnorm - vmean)**2, weights=memmass) )
+        vsig = np.average(vrot, weights=memmass) / sigma
         result_table['vsig'][i] = vsig
 
         mask = r < r90
         if mask.any():
-            sigma = np.sqrt( np.average((vnorm[mask] - vmean)**2, weights=mass[mask]) )
-            vsig_r90 = np.average(vrot[mask], weights=mass[mask]) / sigma
+            sigma = np.sqrt( np.average((vnorm[mask] - vmean)**2, weights=memmass[mask]) )
+            vsig_r90 = np.average(vrot[mask], weights=memmass[mask]) / sigma
         else:
             vsig_r90 = np.nan
         result_table['vsig_r90'][i] = vsig_r90
 
         mask = r < r50
         if mask.any():
-            sigma = np.sqrt( np.average((vnorm[mask] - vmean)**2, weights=mass[mask]) )
-            vsig_r50 = np.average(vrot[mask], weights=mass[mask]) / sigma
+            sigma = np.sqrt( np.average((vnorm[mask] - vmean)**2, weights=memmass[mask]) )
+            vsig_r50 = np.average(vrot[mask], weights=memmass[mask]) / sigma
         else:
             vsig_r50 = np.nan
         result_table['vsig_r50'][i] = vsig_r50
@@ -537,6 +543,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
             for band in global_bands:
                 result_table[f'SB{band}_r50'][i] = np.nan
     # Hydro
+    cellmass = None
     if('metal_gas' in result_table.dtype.names):
         if(debug)and(i==0): print(" [CalcFunc] > Hydro")
         # halo prop
@@ -565,22 +572,22 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
 
         # Cell mass
         if(debug)and(i==0): print(" [CalcFunc] > cell mass")
-        mass = cells['rho']*dx**3 / sunits['Msol']
-        result_table['mgas'][i] = np.sum(mass)
-        result_table['mgas_r50'][i] = np.sum(mass[cdist < r50])
-        result_table['mgas_r90'][i] = np.sum(mass[cdist < r90])
+        cellmass = cells['rho']*dx**3 / sunits['Msol']
+        result_table['mgas'][i] = np.sum(cellmass)
+        result_table['mgas_r50'][i] = np.sum(cellmass[cdist < r50])
+        result_table['mgas_r90'][i] = np.sum(cellmass[cdist < r90])
 
         # temperature
         if(debug)and(i==0): print(" [CalcFunc] > temperature")
         T = cells['P']/cells['rho'] / sunits['K']
         cold = T < 1e4
         dense = (cells['rho'] / sunits['H/cc'] > 5) & (cold)
-        result_table['mcold'][i] = np.sum(mass[cold])
-        result_table['mcold_r50'][i] = np.sum(mass[cold & (cdist < r50)])
-        result_table['mcold_r90'][i] = np.sum(mass[cold & (cdist < r90)])
-        result_table['mdense'][i] = np.sum(mass[dense])
-        result_table['mdense_r50'][i] = np.sum(mass[dense & (cdist < r50)])
-        result_table['mdense_r90'][i] = np.sum(mass[dense & (cdist < r90)])
+        result_table['mcold'][i] = np.sum(cellmass[cold])
+        result_table['mcold_r50'][i] = np.sum(cellmass[cold & (cdist < r50)])
+        result_table['mcold_r90'][i] = np.sum(cellmass[cold & (cdist < r90)])
+        result_table['mdense'][i] = np.sum(cellmass[dense])
+        result_table['mdense_r50'][i] = np.sum(cellmass[dense & (cdist < r50)])
+        result_table['mdense_r90'][i] = np.sum(cellmass[dense & (cdist < r90)])
 
 
         # vsig
@@ -597,38 +604,41 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         rotunit = np.cross(Lvec, runit)
         vrot = np.sum(np.vstack([vx,vy,vz]).T * rotunit, axis=1)
         vnorm = np.sqrt(vx**2 + vy**2 + vz**2)
-        if(len(mass)>0):
-            sigma = np.sqrt( np.average((vnorm - vmean)**2, weights=mass) )
-            vsig = np.average(vrot, weights=mass) / sigma
+        if(len(cellmass)>0):
+            sigma = np.sqrt( np.average((vnorm - vmean)**2, weights=cellmass) )
+            vsig = np.average(vrot, weights=cellmass) / sigma
         else:
             vsig = np.nan
         result_table['vsig_gas'][i] = vsig
         mask = r < r90
         if(mask.any()):
-            sigma = np.sqrt( np.average((vnorm[mask] - vmean)**2, weights=mass[mask]) )
-            vsig_r90 = np.average(vrot[mask], weights=mass[mask]) / sigma
+            sigma = np.sqrt( np.average((vnorm[mask] - vmean)**2, weights=cellmass[mask]) )
+            vsig_r90 = np.average(vrot[mask], weights=cellmass[mask]) / sigma
         else:
             vsig_r90 = np.nan
         result_table['vsig_gas_r90'][i] = vsig_r90
         mask = r < r50
         if(mask.any()):
-            sigma = np.sqrt( np.average((vnorm[mask] - vmean)**2, weights=mass[mask]) )
-            vsig_r50 = np.average(vrot[mask], weights=mass[mask]) / sigma
+            sigma = np.sqrt( np.average((vnorm[mask] - vmean)**2, weights=cellmass[mask]) )
+            vsig_r50 = np.average(vrot[mask], weights=cellmass[mask]) / sigma
         else:
             vsig_r50 = np.nan
         result_table['vsig_gas_r50'][i] = vsig_r50
         
         # metal
         if(debug)and(i==0): print(" [CalcFunc] > metal")
-        metal = np.average(cells['metal'], weights=mass) if(len(mass)>0) else np.nan
+        metal = np.average(cells['metal'], weights=cellmass) if(len(cellmass)>0) else np.nan
         result_table['metal_gas'][i] = metal
 
-        # Chem and dust
-        clists = ['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'd1','d2','d3','d4']
+    # Chemical
+    clists = ['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'd1','d2','d3','d4']
+    check = [f"{clist}_gas" in result_table.dtype.names for clist in clists if clist[0]!='d']
+    if(True in check):
+        if cellmass is None: cellmass = cells['rho']*dx**3 / sunits['Msol']
         for clist in clists:
             if(clist in result_table.dtype.names):
                 if(debug)and(i==0): print(f" [CalcFunc] > {clist}")
-                value = np.average(cells[clist], weights=mass) if(len(mass)>0) else np.nan
+                value = np.average(cells[clist], weights=cellmass) if(len(cellmass)>0) else np.nan
                 result_table[clist][i] = value
 
 
