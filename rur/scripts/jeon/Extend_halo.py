@@ -27,12 +27,14 @@ def delprint(n=1):
 parser = argparse.ArgumentParser(description='Extend HaloMaker (syj3514@yonsei.ac.kr)')
 parser.add_argument("-m", "--mode", default='nc', required=False, help='Simulation mode', type=str)
 parser.add_argument("-n", "--nthread", default=8, required=False, help='Ncore', type=int)
+parser.add_argument("-s", "--sep", default=-1, required=False, help='Separation', type=int)
 parser.add_argument("--verbose", action='store_true')
 parser.add_argument("--onlymem", action='store_true')
 args = parser.parse_args()
 print(args)
 mode = args.mode
 nthread = args.nthread
+sep = args.sep
 verbose = args.verbose
 onlymem = args.onlymem
 galaxy = False
@@ -309,6 +311,8 @@ if __name__ == "__main__":
     iterator = nout[::-1]# if verbose else tqdm(nout)
     for iout in iterator:
         #if(iout>100): continue
+        if sep>0:
+            if iout%4 != sep: continue
         names = skip_func(path, iout, default_names, verbose)
         skip = len(names)==0
         if(skip):

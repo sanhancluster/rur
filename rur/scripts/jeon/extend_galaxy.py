@@ -544,7 +544,9 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
                 result_table[f'SB{band}_r50'][i] = np.nan
     # Hydro
     cellmass = None
-    if('metal_gas' in result_table.dtype.names):
+    clists = ['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'd1','d2','d3','d4']
+    check = [clist in result_table.dtype.names for clist in clists if clist[0]!='d']
+    if('metal_gas' in result_table.dtype.names)or(True in check):
         if(debug)and(i==0): print(" [CalcFunc] > Hydro")
         # halo prop
         cx = halo['x']; cy = halo['y']; cz = halo['z']
@@ -569,7 +571,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         cells = cells[rmask]; cdist = cdist[rmask]
         dx = 1 / 2**cells['level']
         vol = dx**3
-
+    if('metal_gas' in result_table.dtype.names):
         # Cell mass
         if(debug)and(i==0): print(" [CalcFunc] > cell mass")
         cellmass = cells['rho']*dx**3 / sunits['Msol']
@@ -631,8 +633,6 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         result_table['metal_gas'][i] = metal
 
     # Chemical
-    clists = ['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'd1','d2','d3','d4']
-    check = [f"{clist}_gas" in result_table.dtype.names for clist in clists if clist[0]!='d']
     if(True in check):
         if cellmass is None: cellmass = cells['rho']*dx**3 / sunits['Msol']
         for clist in clists:
