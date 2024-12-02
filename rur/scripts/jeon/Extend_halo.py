@@ -11,10 +11,10 @@ import argparse, time, datetime, signal
 """
 Extend list:
 (halo)
-['r200c','m200c','r500c','m500c', 
+['mcontam', 'r200c','m200c','r500c','m500c', 
 'mstar_r', 'mstar_rvir', 'mstar_r200', 'mgas_r', 'mgas_rvir', 'mgas_r200',
 'mcold_r', 'mcold_rvir', 'mcold_r200', 'mdense_r', 'mdense_rvir', 'mdense_r200',
-'vmaxcir, 'cNFW', 'inslope']
+'vmaxcir, 'rmaxcir, 'cNFW', 'cNFWerr', 'inslope', 'inslopeerr']
 """
 
 
@@ -28,11 +28,13 @@ parser = argparse.ArgumentParser(description='Extend HaloMaker (syj3514@yonsei.a
 parser.add_argument("-m", "--mode", default='nc', required=False, help='Simulation mode', type=str)
 parser.add_argument("-n", "--nthread", default=8, required=False, help='Ncore', type=int)
 parser.add_argument("--verbose", action='store_true')
+parser.add_argument("--onlymem", action='store_true')
 args = parser.parse_args()
 print(args)
 mode = args.mode
 nthread = args.nthread
 verbose = args.verbose
+onlymem = args.onlymem
 galaxy = False
 chem = False
 uri.timer.verbose = 1 if verbose else 0
@@ -108,6 +110,18 @@ def calc_extended(
     uri.timer.verbose = 1 if verbose else 0
 
     names = list(name_dicts.keys())
+    if onlymem:
+        for name in names:
+            if 'star' in name: del name_dicts[name]
+            elif 'gas' in name: del name_dicts[name]
+            elif 'cold' in name: del name_dicts[name]
+            elif 'dense' in name: del name_dicts[name]
+            elif '200' in name: del name_dicts[name]
+            elif '500' in name: del name_dicts[name]
+        names = list(name_dicts.keys())
+    print(f"Extend this: {names}")
+
+
     result_dtype = [(name, 'f8') for name in names]
 
     # Member need?
