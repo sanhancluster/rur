@@ -247,6 +247,8 @@ def skip_func(path, iout, names, verbose, DEBUG):
                 data = datload(fname, msg=False)[0]
                 if(len(np.unique(data))>1):
                     del nnames[hkey]
+                else:
+                    print(f" [SkipFunc] > Wrong saved `{fname}`")
             else:
                 del nnames[hkey]
 
