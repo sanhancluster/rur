@@ -113,7 +113,7 @@ def skip_func(path, iout, names, verbose):
     fname = f"{full_path}/m500_{iout:05d}.dat"
     if(os.path.exists(fname)):
         del nnames[f'r200']
-        del nnames[f'm500']
+        del nnames[f'm200']
         del nnames[f'r500']
         del nnames[f'm500']
     
