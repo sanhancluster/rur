@@ -230,7 +230,7 @@ class HaloMaker:
 
 
     @staticmethod
-    def load(snap, path_in_repo=None, galaxy=False, full_path=None, load_parts=False, double_precision=True, copy_part_id=True, extend=True):
+    def load(snap, path_in_repo=None, galaxy=False, full_path=None, load_parts=False, double_precision=True, copy_part_id=True, extend=False):
         # boxsize: comoving length of the box in Mpc
         repo = snap.repo
         start = snap.iout
