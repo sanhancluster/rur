@@ -114,7 +114,7 @@ def skip_func(path, iout, names, verbose):
     if(os.path.exists(fname)):
         del nnames[f'r200']
         del nnames[f'm500']
-        del nnames[f'r200']
+        del nnames[f'r500']
         del nnames[f'm500']
     
     # Mass
