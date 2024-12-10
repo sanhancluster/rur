@@ -328,7 +328,7 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
             image = resize(image, shape)
 
     timer.record()
-    return image.T, None
+    return image.T
 
 def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho', unit=None, minlvl=None, maxlvl=None,
                 subpx_crop=True, interp_order=0, weights=None, quantity=None, method='hist', preserve=False, **kwargs):
