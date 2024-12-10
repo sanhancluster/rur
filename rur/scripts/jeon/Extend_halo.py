@@ -28,6 +28,7 @@ parser = argparse.ArgumentParser(description='Extend HaloMaker (syj3514@yonsei.a
 parser.add_argument("-m", "--mode", default='nc', required=False, help='Simulation mode', type=str)
 parser.add_argument("-n", "--nthread", default=8, required=False, help='Ncore', type=int)
 parser.add_argument("-s", "--sep", default=-1, required=False, help='Separation', type=int)
+parser.add_argument("-N", "--nsep", default=4, required=False, help="Nsep", type=int)
 parser.add_argument("-p", "--partition", default=0, required=False, help='Divide halo domain (1=x, 2=xy, 3=xyz)', type=int)
 parser.add_argument("--verbose", action='store_true')
 parser.add_argument("--onlymem", action='store_true')
@@ -44,6 +45,7 @@ nthread = args.nthread
 #   If sep>=0, only the iout%4==sep will be calculated.
 #   Recommend to use this option when you want to use multi tardis nodes.
 sep = args.sep
+nsep = args.nsep
 # partition:
 #   If partition>0, the galaxy domain will be divided.
 #   The number of divided domains is 2^partition. (1=x, 2=xy, 3=xyz)
@@ -263,10 +265,13 @@ def calc_extended(
         if(need_star):
             if(verbose): print(f" > Get Star")
             if snapstar.star[0]:
-                snapstar.get_part(pname='star', nthread=nthread, target_fields=starget_fields, cpulist=cpulist)
-                sshape = snapstar.part.shape; saddress = snapstar.part_mem.name; sdtype = snapstar.part.dtype
-                cpulist_star = snapstar.cpulist_part; bound_star = snapstar.bound_part
-                star_memory = (sshape, saddress, sdtype, cpulist_star, bound_star)
+                st=snapstar.get_part(pname='star', nthread=nthread, target_fields=starget_fields, cpulist=cpulist)
+                if(len(st)==0):
+                    star_memory = (None, None, None, None, None)
+                else:
+                    sshape = snapstar.part.shape; saddress = snapstar.part_mem.name; sdtype = snapstar.part.dtype
+                    cpulist_star = snapstar.cpulist_part; bound_star = snapstar.bound_part
+                    star_memory = (sshape, saddress, sdtype, cpulist_star, bound_star)
             else:
                 star_memory = (None, None, None, None, None)
         if(need_cell):
@@ -346,11 +351,11 @@ if __name__ == "__main__":
     nout.sort()
     
     # Run!
-    iterator = nout[::-1]# if verbose else tqdm(nout)
+    iterator = nout# if verbose else tqdm(nout)
     for iout in iterator:
         # if(iout>100): continue
         if sep>=0:
-            if iout%4 != sep: continue
+            if iout%nsep != sep: continue
         names = skip_func(path, iout, default_names, verbose)
         skip = len(names)==0
         if(skip):
