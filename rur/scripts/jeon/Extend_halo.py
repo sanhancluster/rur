@@ -207,7 +207,7 @@ def calc_extended(
 
     # Load HaloMaker
     sparams = snap.params; sunits = snap.unit
-    table = uhmi.HaloMaker.load(snap, galaxy=False, extend=False)
+    table = uhmi.HaloMaker.load(snap, galaxy=False, extend=True)
     if(ZIP):
         ntable = len(table)
         if(partition >= 1): # nzip=2, 4, 8
