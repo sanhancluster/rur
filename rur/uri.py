@@ -2314,7 +2314,7 @@ class RamsesSnapshot(object):
             self.sink = sink
         return self.sink
 
-    def get_halos_cpulist(self, halos, radius=1., use_halo_radius=True, radius_name='r', n_divide=4, nthread=1, full=False):
+    def get_halos_cpulist(self, halos, radius=1., use_halo_radius=True, radius_name='r', n_divide=4, nthread=1, full=False, manual=False):
         # returns cpulist that encloses given list of halos
         cpulist = []
 
@@ -2329,7 +2329,7 @@ class RamsesSnapshot(object):
         path_in_repo = 'galaxy' if galaxy else 'halo'
         prefix = 'GAL' if galaxy else 'HAL'
         path = f"{self.repo}/{path_in_repo}/{prefix}_{self.iout:05d}/domain_{self.iout:05d}.dat"
-        if (exists(path)):
+        if (exists(path))and(not manual):
             domain = domload(path)
             cpulist = [domain[i-1] for i in halos['id']]
         else:
