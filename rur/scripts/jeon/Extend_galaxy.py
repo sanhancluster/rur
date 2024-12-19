@@ -2,7 +2,7 @@ print("ex: python3 Extend.py --mode nc --nthread 24 --verbose --chem")
 
 import numpy as np
 from rur import uri, uhmi
-from rur.utool import load
+from rur.utool import load, domload, domsave, domload_legacy
 import os, glob, sys
 from multiprocessing import Pool, shared_memory
 from tqdm import tqdm
@@ -82,43 +82,6 @@ def getmem(members, cparts, i):
         return None
     else:
         return members.table[cparts[i]:cparts[i+1]]
-
-def domsave(fname, domain):
-    if os.path.exists(fname): return None
-    domain_16 = [dom.astype(np.int16) for dom in domain]
-    bdomain = [dom.tobytes() for dom in domain_16]
-    with open(fname, "wb") as f:
-        f.write(len(bdomain).to_bytes(4, byteorder='little'))
-        for i in range(len(bdomain)):
-            f.write(bdomain[i])
-            f.write("\n".encode())
-    assert os.path.exists(fname)
-
-def domload(path, msg=False):
-    with open(path, "rb") as f:
-        leng = int.from_bytes(f.read(4), byteorder='little')
-        domain = [None]*leng
-        oldv = None
-        cursor = 0
-        for i in range(leng):
-            v=f.readline()
-            if(len(v)%2 == 0):
-                v = oldv + v
-                cursor -= 1
-            domain[cursor] = np.frombuffer(v[:-1], dtype='i2')
-            oldv = v
-            cursor += 1
-
-        while cursor < leng:
-            v=f.readline()
-            if(len(v)%2 == 0):
-                v = oldv + v
-                cursor -= 1
-            domain[cursor] = np.frombuffer(v[:-1], dtype='i2')
-            cursor += 1
-            
-    if(msg): print(f" `{path}` loaded")
-    return domain
 
 # --------------------------------------------------------------
 # Main Function
@@ -269,7 +232,7 @@ def calc_extended(
             cpulist = np.unique( np.concatenate( domain ) )
         else:
             if(verbose): print(f" > Get halos cpu list")
-            cpulist, domain = snap.get_halos_cpulist(table, nthread=nthread, full=True)
+            cpulist, domain = snap.get_halos_cpulist(table, nthread=nthread, full=True, manual=True)
             if(not ZIP): domsave(fdomain, domain)
         if(need_part):
             if(verbose): print(f" > Get Part")
