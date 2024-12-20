@@ -925,14 +925,12 @@ def dark_cmap(color):
     color_bright[color_bright>1] = 1
     return make_cmap([[0, 0, 0], color, color_bright], position=[0, 0.5, 1])        
 
-import time
 def amr_projection(centers, levels, quantities, weights=None, shape=100, lims=None, mode='sum', plot_method='hist', projection=['x', 'y'], interp_order=0):
     # produce a projection plot of a quantity using the AMR data
-    t = time.time()
-    print(1, time.time()-t)
     ndim = 3
     if lims is None:
-        lims = np.array([[0, 1],] * ndim)
+        lims = [[0, 1],] * ndim
+    lims = np.array(lims)
     if weights is None:
         weights = np.ones_like(quantities)
     # if shape is scalar, make it a tuple
@@ -943,7 +941,6 @@ def amr_projection(centers, levels, quantities, weights=None, shape=100, lims=No
         raise ValueError("The number of centers and quantities do not match.")
     if centers.shape[0] != len(levels):
         raise ValueError("The number of centers and levels do not match.")
-    print(2, time.time()-t)
 
     dim_keys = np.array(['x', 'y', 'z'][:ndim])
     proj = [np.arange(ndim)[dim_keys==p][0] for p in projection]
@@ -961,20 +958,19 @@ def amr_projection(centers, levels, quantities, weights=None, shape=100, lims=No
 
     # get the smallest levelmin grid space that covers the whole region
     i_lims_levelmin = lims_2d * 2**levelmin_draw
-    i_lims_levelmin[:, 0] = np.floor(i_lims_levelmin[:, 0]).astype(int)
-    i_lims_levelmin[:, 1] = np.ceil(i_lims_levelmin[:, 1]).astype(int)
+    i_lims_levelmin[:, 0] = np.floor(i_lims_levelmin[:, 0])
+    i_lims_levelmin[:, 1] = np.ceil(i_lims_levelmin[:, 1])
+    i_lims_levelmin = i_lims_levelmin.astype(int)
     lims_2d_draw = i_lims_levelmin / 2**levelmin_draw
 
     # get mask that indicates cells to draw
     mask_draw = np.all((centers + 2**(levels-1)[:, np.newaxis] >= lims[:, 0])
                        & (centers - 2**(levels-1)[:, np.newaxis] <= lims[:, 1]), axis=1)
-    print(3, time.time()-t)
 
     cc = centers[mask_draw]
     ll = levels[mask_draw]
     qq = quantities[mask_draw]
     ww = weights[mask_draw]
-    print(4, time.time()-t)
 
     if mode in ['sum', 'mean']:
         fill_value = 0
@@ -994,22 +990,19 @@ def amr_projection(centers, levels, quantities, weights=None, shape=100, lims=No
         projector = lambda x, y, w: cic_img(x, y, weights=w, reso=shape_now, lims=lims_2d_draw)
     elif plot_method == 'hist':
         projector = lambda x, y, w: np.histogram2d(x, y, weights=w, bins=shape_now, range=lims_2d_draw)[0]
-    print(5, time.time()-t)
 
     for grid_level in range(levelmin, levelmax+1):
         mask_level = ll == grid_level
         shape_now = grid.shape
-        print(6, grid_level, 1, time.time()-t)
 
         # get weight for the current level with depending on the line-of-sight depth within the limit.
-        # e.g., the weight is 0.5 if the z-coordinate is in the middle of the z-limits 
-        volume_weight = (1 + np.clip((zz[mask_level] - lims[proj_z][0]) * 2**grid_level - 0.5, -1, 0)
-                         + np.clip((lims[proj_z][1] - zz[mask_level]) * 2**grid_level + 0.5, -1, 0))
+        # e.g., the weight is 0.5 if the z-coordinate is in the middle of any z-limits 
+        volume_weight = 1
+        volume_weight += np.clip((zz[mask_level] - lims[proj_z][0]) * 2**grid_level - 0.5, -1, 0) + np.clip((lims[proj_z][1] - zz[mask_level]) * 2**grid_level - 0.5, -1, 0)
         # multiply the weight by the depth of the projected grid. The weight is doubled for each level except for the levels larger than the grid resolution.
         volume_weight *= 2.**-grid_level
         # give additional weight to the projection if cell is smaller than the grid resolution
         volume_weight *= 4.**np.minimum(levelmax_draw - grid_level, 0)
-        print(6, grid_level, 2, time.time()-t)
 
         if mode in ['sum', 'mean']:
             # do a weighted sum over projection
