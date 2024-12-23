@@ -2,7 +2,7 @@ print("ex: python3 Extend.py --mode nc --nthread 24 --verbose --chem")
 
 import numpy as np
 from rur import uri, uhmi
-from rur.utool import load
+from rur.utool import load, domload, domsave, domload_legacy
 import os, glob, sys
 from multiprocessing import Pool, shared_memory
 from tqdm import tqdm
@@ -24,17 +24,44 @@ def delprint(n=1):
 parser = argparse.ArgumentParser(description='Extend HaloMaker (syj3514@yonsei.ac.kr)')
 parser.add_argument("-m", "--mode", default='nc', required=False, help='Simulation mode', type=str)
 parser.add_argument("-n", "--nthread", default=8, required=False, help='Ncore', type=int)
+parser.add_argument("-s", "--sep", default=-1, required=False, help='Separation iout (s%4)', type=int)
+parser.add_argument("-N", "--nsep", default=4, required=False, help="Nsep", type=int)
+parser.add_argument("-p", "--partition", default=0, required=False, help='Divide galaxy domain (1=x, 2=xy, 3=xyz)', type=int)
 parser.add_argument("--verbose", action='store_true')
 parser.add_argument("--nocell", action='store_true')
 parser.add_argument("--chem", action='store_true')
+parser.add_argument("--debug", action='store_true')
 args = parser.parse_args()
 print(args)
+# mode:
+#   Currently ['nc','nh','nh2'] are available.
+#   See `inhouse` dictionary in `extend_galaxy.py` for the path.
 mode = args.mode
+# nthread:
+#   Number of cores for multiprocessing.
 nthread = args.nthread
+# sep:
+#   If sep>=0, only the iout%4==sep will be calculated.
+#   Recommend to use this option when you want to use multi tardis nodes.
+sep = args.sep
+nsep = args.nsep
+# partition:
+#   If partition>0, the galaxy domain will be divided.
+#   The number of divided domains is 2^partition. (1=x, 2=xy, 3=xyz)
+#   Recommend to use this option when you lack memory.
+partition = args.partition
+ZIP = partition>0
+# verbose:
+#   If True, the progress bar will be shown and the verbose mode will be activated.
 verbose = args.verbose
+# nocell:
+#   If True, the cell data will not be loaded.
 nocell = args.nocell
+# chem:
+#   If True, the chemical data will be loaded.
 chem = args.chem
 galaxy = True
+DEBUG = args.debug
 if(nocell): chem = False
 uri.timer.verbose = 1 if verbose else 0
 
@@ -56,43 +83,6 @@ def getmem(members, cparts, i):
     else:
         return members.table[cparts[i]:cparts[i+1]]
 
-def domsave(fname, domain):
-    if os.path.exists(fname): return None
-    domain_16 = [dom.astype(np.int16) for dom in domain]
-    bdomain = [dom.tobytes() for dom in domain_16]
-    with open(fname, "wb") as f:
-        f.write(len(bdomain).to_bytes(4, byteorder='little'))
-        for i in range(len(bdomain)):
-            f.write(bdomain[i])
-            f.write("\n".encode())
-    assert os.path.exists(fname)
-
-def domload(path, msg=False):
-    with open(path, "rb") as f:
-        leng = int.from_bytes(f.read(4), byteorder='little')
-        domain = [None]*leng
-        oldv = None
-        cursor = 0
-        for i in range(leng):
-            v=f.readline()
-            if(len(v)%2 == 0):
-                v = oldv + v
-                cursor -= 1
-            domain[cursor] = np.frombuffer(v[:-1], dtype='i2')
-            oldv = v
-            cursor += 1
-
-        while cursor < leng:
-            v=f.readline()
-            if(len(v)%2 == 0):
-                v = oldv + v
-                cursor -= 1
-            domain[cursor] = np.frombuffer(v[:-1], dtype='i2')
-            cursor += 1
-            
-    if(msg): print(f" `{path}` loaded")
-    return domain
-
 # --------------------------------------------------------------
 # Main Function
 # --------------------------------------------------------------
@@ -103,10 +93,14 @@ def calc_extended(
     need_part=False, ptarget_fields=None,
     need_cell=False, ctarget_fields=None, 
     get_additional=None, func_additional=None,
-    **kwargs):
+    izip=None, partition=-1, DEBUG=False, **kwargs):
     global mode
     walltimes = []
     ref = time.time()
+    ZIP = partition>0
+    nzip = 2**partition if ZIP else 1
+    if(ZIP)and(verbose):
+        print(f"--- ZIP mode: {izip}/{nzip} ---")
 
     # Setting database
     path_in_repo = 'galaxy'
@@ -129,8 +123,9 @@ def calc_extended(
             delete = True
         if(delete): del name_dicts[name]
     if(len(name_dicts)==0):
-        print(f"Skip {iout}")
-        return
+        print(f"\n=================\nSkip {iout}\n=================")
+        return True
+    print(f"Extend this: {names}")
     names = list(name_dicts.keys())
     result_dtype = [(name, 'f8') for name in names]
     if(verbose): print(f"\nExtended: {names} of {path_in_repo}\n")
@@ -145,6 +140,7 @@ def calc_extended(
             for name in ndtype.names: ndat[name] = dat[name]
             return ndat
         func_additional = _f2
+    # Member need?
     need_members = {
         'r50z':['x', 'y', 'z', 'm', 'epoch', 'metal'],
         'r50':['x', 'y', 'z', 'm'],
@@ -155,15 +151,14 @@ def calc_extended(
         'sfr10':['x', 'y', 'z', 'm', 'epoch'],
         'age':['m', 'epoch','metal'],
         'zmag':['m', 'epoch', 'metal']}
-    ftmp = []
-    fields = ['x', 'y', 'z', 'vx','vy','vz', 'm', 'epoch', 'metal']
+    ftmp = []; fields = ['x', 'y', 'z', 'vx','vy','vz', 'm', 'epoch', 'metal']
     for name in names:
         if(name in need_members): ftmp += need_members[name]
     if(len(ftmp)>0):
         mtarget_fields = [field for field in fields if field in list(set(ftmp))]
         need_member = True
-        if(verbose): print(f" > Member fields: {fields}")
-    
+        if(verbose): print(f" > Member fields: {mtarget_fields}")
+    # Cell need?
     need_cells = {
         'mgas_r90':['x', 'y', 'z', 'rho', 'level'],
         'mcold_r90':['x', 'y', 'z', 'rho', 'P', 'level'],
@@ -192,6 +187,23 @@ def calc_extended(
     # Load HaloMaker
     sparams = snap.params; sunits = snap.unit
     table = uhmi.HaloMaker.load(snap,galaxy=True, extend=False)
+    if(ZIP):
+        ntable = len(table)
+        if(partition >= 1): # nzip=2, 4, 8
+            medx = np.median(table['x']); checkx = izip%2
+            table = table[table['x']<medx] if checkx==0 else table[table['x']>=medx]
+        if(partition >= 2): # nzip=4, 8
+            medy = np.median(table['y']); checky = (izip//2)%2
+            table = table[table['y']<medy] if checky==0 else table[table['y']>=medy]
+        if(partition == 3): # nzip=8
+            medz = np.median(table['z']); checkz = (izip//4)%2
+            table = table[table['z']<medz] if checkz else table[table['z']>=medz]
+        if(partition>3):
+            raise ValueError("Partition should be 1, 2, or 3")
+        if(verbose):
+            print(f" > Partition Level: {partition}, ({izip}/{nzip})")
+            print(f" > Table: {ntable}->{len(table)}")
+
     if(verbose): print(f" > Calculate for {len(table)} {path_in_repo}s")
     domain = [None for _ in range(len(table))]
     walltime = ("Preparation", time.time()-ref); walltimes.append(walltime); ref = time.time()
@@ -207,7 +219,7 @@ def calc_extended(
         members = uhmi.HaloMaker.read_member_parts(snapm, table, galaxy=galaxy, nthread=nthread, copy=True, target_fields=mtarget_fields)
         nparts = table['nparts']
         cparts = np.cumsum(nparts); cparts = np.insert(cparts, 0, 0)
-        delprint(2)
+        if(verbose): delprint(2)
     walltime = ("Read member", time.time()-ref); walltimes.append(walltime); ref = time.time()
 
     # Load Raw data
@@ -216,26 +228,27 @@ def calc_extended(
         if(os.path.exists(fdomain)):
             if(verbose): print(f" > Load domain")
             domain = domload(fdomain, msg=verbose)
-            cpulist = np.unique(np.concatenate(domain))
+            if(ZIP): domain = [domain[ith-1] for ith in table['id']]
+            cpulist = np.unique( np.concatenate( domain ) )
         else:
             if(verbose): print(f" > Get halos cpu list")
-            cpulist, domain = snap.get_halos_cpulist(table, nthread=nthread, full=True)
-            domsave(fdomain, domain)
+            cpulist, domain = snap.get_halos_cpulist(table, nthread=nthread, full=True, manual=True)
+            if(not ZIP): domsave(fdomain, domain)
         if(need_part):
-            if(verbose): print(f" > Get part")
+            if(verbose): print(f" > Get Part")
             pname = 'star' if galaxy else 'dm'
-            snap.get_part(pname, nthread=nthread, target_fields=ptarget_fields, cpulist=cpulist)
+            snap.get_part(pname=pname, nthread=nthread, target_fields=ptarget_fields, cpulist=cpulist)
             pshape = snap.part.shape; paddress = snap.part_mem.name; pdtype = snap.part.dtype
             part_memory = (pshape, paddress, pdtype)        
         if(need_cell):
-            if(verbose): print(f" > Get cell")
+            if(verbose): print(f" > Get Cell")
             snap.get_cell(target_fields=ctarget_fields, nthread=nthread, cpulist=cpulist)
             cshape = snap.cell.shape; caddress = snap.cell_mem.name; cdtype = snap.cell.dtype
             cpulist_cell = snap.cpulist_cell; bound_cell = snap.bound_cell
             cell_memory = (cshape, caddress, cdtype, cpulist_cell, bound_cell)
             result_dtype = check_chems(result_dtype, snap.hydro_names)
         walltime = ("Read raw", time.time()-ref); walltimes.append(walltime); ref = time.time()
-    
+
     # Preprocess
     if(pre_func is not None):
         if(verbose): print(f" > Preprocess datasets")
@@ -247,7 +260,7 @@ def calc_extended(
     if(func_additional is not None):
         if(verbose): print(f" > Get additional data")
         dat = get_additional(table, snapm, members, snap, part_memory, cell_memory)
-        delprint(2)
+        if(verbose): delprint(2)
         send = func_additional(dat)
         walltime = ("Additional data", time.time()-ref); walltimes.append(walltime); ref = time.time()
 
@@ -263,7 +276,6 @@ def calc_extended(
     # Main Calculation
     if(verbose): print(f" > Start Calculation")
     if(verbose):
-        reft = time.time()
         pbar = tqdm(total=len(table), desc=f"Nthread={min(len(table), nthread)}")
         def update(*a): pbar.update()
     else: update = None
@@ -279,7 +291,7 @@ def calc_extended(
 
     # Dump and relase memory
     if(verbose): print(f" > Dumping")
-    dump_func(result_table, full_path, iout, name_dicts, verbose)
+    dump_func(result_table, table, full_path, iout, name_dicts, verbose, izip, partition, DEBUG)
     memory.close(); memory.unlink()
     if(snap is not None): snap.clear()
     if(snapm is not None): snapm.clear()
@@ -287,6 +299,7 @@ def calc_extended(
     walltime = ("Dump", time.time()-ref); walltimes.append(walltime); ref = time.time()
     if(verbose):
         for name, walltime in walltimes: print(f" > {name}: {walltime:.2f} sec")
+    return False
 # --------------------------------------------------------------
 
 
@@ -308,19 +321,24 @@ if __name__ == "__main__":
     nout.sort()
     
     # Run!
-    iterator = nout[::-1]# if verbose else tqdm(nout)
+    iterator = nout# if verbose else tqdm(nout)
     for iout in iterator:
-        # if(iout>411): continue
-        names = skip_func(path, iout, default_names, verbose)
+        #if(iout>576): continue
+        if sep>=0:
+            if iout%nsep != sep: continue
+        names = skip_func(path, iout, default_names, verbose, DEBUG)
         skip = len(names)==0
         if(skip):
             print(f"\n=================\nSkip {iout}\n=================")
             continue
         now = datetime.datetime.now() 
-        now = f"V{now}V" if verbose else now
+        now = f"--{now}--" if verbose else now
         print(f"\n=================\nStart {iout} {now}\n================="); ref = time.time()
-        calc_extended(
-            path, iout, names, 
-            pre_func, calc_func, dump_func, 
-            verbose=verbose, nthread=nthread,)
-        print(f"Done ({time.time()-ref:.2f} sec)")
+        nzip = 2**partition if ZIP else 1
+        for izip in range(nzip):
+            skipped = calc_extended(
+                path, iout, names, 
+                pre_func, calc_func, dump_func, 
+                verbose=verbose, nthread=nthread,izip=izip, partition=partition, DEBUG=DEBUG)
+            if skipped: break
+        if(not skipped): print(f"Done ({time.time()-ref:.2f} sec)")

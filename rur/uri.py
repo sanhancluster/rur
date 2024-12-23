@@ -1288,7 +1288,7 @@ class RamsesSnapshot(object):
             "target_fields": target_fields, "dtype": dtype, "ndeep":ndeep, "repo":self.repo, "use_cache":use_cache}
 
         if (timer.verbose > 0):
-            print("\tAllocating Memory...")
+            print("\tAllocating Memory...", end=' ')
             ref = time.time()
         if (sequential):
             tracers = ["tracer", "cloud_tracer", "star_tracer", "gas_tracer"]
@@ -1301,6 +1301,7 @@ class RamsesSnapshot(object):
             else:
                 size = header[pname]
             part = np.empty(size, dtype=dtype)
+            if (timer.verbose > 0): print(f"\tDone ({time.time() - ref:.3f} sec) -> {size} particles")
             if (size == 0): return part, None
         else:
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
@@ -1552,7 +1553,7 @@ class RamsesSnapshot(object):
 
         # 4) Calculate total number of cells
         if (timer.verbose > 0):
-            print("\tAllocating Memory...")
+            print("\tAllocating Memory...", end=' ')
             ref = time.time()
         sizes = None
         if (sequential):
@@ -1578,6 +1579,7 @@ class RamsesSnapshot(object):
                         sizes = sizes[cpulist-1]
             ncell_tot = np.sum(sizes)
             cell = np.empty(ncell_tot, dtype=dtype)
+            if (timer.verbose > 0): print(f"\tDone ({time.time() - ref:.3f} sec) -> {ncell_tot} cells")
         else:
             if(use_cache):
                 if(not exists(f"{self.repo}/cache/output_{self.iout:05d}/ncells.pkl")):
@@ -2312,7 +2314,7 @@ class RamsesSnapshot(object):
             self.sink = sink
         return self.sink
 
-    def get_halos_cpulist(self, halos, radius=1., use_halo_radius=True, radius_name='r', n_divide=4, nthread=1, full=False):
+    def get_halos_cpulist(self, halos, radius=1., use_halo_radius=True, radius_name='r', n_divide=4, nthread=1, full=False, manual=False):
         # returns cpulist that encloses given list of halos
         cpulist = []
 
@@ -2327,7 +2329,7 @@ class RamsesSnapshot(object):
         path_in_repo = 'galaxy' if galaxy else 'halo'
         prefix = 'GAL' if galaxy else 'HAL'
         path = f"{self.repo}/{path_in_repo}/{prefix}_{self.iout:05d}/domain_{self.iout:05d}.dat"
-        if (exists(path)):
+        if (exists(path))and(not manual):
             domain = domload(path)
             cpulist = [domain[i-1] for i in halos['id']]
         else:

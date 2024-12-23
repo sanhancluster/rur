@@ -21,7 +21,11 @@ def datdump(data, path, msg=False):
 def datload(path, msg=False):
     with open(path, "rb") as f:
         leng = int.from_bytes(f.read(4), byteorder='little')
-        data = np.frombuffer(f.read(8*leng), dtype='f8')
+        try:
+            data = np.frombuffer(f.read(8*leng), dtype='f8')
+        except:
+            f.seek(4)
+            data = np.frombuffer(f.read(4*leng), dtype='i4')
         name = f.read().decode()
     if(msg): print(f" `{path}` loaded")
     return data, name
@@ -109,16 +113,18 @@ def skip_func(path, iout, names, verbose):
     fname = f"{full_path}/m500_{iout:05d}.dat"
     if(os.path.exists(fname)):
         del nnames[f'r200']
-        del nnames[f'm500']
-        del nnames[f'r200']
+        del nnames[f'm200']
+        del nnames[f'r500']
         del nnames[f'm500']
     
     # Mass
     massprefixs = ['mstar', 'mgas', 'mcold', 'mdense']
-    fname = f"{full_path}/mdense_r500_{iout:05d}.dat"
-    if(os.path.exists(fname)):
-        for prefix in massprefixs:
-            for suffix in radsuffixs:
+    # fname = f"{full_path}/mdense_r500_{iout:05d}.dat"
+    # if(os.path.exists(fname)):
+    for prefix in massprefixs:
+        for suffix in radsuffixs:
+            fname = f"{full_path}/{prefix}{suffix}_{iout:05d}.dat"
+            if(os.path.exists(fname)):
                 del nnames[f'{prefix}{suffix}']
 
     # Profile
@@ -127,10 +133,12 @@ def skip_func(path, iout, names, verbose):
         del nnames[f'vmaxcir']
         del nnames[f'rmaxcir']
 
-    fname = f"{full_path}/inslopeerr_{iout:05d}.dat"
+    fname = f"{full_path}/cNFWerr_{iout:05d}.dat"
     if(os.path.exists(fname)):
         del nnames[f'cNFW']
         del nnames[f'cNFWerr']
+    fname = f"{full_path}/inslopeerr_{iout:05d}.dat"
+    if(os.path.exists(fname)):
         del nnames[f'inslope']    
         del nnames[f'inslopeerr']
     return nnames
@@ -142,11 +150,13 @@ def pre_func(keys, table, snapm, members, snap, snapstar, dm_memory, star_memory
 
     needr200s = ['mstar','mcold','mgas','mdense']
     needr200 = True in np.isin(needr200s, keys, assume_unique=True)
-    if(not 'r500' in keys)&(needr200): # r200, r500 already done
+    if(not 'r500' in keys)&(needr200)&(not 'r500' in table.dtype.names): # r200, r500 already done
         if(verbose):
             print(f" [PreFunc] > Prepare r200, r500", end='\t'); ref = time.time()
         r200s = datload(f"{full_path}/r200_{snap.iout:05d}.dat", msg=False)[0]
+        if(len(r200s) != len(table)): r200s = r200s[table['id']-1] # Partitioned
         r500s = datload(f"{full_path}/r500_{snap.iout:05d}.dat", msg=False)[0]
+        if(len(r500s) != len(table)): r500s = r500s[table['id']-1] # Partitioned
         odtype = table.dtype
         ndtype = odtype.descr + [('r200','f8'), ('r500','f8')]
         ntable = np.empty(len(table), dtype=ndtype)
@@ -155,7 +165,8 @@ def pre_func(keys, table, snapm, members, snap, snapstar, dm_memory, star_memory
         ntable['r500'] = r500s
         table = ntable
         if(verbose): print(f" Done ({time.time()-ref:.2f} sec)")
-    
+    if needr200:
+        assert 'r200' in table.dtype.names
     return table, snapm, members, snap, snapstar, dm_memory, star_memory, cell_memory
 
 
@@ -233,36 +244,44 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             argsort = np.argsort(memdist)        
             memdist = memdist[argsort]; memmass = memmass[argsort]
             nonzero = memdist>0; memdist = memdist[nonzero]; memmass = memmass[nonzero]
-        bins = np.logspace(np.log10(memdist[0]), np.log10(memdist[-1]), 2*int(np.log10(halo['m'])))
-        cmas = np.histogram(memdist, bins, weights=memmass)[0]
-        nums = np.histogram(memdist, bins)[0]
-        r = (bins[1:] + bins[:-1]) / 2
-        mask = nums > 0
-        r = r[mask]; cmas = cmas[mask]; nums = nums[mask]
-        poisson_error = 1/np.sqrt(nums)
-        rho = cmas / (4/3*np.pi*r**3)
-        rvir = halo['rvir']
-        try:
-            popt, pcov = curve_fit(NFW, r, rho, p0=[halo['r'], rho[0]], sigma=poisson_error, absolute_sigma=True)
-            rs = popt[0]; rserr = np.sqrt(pcov[0,0])
-            cNFW = rvir / rs
-            cNFWerr = cNFW * np.sqrt((rserr/rs)**2)
-        except:
-            cNFW = np.nan; cNFWerr = np.nan
-        result_table['cNFW'][i] = cNFW
-        result_table['cNFWerr'][i] = cNFWerr
+        if 'cNFW' in result_table.dtype.names:
+            bins = np.logspace(np.log10(memdist[0]), np.log10(memdist[-1]), 2*int(np.log10(halo['m'])))
+            cmas = np.histogram(memdist, bins, weights=memmass)[0]
+            nums = np.histogram(memdist, bins)[0]
+            r = (bins[1:] + bins[:-1]) / 2
+            mask = nums > 0
+            r = r[mask]; cmas = cmas[mask]; nums = nums[mask]
+            poisson_error = 1/np.sqrt(nums)
+            rho = cmas / (4/3*np.pi*r**3)
+            rvir = halo['rvir']
+            try:
+                popt, pcov = curve_fit(NFW, r, rho, p0=[halo['r'], rho[0]], sigma=poisson_error, absolute_sigma=True)
+                rs = popt[0]; rserr = np.sqrt(pcov[0,0])
+                cNFW = rvir / rs
+                cNFWerr = cNFW * np.sqrt((rserr/rs)**2)
+            except:
+                cNFW = np.nan; cNFWerr = np.nan
+            result_table['cNFW'][i] = cNFW
+            result_table['cNFWerr'][i] = cNFWerr
+        else:
+            cNFW = halo['cNFW']
+            rs = halo['r'] / cNFW
+            rvir = halo['rvir']
         
         linefit = lambda x, a, b: a*x + b
-        def getsingle(x, y, n):
-            poisson_error = 1 / np.sqrt(n)
-            popt, pcov = curve_fit(linefit, x, y, sigma=poisson_error, absolute_sigma=False)#, bounds=([-6,2], [-np.inf, np.inf]))
+        def getsingle(x, y):
+            popt, pcov = curve_fit(linefit, x, y)#, bounds=([-6,2], [-np.inf, np.inf]))
             return popt[0], np.sqrt(np.diag(pcov))[0] # slope, error
         rcut = min(rs,rvir) if not np.isnan(cNFW) else rvir
         mask = memdist < rcut
         slope, error = np.nan, np.nan
         if(np.sum(mask)>0):
+            xx = np.log10(memdist[mask] / rvir) # r/rvir
+            vol = 4/3*np.pi * (memdist[mask] / sunits['kpc'])**3 # kpc^3
+            vol = np.diff( np.insert(vol, 0, 0) )
+            yy = np.log10( np.cumsum(memmass[mask]) / vol ) # Msol kpc-3
             try:
-                slope, error = getsingle(np.log10(memdist[mask]), np.log10(memmass[mask]), np.sqrt(memmass[mask]))
+                slope, error = getsingle(xx, yy)
             except:
                 slope, error = np.nan, np.nan
         result_table['inslope'][i] = slope
@@ -274,12 +293,12 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             cx=halo['x']; cy=halo['y']; cz=halo['z']
             cshape, caddress, cdtype, cpulist_cell, bound_cell = cell_memory
             cexist = shared_memory.SharedMemory(name=caddress)
-            cells = np.ndarray(cshape, dtype=cdtype, buffer=cexist.buf)
-            cells = uri.domain_slice(cells, cdomain, cpulist_cell, bound_cell)
-            cdist = np.sqrt( (cells['x']-cx)**2 + (cells['y']-cy)**2 + (cells['z']-cz)**2 )
-            rmask = cdist < halo['r']
-            if(np.sum(rmask) < 8): rmask = cdist < (halo['r'] + (1 / 2**cells['level'])/2)
-            cells = cells[rmask]; cdist = cdist[rmask]
+            allcells = np.ndarray(cshape, dtype=cdtype, buffer=cexist.buf)
+            domcells = uri.domain_slice(allcells, cdomain, cpulist_cell, bound_cell)
+            cdist = np.sqrt( (domcells['x']-cx)**2 + (domcells['y']-cy)**2 + (domcells['z']-cz)**2 )
+            rmask = cdist <= halo['r']
+            if(np.sum(rmask) < 8): rmask = cdist < (halo['r'] + (1 / 2**domcells['level'])/2)
+            cells = domcells[rmask]; cdist = cdist[rmask]
         if(return_dist): return cells, cdist
         return cells
     dms = None; ddist = None
@@ -288,11 +307,11 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             cx=halo['x']; cy=halo['y']; cz=halo['z']
             dshape, daddress, ddtype, cpulist_dm, bound_dm = dm_memory
             dexist = shared_memory.SharedMemory(name=daddress)
-            dms = np.ndarray(dshape, dtype=ddtype, buffer=dexist.buf)
-            dms = uri.domain_slice(dms, cdomain, cpulist_dm, bound_dm)
-            ddist = np.sqrt( (dms['x']-cx)**2 + (dms['y']-cy)**2 + (dms['z']-cz)**2 )
-            dmask = ddist < halo['r']
-            dms = dms[dmask]; ddist = ddist[dmask]
+            alldms = np.ndarray(dshape, dtype=ddtype, buffer=dexist.buf)
+            domdms = uri.domain_slice(alldms, cdomain, cpulist_dm, bound_dm)
+            ddist = np.sqrt( (domdms['x']-cx)**2 + (domdms['y']-cy)**2 + (domdms['z']-cz)**2 )
+            dmask = ddist <= halo['r']
+            dms = domdms[dmask]; ddist = ddist[dmask]
         if(return_dist): return dms, ddist
         return dms
     stars = None; sdist = None
@@ -305,11 +324,11 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             else:
                 cx=halo['x']; cy=halo['y']; cz=halo['z']
                 sexist = shared_memory.SharedMemory(name=saddress)
-                stars = np.ndarray(sshape, dtype=sdtype, buffer=sexist.buf)
-                stars = uri.domain_slice(stars, cdomain, cpulist_star, bound_star)
-                sdist = np.sqrt( (stars['x']-cx)**2 + (stars['y']-cy)**2 + (stars['z']-cz)**2 )
-                smask = sdist < halo['r']
-                stars = stars[smask]; sdist = sdist[smask]
+                allstars = np.ndarray(sshape, dtype=sdtype, buffer=sexist.buf)
+                domstars = uri.domain_slice(allstars, cdomain, cpulist_star, bound_star)
+                sdist = np.sqrt( (domstars['x']-cx)**2 + (domstars['y']-cy)**2 + (domstars['z']-cz)**2 )
+                smask = sdist <= halo['r']
+                stars = domstars[smask]; sdist = sdist[smask]
         if(return_dist): return stars, sdist
         return stars
 
@@ -365,6 +384,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
     if('mstar_r500' in result_table.dtype.names):
         stars, sdist = _get_star(halo, stars, sdist, star_memory, return_dist=True)
         for suffix in ['','_rvir','_r200','_r500']:
+            if(f'mstar{suffix}' not in result_table.dtype.names): continue
             rname = suffix.replace('_','') if suffix != '' else 'r'
             radius = halo[rname] if rname in halo.dtype.names else result_table[i][rname]
             if nostar:
@@ -380,6 +400,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             dx = 1 / 2**cells['level']; vol = dx**3
             cellmass = cells['rho']*vol / sunits['Msol']
         for suffix in ['','_rvir','_r200','_r500']:
+            if(f'mgas{suffix}' not in result_table.dtype.names): continue
             rname = suffix.replace('_','') if suffix != '' else 'r'
             radius = halo[rname] if rname in halo.dtype.names else result_table[i][rname]
             mask = cdist < radius
@@ -395,6 +416,8 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
         cold = T < 1e4
         dense = (cells['rho'] / sunits['H/cc'] > 5) & (cold)
         for suffix in ['','_rvir','_r200','_r500']:
+            if(f'mcold{suffix}' not in result_table.dtype.names): continue
+            if(f'mdense{suffix}' not in result_table.dtype.names): continue
             rname = suffix.replace('_','') if suffix != '' else 'r'
             radius = halo[rname] if rname in halo.dtype.names else result_table[i][rname]
             mask = cdist < radius
@@ -403,8 +426,46 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
 
 
 
-def dump_func(result_table, full_path, iout, names, verbose):
+def dump_func(result_table, table, full_path, iout, names, verbose, izip, partition):
+    ZIP = partition>0
+    nzip = 2**partition if ZIP else 1
+    suffix = f"{izip:02d}p{nzip}" if ZIP else ""
     for key, val in names.items():
         title = val[0]
         desc = val[1]
-        datdump((result_table[key], desc), f"{full_path}/{title}_{iout:05d}.dat", msg=verbose)
+        datdump((result_table[key], desc), f"{full_path}/{title}_{iout:05d}.dat{suffix}", msg=verbose)
+    if(ZIP): datdump((table['id'], "IDlist"), f"{full_path}/zipID_{iout:05d}.dat{suffix}", msg=verbose)
+    if(izip+1 == nzip)and(ZIP):
+        if(verbose): print(f" [DumpFunc] > Zipping"); ref = time.time()
+        
+        # Get table IDs
+        zipids={}; ntable = 0
+        for jzip in range(nzip):
+            suffix = f"{jzip:02d}p{nzip}"
+            ids = datload(f"{full_path}/zipID_{iout:05d}.dat{suffix}", msg=False)[0]
+            zipids[jzip] = ids
+            ntable += len(ids)
+        
+        # Merge
+        for key, val in names.items():
+            title = val[0]
+            desc = val[1]
+            zipped_table = np.zeros(ntable)
+            for jzip in range(nzip):
+                suffix = f"{jzip:02d}p{nzip}"
+                data = datload(f"{full_path}/{title}_{iout:05d}.dat{suffix}", msg=False)[0]
+                ids = zipids[jzip]
+                zipped_table[ids-1] = data
+            datdump((zipped_table, desc), f"{full_path}/{title}_{iout:05d}.dat", msg=True)
+        
+        # Delete
+        for jzip in range(nzip):
+            suffix = f"{jzip:02d}p{nzip}"
+            os.remove(f"{full_path}/zipID_{iout:05d}.dat{suffix}")
+            if(verbose): print(f" [DumpFunc] > Remove `zipID_{iout:05d}.dat{suffix}`")
+            for key, val in names.items():
+                title = val[0]
+                os.remove(f"{full_path}/{title}_{iout:05d}.dat{suffix}")
+                if(verbose): print(f" [DumpFunc] > Remove `{title}_{iout:05d}.dat{suffix}`")
+
+        if(verbose): print(f" Done ({time.time()-ref:.2f} sec)")
