@@ -10,6 +10,8 @@ from scipy.signal import convolve2d
 from numpy.linalg import det
 from skimage.transform import resize, rescale
 
+from numba import njit
+
 import string
 import matplotlib.collections as mcoll
 from os.path import dirname, join, abspath
@@ -925,6 +927,18 @@ def dark_cmap(color):
     color_bright[color_bright>1] = 1
     return make_cmap([[0, 0, 0], color, color_bright], position=[0, 0.5, 1])        
 
+# Define a Numba-optimized function for mask generation
+@njit
+def box_mask(coo, lims, sizes):
+    mask = np.zeros(coo.shape[0], dtype=np.bool_)
+    for i in range(coo.shape[0]):
+        ok = True
+        for j in range(coo.shape[1]):
+            if coo[i, j] + sizes[i] < lims[j, 0] or coo[i, j] - sizes[i] > lims[j, 1]:
+                ok = False
+        mask[i] = ok
+    return mask
+
 def amr_projection(centers, levels, quantities, weights=None, shape=100, lims=None, mode='sum', plot_method='hist', projection=['x', 'y'], interp_order=0):
     # produce a projection plot of a quantity using the AMR data
     ndim = 3
@@ -964,8 +978,9 @@ def amr_projection(centers, levels, quantities, weights=None, shape=100, lims=No
     lims_2d_draw = i_lims_levelmin / 2**levelmin_draw
 
     # get mask that indicates cells to draw
-    mask_draw = np.all((centers + 2**(levels-1)[:, np.newaxis] >= lims[:, 0])
-                       & (centers - 2**(levels-1)[:, np.newaxis] <= lims[:, 1]), axis=1)
+    #mask_draw = np.all((centers + 2**(levels-1)[:, np.newaxis] >= lims[:, 0])
+    #                   & (centers - 2**(levels-1)[:, np.newaxis] <= lims[:, 1]), axis=1)
+    mask_draw = box_mask(centers, lims, 2**(levels-1))
 
     cc = centers[mask_draw]
     ll = levels[mask_draw]
