@@ -517,4 +517,4 @@ if __name__ == "__main__":
         if validation:
             if os.path.exists(f"{full_path}/wrong_verified.txt"):
                 os.remove(f"{full_path}/wrong_verified.txt")
-            np.savetxt(f"{full_path}/good_verified.txt", "")
+            np.savetxt(f"{full_path}/good_verified.txt", np.array([1]))
