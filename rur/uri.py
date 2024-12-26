@@ -141,6 +141,7 @@ class TimeSeries(object):
         for iout in iouts:
             if (use_cache and iout in self.iout_avail['iout']):
                 iout_table[i] = self.iout_avail[np.searchsorted(self.iout_avail['iout'], iout)]
+                i += 1
             else:
                 try:
                     snap = self.get_snap(iout)
