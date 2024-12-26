@@ -457,6 +457,7 @@ def _verify(i, halo, shape, address, dtype, sparams, sunits, cell_memory, cdomai
 
     cells = cells[rmask]; cdist = cdist[rmask]
     dx = 1 / 2**cells['level']
+    vol = dx**3
 
     # Cell mass
     cellmass = cells['rho']*vol / sunits['Msol']
