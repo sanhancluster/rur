@@ -1,4 +1,6 @@
 print("ex: python3 Extend.py --mode nc --nthread 24 --verbose")
+print("If you lack memory, use --partition 1, 2, or 3")
+print("If you want to use for custom simul, add `inhouse` in `extend_halo.py`")
 
 import numpy as np
 from rur import uri, uhmi
