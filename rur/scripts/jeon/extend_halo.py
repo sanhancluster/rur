@@ -214,11 +214,11 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
     
     # Circular Velocity
     if('rmaxcir' in result_table.dtype.names):
-        memdist = np.sqrt( (members['x']-halo['x'])**2 + (members['y']-halo['y'])**2 + (members['z']-halo['z'])**2 )
+        memdist = np.sqrt( (members['x']-halo['x'])**2 + (members['y']-halo['y'])**2 + (members['z']-halo['z'])**2 ) # code unit
         if(memmass is None): memmass = members['m'] / sunits['Msol']
         argsort = np.argsort(memdist)
-        memdist = memdist[argsort]; memmass = memmass[argsort]
-        nonzero = memdist>0; memdist = memdist[nonzero]; memmass = memmass[nonzero]
+        memdist = memdist[argsort]; memmass = memmass[argsort] # code unit
+        nonzero = memdist>0; memdist = memdist[nonzero]; memmass = memmass[nonzero] # code unit
         G = 4.30091e-3 # pc Msun^-1 (km/s)^2
         d_pc = memdist / sunits['pc']
         vcir = np.sqrt(G*np.cumsum(memmass)/d_pc)
@@ -226,7 +226,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
         smooth = gaussian_filter1d(cumsum, 3)
         derivative = np.gradient(smooth)
         argmax = np.argmax(derivative)
-        rmaxcir = memdist[argmax]*sunits['pc']
+        rmaxcir = memdist[argmax]#*sunits['pc']
         vmaxcir = vcir[argmax]
         result_table['vmaxcir'][i] = vmaxcir
         result_table['rmaxcir'][i] = rmaxcir
@@ -369,13 +369,13 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             r200 = dis[arg] # pkpc
             if(r200 >= np.max(dis))or(r200 <= np.min(dis)): r200 = np.nan
             m200 = cmas[arg] # Msol
-            result_table['r200'][i] = r200
+            result_table['r200'][i] = r200 * sunits['kpc']
             result_table['m200'][i] = m200
             arg = np.argmin(np.abs(rhos - 500*rhoc))
             r500 = dis[arg] # pkpc
             if(r500 >= np.max(dis))or(r500 <= np.min(dis)): r500 = np.nan
             m500 = cmas[arg] # Msol
-            result_table['r500'][i] = r500
+            result_table['r500'][i] = r500 * sunits['kpc']
             result_table['m500'][i] = m500
         else:
             r200 = halo['r200']; r500 = halo['r500']
