@@ -65,7 +65,8 @@ nocell = args.nocell
 validation = args.validation
 # validation:
 #   If True, check validity of the data.
-chem = ~args.nochem
+chem = not args.nochem
+print("chem mode", chem)
 galaxy = True
 DEBUG = args.debug
 if(nocell): chem = False
