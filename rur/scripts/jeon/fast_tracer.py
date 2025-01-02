@@ -19,8 +19,9 @@ snap = uri.RamsesSnapshot(repo, 1)
 snaps = uri.TimeSeries(snap)
 nout = snap.get_iout_avail()
 
-ref_iout = 411
+ref_iout = 500
 nout = nout[nout<=ref_iout]
+print(nout)
 
 fout = nout[-1]
 print(f"Reference snapshot: {fout}")
@@ -38,6 +39,8 @@ if(start_on_middle):
     fname = f"{path}/tracer_{999:03d}.pkl"
     tdict = load(fname, msg=False)
     header = load(f"{path}/header.pkl", msg=False)
+    assert header['minid'] == minid
+    os.rename(f"{path}/header.pkl", f"{path}/old/header.pkl")
     saved_nout = tdict['nout']
     print(f"Saved: {saved_nout[0]}~{saved_nout[-1]}")
     saved_fout = saved_nout[0]
@@ -54,6 +57,7 @@ if(start_on_middle):
             newcol = itracer[argsort]['cpu'].reshape(-1,1)
             tdict['cpumap'] = np.hstack((newcol, tdict['cpumap']))
             tdict['nout'] = np.insert(tdict['nout'], 0, iout)
+            os.rename(fname, f"{path}/old/tracer_{ihash:03d}.pkl")
             dump(tdict, fname, msg=False)
         header['nout'] = np.insert(header['nout'], 0, iout)
         isnap.clear()

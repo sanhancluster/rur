@@ -1,4 +1,6 @@
-print("ex: python3 Extend.py --mode nc --nthread 24 --verbose --chem")
+print("ex: python3 Extend.py --mode nc --nthread 24 --verbose")
+print("If you lack memory, use --partition 1, 2, or 3")
+print("If you want to use for custom simul, add `inhouse` in `extend_galaxy.py`")
 
 import numpy as np
 from rur import uri, uhmi
@@ -29,7 +31,7 @@ parser.add_argument("-N", "--nsep", default=4, required=False, help="Nsep", type
 parser.add_argument("-p", "--partition", default=0, required=False, help='Divide galaxy domain (1=x, 2=xy, 3=xyz)', type=int)
 parser.add_argument("--verbose", action='store_true')
 parser.add_argument("--nocell", action='store_true')
-parser.add_argument("--chem", action='store_true')
+parser.add_argument("--nochem", action='store_true')
 parser.add_argument("--debug", action='store_true')
 parser.add_argument("--validation", action='store_true')
 args = parser.parse_args()
@@ -63,7 +65,8 @@ nocell = args.nocell
 validation = args.validation
 # validation:
 #   If True, check validity of the data.
-chem = args.chem
+chem = not args.nochem
+print("chem mode", chem)
 galaxy = True
 DEBUG = args.debug
 if(nocell): chem = False

@@ -2934,10 +2934,6 @@ def cpumap_tracer(tracer, target_iouts=None, extend=False, nthread=4):
     if(timer.verbose>=1):
         print(f"Allocate array ({len(target_iouts)*len(ids)*16 / 1024**3:.2f}GB)")
     data = np.empty((len(target_iouts), len(ids)), dtype='int16')
-    shmname = 'tracermap'
-    snap.tracer_mem = shared_memory.SharedMemory(name=snap.make_shm_name(shmname), create=True, size=data.nbytes)
-    snap.memory.append(snap.tracer_mem)
-    data = np.ndarray(data.shape, dtype='int16', buffer=snap.tracer_mem.buf)
 
     if(timer.verbose>=1):
         pbar = tqdm(total=1000, desc=f"Reading tracer bricks")
@@ -2945,15 +2941,33 @@ def cpumap_tracer(tracer, target_iouts=None, extend=False, nthread=4):
             pbar.update()
     else:
         update = None
+    if(nthread==1):
+        for ikey in range(1000):
+            mask = keys==ikey
+            fname = f"{path}/tracer_{ikey:03d}.pkl"
+            tmp = load(fname, msg=False, format='pkl')
+            indicies = np.arange(len(ids))[mask]
+            iids = ids[mask]
+            cpumap = tmp['cpumap'][iids//1000]
+            for iout, iwhere in zip(target_iouts, where):
+                ctmp = cpumap[:, iwhere]
+                data[iwhere][indicies] = ctmp.astype('int16')
+            if(update is not None):
+                update()
+    else:
+        shmname = 'tracermap'
+        snap.tracer_mem = shared_memory.SharedMemory(name=snap.make_shm_name(shmname), create=True, size=data.nbytes)
+        snap.memory.append(snap.tracer_mem)
+        data = np.ndarray(data.shape, dtype='int16', buffer=snap.tracer_mem.buf)
 
-    signal.signal(signal.SIGTERM, signal.SIG_DFL)
-    with Pool(processes=nthread) as pool:
-        async_result = [pool.apply_async(_cpumap_tracer, (data.shape, snap.tracer_mem.name, ikey, path, target_iouts, ids, keys==ikey, where), callback=update) for ikey in range(1000)]
-        # iterobj = tqdm(async_result, desc=f"Reading tracer bricks") if (timer.verbose >= 1) else async_result
-        iterobj = async_result
-        for r in iterobj:
-            r.get()
-    signal.signal(signal.SIGTERM, snap.terminate)
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        with Pool(processes=nthread) as pool:
+            async_result = [pool.apply_async(_cpumap_tracer, (data.shape, snap.tracer_mem.name, ikey, path, target_iouts, ids, keys==ikey, where), callback=update) for ikey in range(1000)]
+            # iterobj = tqdm(async_result, desc=f"Reading tracer bricks") if (timer.verbose >= 1) else async_result
+            iterobj = async_result
+            for r in iterobj:
+                r.get()
+        signal.signal(signal.SIGTERM, snap.terminate)
 
     if(extend):
         return data
@@ -2962,8 +2976,9 @@ def cpumap_tracer(tracer, target_iouts=None, extend=False, nthread=4):
         for i in range(len(target_iouts)):
             iout = target_iouts[i]
             result[iout] = np.unique(data[i])
-        snap.tracer_mem.close()
-        snap.tracer_mem.unlink()
+        if(nthread>1):
+            snap.tracer_mem.close()
+            snap.tracer_mem.unlink()
         return result
 
 def _cpumap_tracer(shape, address, ikey, path, target_iouts, ids, mask, where):
