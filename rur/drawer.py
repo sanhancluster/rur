@@ -1037,6 +1037,9 @@ def amr_projection(centers, levels, quantities, weights=None, shape=100, lims=No
 
     if mode == 'mean':
         grid /= grid_weight
+    
+    # resize image to the desired shape
+    grid = resize(grid, shape, anti_aliasing=True)
 
     return grid
 
