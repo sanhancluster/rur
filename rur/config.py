@@ -46,6 +46,7 @@ class Table:
         # unit of table data in dict form, returns 'None' by default, which indicates code unit
         self.units = defaultdict(defnone)
         self.units.update(units)
+        self.size = self.table.size
 
     def __getitem__(self, item, return_code_unit=False):
         if isinstance(item, str):
