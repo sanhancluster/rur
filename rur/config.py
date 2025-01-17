@@ -74,9 +74,6 @@ class Table:
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.__dict__)
 
-    def __getattr__(self, item):
-        return self.table.__getattribute__(item)
-
     def __setitem__(self, key, value):
         return self.table.__setitem__(key, value)
 
