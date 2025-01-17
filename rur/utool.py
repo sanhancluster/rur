@@ -118,7 +118,7 @@ def load(path, msg=True, format=None):
         print("File %s load complete (%s): %.3f seconds elapsed" % (path, format_bytes(filesize), t.time()))
     return data
 
-def domload(path, msg=False):
+def domload_legacy(path, msg=False):
     with open(path, "rb") as f:
         leng = int.from_bytes(f.read(4), byteorder='little')
         domain = [None]*leng
@@ -140,6 +140,30 @@ def domload(path, msg=False):
                 cursor -= 1
             domain[cursor] = np.frombuffer(v[:-1], dtype='i2')
             cursor += 1           
+    if(msg): print(f" `{path}` loaded")
+    return domain
+
+def domsave(fname, domain):
+    domain_16 = [dom.astype(np.int16) for dom in domain]
+    bdomain = [dom.tobytes() for dom in domain_16]
+    nhalo = len(bdomain)
+    with open(fname, "wb") as f:
+        f.write(nhalo.to_bytes(4, byteorder='little'))
+        for i in range(nhalo):
+            f.write(len(bdomain[i]).to_bytes(4, byteorder='little'))
+            f.write(bdomain[i])
+    assert os.path.exists(fname)
+
+def domload(path, msg=False, debug=False):
+    with open(path, "rb") as f:
+        nhalo = int.from_bytes(f.read(4), byteorder='little')
+        if debug: print(f"[Domain Debug] {nhalo} halos:")
+        domain = [None]*nhalo
+        for i in range(nhalo):
+            leng = int.from_bytes(f.read(4), byteorder='little')
+            if debug: print(f"{i}) {leng}")
+            domain[i] = np.frombuffer(f.read(leng), dtype='i2')
+            if debug: print(f"{i}) {domain[i]}")
     if(msg): print(f" `{path}` loaded")
     return domain
 

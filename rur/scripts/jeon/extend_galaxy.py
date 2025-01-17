@@ -1,6 +1,6 @@
 import numpy as np
 from rur import uri
-from rur.sci.photometry import measure_magnitude,measure_luminosity
+from rur.sci.photometry import measure_magnitude,measure_luminosity, measure_magnitudes
 from multiprocessing import shared_memory
 import os, time
 #-------------------------------------------------------------------
@@ -19,7 +19,11 @@ def datdump(data, path, msg=False):
 def datload(path, msg=False):
     with open(path, "rb") as f:
         leng = int.from_bytes(f.read(4), byteorder='little')
-        data = np.frombuffer(f.read(8*leng), dtype='f8')
+        try:
+            data = np.frombuffer(f.read(8*leng), dtype='f8')
+        except:
+            f.seek(4)
+            data = np.frombuffer(f.read(4*leng), dtype='i4')
         name = f.read().decode()
     if(msg): print(f" `{path}` loaded")
     return data, name
@@ -172,8 +176,8 @@ SioverSil=muSi*nsilSi/numtot
 #-------------------------------------------------------------------
 # Main functions
 #-------------------------------------------------------------------
-def skip_func(path, galaxy, iout, names, verbose):
-    path_in_repo = 'galaxy' if galaxy else 'halo'
+def skip_func(path, iout, names, verbose, DEBUG):
+    path_in_repo = 'galaxy'
     full_path = f"{path}/{path_in_repo}/extended/{iout:05d}"
     nnames = names.copy()
 
@@ -196,34 +200,42 @@ def skip_func(path, galaxy, iout, names, verbose):
     fname = f"{full_path}/SFR10_r90_{iout:05d}.dat"
     if(os.path.exists(fname)):
         for suffix in radsuffixs:
-            # if(verbose): print(f" [SkipFunc] > No need sfr10{suffix}")
             del nnames[f'sfr10{suffix}']
     # Mag
     fname = f"{full_path}/zmag_{iout:05d}.dat"
     if(os.path.exists(fname)):
         for suffix in bandsuffixs[1:]:
-            # if(verbose): print(f" [SkipFunc] > No need {suffix}mag")
             del nnames[f'{suffix}mag']
     # Age
     fname = f"{full_path}/agez_{iout:05d}.dat"
     if(os.path.exists(fname)):
         for suffix in bandsuffixs:
-            # if(verbose): print(f" [SkipFunc] > No need age{suffix}")
             del nnames[f'age{suffix}']
     # V/sigma
     fname = f"{full_path}/vsig_r90_{iout:05d}.dat"
     if(os.path.exists(fname)):
         for suffix in radsuffixs:
-            # if(verbose): print(f" [SkipFunc] > No need vsig{suffix}")
             del nnames[f'vsig{suffix}']
     # Metal
     fname = f"{full_path}/metal_{iout:05d}.dat"
     if(os.path.exists(fname)):
-        # if(verbose): print(f" [SkipFunc] > No need metal")
         del nnames[f'metal']
+    # BH
+    fname = f"{full_path}/dBH_{iout:05d}.dat"
+    if(os.path.exists(fname)):
+        del nnames[f'MBH']
+        del nnames[f'dBH']
+    # SB
+    fname = f"{full_path}/SBz_r90_{iout:05d}.dat"
+    if(os.path.exists(fname)):
+        for bsuffix in bandsuffixs[1:]:
+            for rsuffix in radsuffixs:
+                del nnames[f'SB{bsuffix}{rsuffix}']
+    if(DEBUG): return nnames
     # Hydro
     hkeys = []
     hvals = []
+    clists = ['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'd1','d2','d3','d4']
     for key,val in nnames.items():
         if('gas' in val[0]):
             hkeys.append(key)
@@ -231,22 +243,15 @@ def skip_func(path, galaxy, iout, names, verbose):
     for hkey, hval in zip(hkeys, hvals):
         fname = f"{full_path}/{hval}_{iout:05d}.dat"
         if(os.path.exists(fname)):
-            # if(verbose): print(f" [SkipFunc] > No need {hval}")
-            del nnames[hkey]
-    # SB
-    fname = f"{full_path}/SBz_r90_{iout:05d}.dat"
-    if(os.path.exists(fname)):
-        for bsuffix in bandsuffixs[1:]:
-            for rsuffix in radsuffixs:
-                # if(verbose): print(f" [SkipFunc] > No need SB{bsuffix}{rsuffix}")
-                del nnames[f'SB{bsuffix}{rsuffix}']
-    # BH
-    fname = f"{full_path}/dBH_{iout:05d}.dat"
-    if(os.path.exists(fname)):
-        # if(verbose): print(f" [SkipFunc] > No need MBH, dBH")
-        del nnames[f'MBH']
-        del nnames[f'dBH']
-    
+            if hkey in clists:
+                data = datload(fname, msg=False)[0]
+                if(len(np.unique(data))>1):
+                    del nnames[hkey]
+                else:
+                    print(f" [SkipFunc] > Wrong saved `{fname}`")
+            else:
+                del nnames[hkey]
+
     return nnames
 
 
@@ -262,81 +267,89 @@ def skip_func(path, galaxy, iout, names, verbose):
 
 
 
-def pre_func(keys, table, snapm, members, snap, part_memory, cell_memory, full_path, verbose):
+def pre_func(keys, table, snapm, members, snap, part_memory, cell_memory, full_path, nthread, verbose):
     # r50, r90 should be calculated first
+    newcols = {}
+
     needr50s = ['sfr','sfr10','mgas','mcold','mdense','vsig_gas','vsig','SBz']
     needr50 = True in np.isin(needr50s, keys, assume_unique=True)
     if(not 'r90' in keys)&(needr50): # r50, r90 already done
-        if(verbose): print(f" [PreFunc] > Prepare r50, r90")
+        if(verbose):
+            print(f" [PreFunc] > Prepare r50, r90", end='\t'); ref = time.time()
         r50s = datload(f"{full_path}/r50_{snap.iout:05d}.dat", msg=False)[0]
+        if(len(r50s) != len(table)): r50s = r50s[table['id']-1] # Partitioned
         r90s = datload(f"{full_path}/r90_{snap.iout:05d}.dat", msg=False)[0]
+        if(len(r90s) != len(table)): r90s = r90s[table['id']-1] # Partitioned
         odtype = table.dtype
         ndtype = odtype.descr + [('r50','f8'), ('r90','f8')]
         ntable = np.empty(len(table), dtype=ndtype)
-        for name in odtype.names:
-            ntable[name] = table[name]
+        for name in odtype.names: ntable[name] = table[name]
         ntable['r50'] = r50s
         ntable['r90'] = r90s
         table = ntable
+        if(verbose): print(f" Done ({time.time()-ref:.2f} sec)")
     
     needmags = ['zmag','SBz']
     needmag = True in np.isin(needmags, keys, assume_unique=True)
+    umag=None; gmag=None; rmag=None; imag=None; zmag=None
     if(needmag):
-        if(verbose): print(f" [PreFunc] > Prepare magnitudes")
-        umag = measure_magnitude(members, 'SDSS_u')
-        gmag = measure_magnitude(members, 'SDSS_g')
-        rmag = measure_magnitude(members, 'SDSS_r')
-        imag = measure_magnitude(members, 'SDSS_i')
-        zmag = measure_magnitude(members, 'SDSS_z')
-        odtype = members.dtype
-        ndtype = odtype.descr + [('umag','f8'), ('gmag','f8'), ('rmag','f8'), ('imag','f8'), ('zmag','f8')]
-        nmembers = np.empty(len(members), dtype=ndtype)
-        for name in odtype.names:
-            nmembers[name] = members[name]
-        nmembers['umag'] = umag
-        nmembers['gmag'] = gmag
-        nmembers['rmag'] = rmag
-        nmembers['imag'] = imag
-        nmembers['zmag'] = zmag
-        nmembers = uri.Particle(nmembers, snapm)
-        members = nmembers
+        if(verbose):
+            print(f" [PreFunc] > Prepare magnitudes", end='\t'); ref = time.time()
+        with np.errstate(divide='ignore', invalid='ignore'):
+            mags = measure_magnitudes(members, global_bands, chunk=True, nthread=nthread)
+        umag = mags['u']
+        gmag = mags['g']
+        rmag = mags['r']
+        imag = mags['i']
+        zmag = mags['z']
+        newcols['umag'] = (umag, ('umag', 'f8'))
+        newcols['gmag'] = (gmag, ('gmag', 'f8'))
+        newcols['rmag'] = (rmag, ('rmag', 'f8'))
+        newcols['imag'] = (imag, ('imag', 'f8'))
+        newcols['zmag'] = (zmag, ('zmag', 'f8'))
+        if(verbose): print(f" Done ({time.time()-ref:.2f} sec)")
     
     needlums = ['age','r90z']
     needlum = True in np.isin(needlums, keys, assume_unique=True)
     if(needlum):
-        if(verbose): print(f" [PreFunc] > Prepare luminosity")
-        ulum = measure_luminosity(members, 'SDSS_u')
-        glum = measure_luminosity(members, 'SDSS_g')
-        rlum = measure_luminosity(members, 'SDSS_r')
-        ilum = measure_luminosity(members, 'SDSS_i')
-        zlum = measure_luminosity(members, 'SDSS_z')
-        odtype = members.dtype
-        ndtype = odtype.descr + [('ulum','f8'), ('glum','f8'), ('rlum','f8'), ('ilum','f8'), ('zlum','f8')]
-        nmembers = np.empty(len(members), dtype=ndtype)
-        for name in odtype.names:
-            nmembers[name] = members[name]
-        nmembers['ulum'] = ulum
-        nmembers['glum'] = glum
-        nmembers['rlum'] = rlum
-        nmembers['ilum'] = ilum
-        nmembers['zlum'] = zlum
-        nmembers = uri.Particle(nmembers, snapm)
-        members = nmembers
+        if(verbose):
+            print(f" [PreFunc] > Prepare luminosity", end='\t'); ref = time.time()
+        ulum = measure_luminosity(members, 'SDSS_u') if(umag is None) else 10**(-umag/2.5)
+        glum = measure_luminosity(members, 'SDSS_g') if(gmag is None) else 10**(-gmag/2.5)
+        rlum = measure_luminosity(members, 'SDSS_r') if(rmag is None) else 10**(-rmag/2.5)
+        ilum = measure_luminosity(members, 'SDSS_i') if(imag is None) else 10**(-imag/2.5)
+        zlum = measure_luminosity(members, 'SDSS_z') if(zmag is None) else 10**(-zmag/2.5)
+        newcols['ulum'] = (ulum, ('ulum', 'f8'))
+        newcols['glum'] = (glum, ('glum', 'f8'))
+        newcols['rlum'] = (rlum, ('rlum', 'f8'))
+        newcols['ilum'] = (ilum, ('ilum', 'f8'))
+        newcols['zlum'] = (zlum, ('zlum', 'f8'))
+        if(verbose): print(f" Done ({time.time()-ref:.2f} sec)")
 
 
     needages = ['sfr','sfr10','age']
     needage = True in np.isin(needages, keys, assume_unique=True)
     if(needage):
-        if(verbose): print(f" [PreFunc] > Prepare age")
+        if(verbose):
+            print(f" [PreFunc] > Prepare age", end='\t'); ref = time.time()
         age = members['age','Gyr']
+        newcols['age'] = (age, ('age', 'f8'))
+        if(verbose): print(f" Done ({time.time()-ref:.2f} sec)")
+    colkeys = list(newcols.keys())
+    if(len(colkeys)>0):
+        if(verbose):
+            print(f" [PreFunc] > New Array", end='\t'); ref = time.time()
         odtype = members.dtype
-        ndtype = odtype.descr + [('age','f8')]
+        ndtype = odtype.descr + [newcols[colkey][1] for colkey in colkeys]
         nmembers = np.empty(len(members), dtype=ndtype)
         for name in odtype.names:
             nmembers[name] = members[name]
-        nmembers['age'] = age
+        for colkey in colkeys:
+            col = newcols[colkey]
+            nmembers[colkey] = col[0]
         nmembers = uri.Particle(nmembers, snapm)
         members = nmembers
+        if(verbose): print(f" Done ({time.time()-ref:.2f} sec)")
     return table, snapm, members, snap, part_memory, cell_memory
 
 
@@ -365,7 +378,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         argsort = np.argsort(dist)
         dist = dist[argsort]
         members = members[argsort]
-        mass = members['m'] / sunits['Msol']
+        memmass = members['m'] / sunits['Msol']
         
 
     # R50, R90
@@ -373,7 +386,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
     needr50 = True in np.isin(needr50s, result_table.dtype.names, assume_unique=True)
     if needr50:
         if('r90' in result_table.dtype.names):
-            cmas = np.cumsum(mass)
+            cmas = np.cumsum(memmass)
             r50 = dist [np.argmin(np.abs(cmas - cmas[-1]*0.5)) ]
             result_table['r50'][i] = r50
             r90 = dist[ np.argmin(np.abs(cmas - cmas[-1]*0.9)) ]
@@ -394,28 +407,28 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         sfr=0; sfr_r50=0; sfr_r90=0
         young = members['age'] < 0.1
         if(True in young):
-            sfr = np.sum(mass[young]) / 1e8 # Msol/yr
+            sfr = np.sum(memmass[young]) / 1e8 # Msol/yr
             young = young & (dist < r90)
             if(True in young):
-                sfr_r90 = np.sum(mass[young]) / 1e8
+                sfr_r90 = np.sum(memmass[young]) / 1e8
                 young = young & (dist < r50)
                 if(True in young):
-                    sfr_r50 = np.sum(mass[young]) / 1e8
+                    sfr_r50 = np.sum(memmass[young]) / 1e8
         result_table['sfr'][i] = sfr
         result_table['sfr_r50'][i] = sfr_r50
         result_table['sfr_r90'][i] = sfr_r90
     # SFR10
-    if('sfr' in result_table.dtype.names):
+    if('sfr10' in result_table.dtype.names):
         sfr10=0; sfr10_r50=0; sfr10_r90=0
         young = members['age'] < 0.01
         if(True in young):
-            sfr10 = np.sum(mass[young]) / 1e7 # Msol/yr
+            sfr10 = np.sum(memmass[young]) / 1e7 # Msol/yr
             young = young & (dist < r90)
             if(True in young):
-                sfr10_r90 = np.sum(mass[young]) / 1e7
+                sfr10_r90 = np.sum(memmass[young]) / 1e7
                 young = young & (dist < r50)
                 if(True in young):
-                    sfr10_r50 = np.sum(mass[young]) / 1e7
+                    sfr10_r50 = np.sum(memmass[young]) / 1e7
         result_table['sfr10'][i] = sfr10
         result_table['sfr10_r50'][i] = sfr10_r50
         result_table['sfr10_r90'][i] = sfr10_r90
@@ -427,12 +440,12 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
             result_table[f'{band}mag'][i] = -2.5*np.log10(np.sum(10**(-0.4*mags)))
     # Age
     if('age' in result_table.dtype.names):
-        result_table['age'][i] = np.average(members['age'], weights=mass)
+        result_table['age'][i] = np.average(members['age'], weights=memmass)
         for band in global_bands:
             result_table[f'age{band}'][i] = np.average(members['age'], weights=members[f'{band}lum'])
     # Metallicity
     if('metal' in result_table.dtype.names):
-        result_table['metal'][i] = np.average(members['metal'], weights=mass)
+        result_table['metal'][i] = np.average(members['metal'], weights=memmass)
     # V/sigma
     if('vsig_r90' in result_table.dtype.names):
         vsig=0; vsig_r50=0; vsig_r90=0
@@ -454,27 +467,28 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         vy = members['vy']/sunits['km/s'] - cvy
         vz = members['vz']/sunits['km/s'] - cvz
         #----- Geometry
-        runit = np.vstack([x/r,y/r,z/r]).T
+        with np.errstate(divide='ignore', invalid='ignore'):
+            runit = np.vstack([x/r,y/r,z/r]).T
         runit[argzero] = 0
         rotunit = np.cross(Lvec, runit)
         vrot = np.sum(np.vstack([vx,vy,vz]).T * rotunit, axis=1)
         vnorm = np.sqrt(vx**2 + vy**2 + vz**2)
-        sigma = np.sqrt( np.average((vnorm - vmean)**2, weights=mass) )
-        vsig = np.average(vrot, weights=mass) / sigma
+        sigma = np.sqrt( np.average((vnorm - vmean)**2, weights=memmass) )
+        vsig = np.average(vrot, weights=memmass) / sigma
         result_table['vsig'][i] = vsig
 
         mask = r < r90
         if mask.any():
-            sigma = np.sqrt( np.average((vnorm[mask] - vmean)**2, weights=mass[mask]) )
-            vsig_r90 = np.average(vrot[mask], weights=mass[mask]) / sigma
+            sigma = np.sqrt( np.average((vnorm[mask] - vmean)**2, weights=memmass[mask]) )
+            vsig_r90 = np.average(vrot[mask], weights=memmass[mask]) / sigma
         else:
             vsig_r90 = np.nan
         result_table['vsig_r90'][i] = vsig_r90
 
         mask = r < r50
         if mask.any():
-            sigma = np.sqrt( np.average((vnorm[mask] - vmean)**2, weights=mass[mask]) )
-            vsig_r50 = np.average(vrot[mask], weights=mass[mask]) / sigma
+            sigma = np.sqrt( np.average((vnorm[mask] - vmean)**2, weights=memmass[mask]) )
+            vsig_r50 = np.average(vrot[mask], weights=memmass[mask]) / sigma
         else:
             vsig_r50 = np.nan
         result_table['vsig_r50'][i] = vsig_r50
@@ -537,7 +551,10 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
             for band in global_bands:
                 result_table[f'SB{band}_r50'][i] = np.nan
     # Hydro
-    if('metal_gas' in result_table.dtype.names):
+    cellmass = None
+    clists = ['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'd1','d2','d3','d4']
+    check = [clist in result_table.dtype.names for clist in clists if clist[0]!='d']
+    if('metal_gas' in result_table.dtype.names)or(True in check):
         if(debug)and(i==0): print(" [CalcFunc] > Hydro")
         # halo prop
         cx = halo['x']; cy = halo['y']; cz = halo['z']
@@ -552,35 +569,35 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         if(debug)and(i==0): print(" [CalcFunc] > Load cell")
         cshape, caddress, cdtype, cpulist_cell, bound_cell = cell_memory
         cexist = shared_memory.SharedMemory(name=caddress)
-        cells = np.ndarray(cshape, dtype=cdtype, buffer=cexist.buf)
-        cells = uri.domain_slice(cells, cdomain, cpulist_cell, bound_cell)
+        allcells = np.ndarray(cshape, dtype=cdtype, buffer=cexist.buf)
+        cells = uri.domain_slice(allcells, cdomain, cpulist_cell, bound_cell)
         cdist = np.sqrt( (cells['x']-cx)**2 + (cells['y']-cy)**2 + (cells['z']-cz)**2 )
-        rmask = cdist < halo['r']
+        rmask = cdist <= halo['r']
         if(np.sum(rmask) < 8):
-            rmask = cdist < (halo['r'] + (1 / 2**cells['level'])/2)
+            rmask = cdist <= (halo['r'] + (1 / 2**cells['level'])/2)
 
         cells = cells[rmask]; cdist = cdist[rmask]
         dx = 1 / 2**cells['level']
         vol = dx**3
-
+    if('metal_gas' in result_table.dtype.names):
         # Cell mass
         if(debug)and(i==0): print(" [CalcFunc] > cell mass")
-        mass = cells['rho']*dx**3 / sunits['Msol']
-        result_table['mgas'][i] = np.sum(mass)
-        result_table['mgas_r50'][i] = np.sum(mass[cdist < halo['r50']])
-        result_table['mgas_r90'][i] = np.sum(mass[cdist < halo['r90']])
+        cellmass = cells['rho']*dx**3 / sunits['Msol']
+        result_table['mgas'][i] = np.sum(cellmass)
+        result_table['mgas_r50'][i] = np.sum(cellmass[cdist < r50])
+        result_table['mgas_r90'][i] = np.sum(cellmass[cdist < r90])
 
         # temperature
         if(debug)and(i==0): print(" [CalcFunc] > temperature")
         T = cells['P']/cells['rho'] / sunits['K']
         cold = T < 1e4
         dense = (cells['rho'] / sunits['H/cc'] > 5) & (cold)
-        result_table['mcold'][i] = np.sum(mass[cold])
-        result_table['mcold_r50'][i] = np.sum(mass[cold & (cdist < halo['r50'])])
-        result_table['mcold_r90'][i] = np.sum(mass[cold & (cdist < halo['r90'])])
-        result_table['mdense'][i] = np.sum(mass[dense])
-        result_table['mdense_r50'][i] = np.sum(mass[dense & (cdist < halo['r50'])])
-        result_table['mdense_r90'][i] = np.sum(mass[dense & (cdist < halo['r90'])])
+        result_table['mcold'][i] = np.sum(cellmass[cold])
+        result_table['mcold_r50'][i] = np.sum(cellmass[cold & (cdist < r50)])
+        result_table['mcold_r90'][i] = np.sum(cellmass[cold & (cdist < r90)])
+        result_table['mdense'][i] = np.sum(cellmass[dense])
+        result_table['mdense_r50'][i] = np.sum(cellmass[dense & (cdist < r50)])
+        result_table['mdense_r90'][i] = np.sum(cellmass[dense & (cdist < r90)])
 
 
         # vsig
@@ -597,44 +614,93 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, part_mem
         rotunit = np.cross(Lvec, runit)
         vrot = np.sum(np.vstack([vx,vy,vz]).T * rotunit, axis=1)
         vnorm = np.sqrt(vx**2 + vy**2 + vz**2)
-        if(len(mass)>0):
-            sigma = np.sqrt( np.average((vnorm - vmean)**2, weights=mass) )
-            vsig = np.average(vrot, weights=mass) / sigma
+        if(len(cellmass)>0):
+            sigma = np.sqrt( np.average((vnorm - vmean)**2, weights=cellmass) )
+            vsig = np.average(vrot, weights=cellmass) / sigma
         else:
             vsig = np.nan
         result_table['vsig_gas'][i] = vsig
-        mask = r < halo['r90']
+        mask = r < r90
         if(mask.any()):
-            sigma = np.sqrt( np.average((vnorm[mask] - vmean)**2, weights=mass[mask]) )
-            vsig_r90 = np.average(vrot[mask], weights=mass[mask]) / sigma
+            sigma = np.sqrt( np.average((vnorm[mask] - vmean)**2, weights=cellmass[mask]) )
+            vsig_r90 = np.average(vrot[mask], weights=cellmass[mask]) / sigma
         else:
             vsig_r90 = np.nan
         result_table['vsig_gas_r90'][i] = vsig_r90
-        mask = r < halo['r50']
+        mask = r < r50
         if(mask.any()):
-            sigma = np.sqrt( np.average((vnorm[mask] - vmean)**2, weights=mass[mask]) )
-            vsig_r50 = np.average(vrot[mask], weights=mass[mask]) / sigma
+            sigma = np.sqrt( np.average((vnorm[mask] - vmean)**2, weights=cellmass[mask]) )
+            vsig_r50 = np.average(vrot[mask], weights=cellmass[mask]) / sigma
         else:
             vsig_r50 = np.nan
         result_table['vsig_gas_r50'][i] = vsig_r50
         
         # metal
         if(debug)and(i==0): print(" [CalcFunc] > metal")
-        metal = np.average(cells['metal'], weights=mass) if(len(mass)>0) else np.nan
+        metal = np.average(cells['metal'], weights=cellmass) if(len(cellmass)>0) else np.nan
         result_table['metal_gas'][i] = metal
 
-        # Chem and dust
-        clists = ['H', 'O', 'Fe', 'Mg', 'C', 'N', 'Si', 'S', 'D', 'd1','d2','d3','d4']
+    # Chemical
+    if(True in check):
+        if cellmass is None: cellmass = cells['rho']*dx**3 / sunits['Msol']
         for clist in clists:
             if(clist in result_table.dtype.names):
                 if(debug)and(i==0): print(f" [CalcFunc] > {clist}")
-                value = np.average(cells[clist], weights=mass) if(len(mass)>0) else np.nan
+                value = np.average(cells[clist], weights=cellmass) if(len(cellmass)>0) else np.nan
                 result_table[clist][i] = value
 
 
 
-def dump_func(result_table, full_path, iout, names, verbose):
+def dump_func(result_table, table, full_path, iout, names, verbose, izip, partition, DEBUG):
+    ZIP = partition>0
+    nzip = 2**partition if ZIP else 1
+    suffix = f"{izip:02d}p{nzip}" if ZIP else ""
     for key, val in names.items():
         title = val[0]
         desc = val[1]
-        datdump((result_table[key], desc), f"{full_path}/{title}_{iout:05d}.dat", msg=verbose)
+        if not DEBUG:
+            datdump((result_table[key], desc), f"{full_path}/{title}_{iout:05d}.dat{suffix}", msg=verbose)
+        else:
+            original = datload(f"{full_path}/{title}_{iout:05d}.dat{suffix}", msg=False)[0]
+            if(np.allclose(original, result_table[key])):
+                print(f"[DEBUG] > Same `{title}_{iout:05d}.dat{suffix}`")
+            else:
+                print(f"[DEBUG] > Different `{title}_{iout:05d}.dat{suffix}`")
+    if DEBUG:
+        raise ValueError("DEBUG")
+    if(ZIP):
+        datdump((table['id'], "IDlist"), f"{full_path}/zipID_{iout:05d}.dat{suffix}", msg=verbose)
+        if(izip+1 == nzip):
+            if(verbose): print(f" [DumpFunc] > Zipping"); ref = time.time()
+            
+            # Get table IDs
+            zipids={}; ntable = 0
+            for jzip in range(nzip):
+                suffix = f"{jzip:02d}p{nzip}"
+                ids = datload(f"{full_path}/zipID_{iout:05d}.dat{suffix}", msg=False)[0]
+                zipids[jzip] = ids
+                ntable += len(ids)
+            
+            # Merge
+            for key, val in names.items():
+                title = val[0]
+                desc = val[1]
+                zipped_table = np.zeros(ntable)
+                for jzip in range(nzip):
+                    suffix = f"{jzip:02d}p{nzip}"
+                    data = datload(f"{full_path}/{title}_{iout:05d}.dat{suffix}", msg=False)[0]
+                    ids = zipids[jzip]
+                    zipped_table[ids-1] = data
+                datdump((zipped_table, desc), f"{full_path}/{title}_{iout:05d}.dat", msg=True)
+            
+            # Delete
+            for jzip in range(nzip):
+                suffix = f"{jzip:02d}p{nzip}"
+                os.remove(f"{full_path}/zipID_{iout:05d}.dat{suffix}")
+                if(verbose): print(f" [DumpFunc] > Remove `zipID_{iout:05d}.dat{suffix}`")
+                for key, val in names.items():
+                    title = val[0]
+                    os.remove(f"{full_path}/{title}_{iout:05d}.dat{suffix}")
+                    if(verbose): print(f" [DumpFunc] > Remove `{title}_{iout:05d}.dat{suffix}`")
+
+            if(verbose): print(f" Done ({time.time()-ref:.2f} sec)")

@@ -4,14 +4,20 @@ from scipy.interpolate import LinearNDInterpolator
 from numpy.lib.recfunctions import append_fields
 from numpy.lib.recfunctions import merge_arrays
 from collections import defaultdict
+from multiprocessing import Pool, shared_memory
 
 # This module contains useful functions related to galaxy photometry.
 cb07_table = None
 
 def set_boundaries(data, range):
-    data[(data<=range[0]) | np.isnan(data)] = range[0]
-    data[data>range[1]] = range[1]
+    data = np.clip(data, range[0], range[1])
+    isnan = np.isnan(data)
+    if(np.any(isnan)):
+        data[isnan] = range[0]
     return data
+    # data[(data<=range[0]) | np.isnan(data)] = range[0]
+    # data[data>range[1]] = range[1]
+    # return data
 
 def read_YEPS_table(alpha=1):
     yeps_dir = pkg_resources.resource_filename('rur', 'YEPS/')
@@ -97,6 +103,125 @@ def read_cb07_table():
 #        table.append(subtable)
 #    table = np.concatenate(table)
 #    return table
+import time
+from tqdm import tqdm
+def measure_magnitudes(stars, filter_names, alpha=1, total=False, model='cb07', chunk=False, nchunk = int(1e5), nthread=1, verbose=False, dev=False):
+    # measures absolute magnitude from stellar ages & metallicities
+    filter_aliases = alias_dict()
+    filter_aliases.update({
+        'SDSS_u': 'u',
+        'SDSS_g': 'g',
+        'SDSS_r': 'r',
+        'SDSS_i': 'i',
+        'SDSS_z': 'z',
+        'CFHT_u': 'u_1',
+        'CFHT_g': 'g_1',
+        'CFHT_r': 'r_1',
+        'CFHT_i': 'i_1',
+        'CFHT_y': 'y',
+        'CFHT_z': 'z_1',
+        'CFHT_Ks': 'Ks',
+    })
+    # measure magnitude from star data and population synthesis model.
+    nstar = len(stars)
+    if(model == 'cb07'):
+        table = read_cb07_table()
+
+        # log_ages = np.zeros(stars.size, 'f8')
+        ages = stars['age', 'yr']
+        with np.errstate(invalid='ignore'):
+            log_ages = np.where(ages>0, np.log10(ages), -np.inf)
+        log_metals = np.log10(stars['metal'])
+
+        grid1 = table['logageyr']
+        grid2 = np.log10(table['metal'])
+
+        log_ages = set_boundaries(log_ages, [np.min(grid1), np.max(grid1)])
+        log_metals = set_boundaries(log_metals, [np.min(grid2), np.max(grid2)])
+
+        arr1 = log_ages
+        arr2 = log_metals
+        m_unit = 1.
+
+    elif(model == 'YEPS'):
+        table = read_YEPS_table(alpha)
+        ages = np.log10(stars['age', 'Gyr'])
+        # FeHs = stars['FeH']
+        FeHs = 1.024*np.log10(stars['metal']) + 1.739
+
+        ages[ages<=5.] = 5.
+        FeHs[FeHs<=-2.5] = -2.5
+        FeHs[FeHs>=0.5] = 0.5
+
+        arr1 = np.log10(ages)
+        arr2 = FeHs
+
+        grid1 = np.log10(table['age'])
+        grid2 = table['FeH']
+
+        m_unit = 1E7
+
+    else:
+        raise ValueError("Unknown model '%s'" % model)
+    stacked = np.stack([grid1, grid2], axis=-1)
+    msols = stars['m', 'Msol']
+    magdict = {}
+    ip = None
+    for filter_name in filter_names:
+        if(ip is None):
+            try:
+                ip = LinearNDInterpolator(stacked, table[filter_aliases[filter_name]], fill_value=np.nan)
+            except:
+                ip = LinearNDInterpolator(stacked, table[filter_name], fill_value=np.nan)
+        else:
+            ip.values = table[filter_aliases[filter_name]].reshape(-1,1).copy() # C-contiguous
+        # NO CHUNK
+        if(nstar < nthread*nchunk)or(not chunk):
+            mags = ip(arr1, arr2)
+        # YES CHUNK
+        else:
+            mags = np.zeros(nstar)
+            njob = nstar//nchunk + 1
+            # Multi-Procesing
+            if (njob>1) and (nthread>1):
+                now = datetime.datetime.now()
+                shmname = f"mag_chunk_{now.strftime('%Y%m%d%H%M%S_%f')}"
+                shm = shared_memory.SharedMemory(name=shmname,create=True, size=mags.nbytes)
+                sarr = np.ndarray(mags.shape, dtype=mags.dtype, buffer=shm.buf)
+                if verbose:
+                    pbar = tqdm(total=njob, desc=f"MagChunk{min(njob, nthread)}")
+                    def update(*a): pbar.update()
+                else:
+                    update = None
+                signal.signal(signal.SIGTERM, signal.SIG_DFL)
+                with Pool(min(njob, nthread)) as pool:
+                    results = [
+                        pool.apply_async(_magchunk, (ip, arr1[i:i+nchunk].view(), arr2[i:i+nchunk].view(), sarr.shape, shmname, i, nchunk), callback=update) for i in range(0, nstar, nchunk)
+                        ]
+                    for r in results:
+                        r.get()
+                mags = sarr.copy()
+                if verbose: pbar.close()
+                shm.close()
+                shm.unlink()
+            # Single Processing
+            else:
+                iterobj = range(0, nstar, nchunk)
+                if verbose: iterobj = tqdm(iterobj, desc="MagChunk")
+                for i in iterobj:
+                    mags[i:i+nchunk] = ip(arr1[i:i+nchunk], arr2[i:i+nchunk])
+        mags = mags - 2.5*np.log10(msols/m_unit)
+        if(total):
+            mags = mags[~np.isnan(mags)]
+            magdict[filter_name] = -2.5*np.log10(np.sum(10**(0.4*-mags)))
+        else:
+            magdict[filter_name] = mags
+    return magdict
+
+def _magchunk(ip, ar1, ar2, shape, shmname, i, nchunk):
+    exist = shared_memory.SharedMemory(name=shmname)
+    mags = np.ndarray(shape, dtype=np.float64, buffer=exist.buf)
+    mags[i:i+nchunk] = ip(ar1, ar2)
 
 def measure_magnitude(stars, filter_name, alpha=1, total=False, model='cb07'):
     # measures absolute magnitude from stellar ages & metallicities
@@ -117,15 +242,11 @@ def measure_magnitude(stars, filter_name, alpha=1, total=False, model='cb07'):
     })
     # measure magnitude from star data and population synthesis model.
     if(model == 'cb07'):
-
         table = read_cb07_table()
 
         log_ages = np.zeros(stars.size, 'f8')
         ages = stars['age', 'yr']
-        valid = ages>0.
-        log_ages[valid] = np.log10(ages[valid])
-        log_ages[~valid] = -np.inf
-
+        log_ages = np.where(ages>0, np.log10(ages), -np.inf)
         log_metals = np.log10(stars['metal'])
 
         grid1 = table['logageyr']

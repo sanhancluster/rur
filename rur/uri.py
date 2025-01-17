@@ -141,6 +141,7 @@ class TimeSeries(object):
         for iout in iouts:
             if (use_cache and iout in self.iout_avail['iout']):
                 iout_table[i] = self.iout_avail[np.searchsorted(self.iout_avail['iout'], iout)]
+                i += 1
             else:
                 try:
                     snap = self.get_snap(iout)
@@ -251,7 +252,7 @@ def readorskip_int(f: FortranFile, dtype: type, key: str, search: Iterable, add=
         f.skip_records()
 
 
-def _classify(pname: str, npart:int, ids=None, epoch=None, m=None, family=None, sizeonly: bool = False):
+def _classify(pname: str, npart:int, ids=None, epoch=None, m=None, family=None, sizeonly: bool = False, isstar=True):
     if (pname is None):
         mask = np.full(npart, True, dtype=bool)
         nsize = npart
@@ -269,7 +270,8 @@ def _classify(pname: str, npart:int, ids=None, epoch=None, m=None, family=None, 
                 mask = (ids < 0) & (m > 0) & (epoch == 0)
             nsize = np.count_nonzero(mask)
         elif (ids is not None):
-            warnings.warn("Warning: either `family` or `epoch` should be given to classify particles.", UserWarning)
+            if (isstar):
+                warnings.warn("Warning: either `family` or `epoch` should be given to classify particles.", UserWarning)
             if (pname == 'dm'):
                 mask = ids > 0
                 nsize = np.count_nonzero(mask)
@@ -303,7 +305,7 @@ def _calc_npart(fname: str, kwargs: dict, sizeonly=False):
         f.skip_records(2)
         npart = f.read_ints(np.int32)
         if(pname is None):
-            result = _classify(pname, npart, ids=ids, epoch=epoch, m=m, family=family, sizeonly=sizeonly)
+            result = _classify(pname, npart, ids=ids, epoch=epoch, m=m, family=family, sizeonly=sizeonly, isstar=isstar)
             return result[0], result[1], int(fname[-5:])
         f.skip_records(5)
         if (isfamily):
@@ -316,7 +318,7 @@ def _calc_npart(fname: str, kwargs: dict, sizeonly=False):
             if (isstar):
                 f.skip_records(1)
                 epoch = f.read_reals(np.float64)
-        result = _classify(pname, npart, ids=ids, epoch=epoch, m=m, family=family, sizeonly=sizeonly)
+        result = _classify(pname, npart, ids=ids, epoch=epoch, m=m, family=family, sizeonly=sizeonly, isstar=isstar)
     if (not exists(cache))and(use_cache):
         if(not exists(f"{repo}/cache")):
             try: os.makedirs(f"{repo}/cache")
@@ -385,7 +387,7 @@ def _read_part(fname: str, kwargs: dict, part=None, mask=None, nsize=None, curso
 
         # Masking
         if (mask is None)or(nsize is None):
-            mask, nsize = _classify(pname, npart, ids=ids, epoch=epoch, m=m, family=family, sizeonly=False)
+            mask, nsize = _classify(pname, npart, ids=ids, epoch=epoch, m=m, family=family, sizeonly=False, isstar=isstar)
             if (isinstance(mask, np.ndarray)):
                 assert np.sum(mask) == nsize
         # Allocating
@@ -709,6 +711,7 @@ class RamsesSnapshot(object):
         if(self.mode=='ng'): self.info_path = join(self.path, f'info.txt')
 
         self.memory = []
+        self.shmprefix = 'rur'
         self.tracer_mem = None
         self.part_mem = None
         self.cell_mem = None
@@ -1073,10 +1076,12 @@ class RamsesSnapshot(object):
 
     def make_shm_name(self, kind):
         now = datetime.datetime.now()
-        fname = f"rur_{kind}_{self.mode.replace('_','')}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S_%f')}"
+        try: shmprefix = self.shmprefix
+        except: shmprefix = 'rur'
+        fname = f"{shmprefix}_{kind}_{self.mode.replace('_','')}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S_%f')}"
         count = 0
         while(exists(f"/dev/shm/{fname}")):
-            fname = f"rur_{kind}_{self.mode.replace('_','')}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S_%f')}r{count}"
+            fname = f"{shmprefix}_{kind}_{self.mode.replace('_','')}_u{os.getuid()}_{now.strftime('%Y%m%d_%H%M%S_%f')}r{count}"
             count += 1
         return fname
 
@@ -1222,11 +1227,14 @@ class RamsesSnapshot(object):
                 header['cloud'] = int(texts[7])*2109
             else: # Normal Case
                 for it in texts:
-                    family, count = it[0], int(it[1])
+                    if(len(it)==1):
+                        s=it[0]; family = s.rstrip('0123456789'); count = int(s[len(family):])
+                    else:
+                        family, count = it[0], int(it[1])
                     if(family in header.keys()): header[family] += count
                     if('tracer' in family): header['tracer'] += count
                     header['total'] += count
-                    header[it[0].lower()] = int(it[1])
+                    header[family.lower()] = count
                 header['sink'] = int(header['cloud']/2109)
         else:
             warnings.warn(f"Warning! No `{fname}` found.", UserWarning)
@@ -1281,7 +1289,7 @@ class RamsesSnapshot(object):
             "target_fields": target_fields, "dtype": dtype, "ndeep":ndeep, "repo":self.repo, "use_cache":use_cache}
 
         if (timer.verbose > 0):
-            print("\tAllocating Memory...")
+            print("\tAllocating Memory...", end=' ')
             ref = time.time()
         if (sequential):
             tracers = ["tracer", "cloud_tracer", "star_tracer", "gas_tracer"]
@@ -1294,6 +1302,7 @@ class RamsesSnapshot(object):
             else:
                 size = header[pname]
             part = np.empty(size, dtype=dtype)
+            if (timer.verbose > 0): print(f"\tDone ({time.time() - ref:.3f} sec) -> {size} particles")
             if (size == 0): return part, None
         else:
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
@@ -1413,7 +1422,7 @@ class RamsesSnapshot(object):
                                         'epoch' in target_fields) else None
                         if (pname != 'dm') and (pname != 'star'):
                             m = arr[np.where(np.array(target_fields) == 'm')[0][0]] if ('m' in target_fields) else None
-                    mask, _ = _classify(pname, len(arr[0]), ids=ids, epoch=epoch, m=m, family=family)
+                    mask, _ = _classify(pname, len(arr[0]), ids=ids, epoch=epoch, m=m, family=family, isstar=self.star[0])
                     if (pname is not None): arr = [iarr[mask] for iarr in arr]
                     part = fromarrays(arr, dtype=dtype)
                 else:
@@ -1448,7 +1457,7 @@ class RamsesSnapshot(object):
                         ids = names.pop('id', None)
                         epoch = names.pop('epoch', None)
                         m = names.pop('m', None)
-                    mask, _ = _classify(pname, arrs[0].shape[0], ids=ids, epoch=epoch, m=m, family=family)
+                    mask, _ = _classify(pname, arrs[0].shape[0], ids=ids, epoch=epoch, m=m, family=family, isstar=self.star[0])
                     if (pname is not None): arrs = [arr[mask] for arr in arrs]
                     part = fromndarrays(arrs, dtype)
                 readr.close()
@@ -1545,7 +1554,7 @@ class RamsesSnapshot(object):
 
         # 4) Calculate total number of cells
         if (timer.verbose > 0):
-            print("\tAllocating Memory...")
+            print("\tAllocating Memory...", end=' ')
             ref = time.time()
         sizes = None
         if (sequential):
@@ -1571,6 +1580,7 @@ class RamsesSnapshot(object):
                         sizes = sizes[cpulist-1]
             ncell_tot = np.sum(sizes)
             cell = np.empty(ncell_tot, dtype=dtype)
+            if (timer.verbose > 0): print(f"\tDone ({time.time() - ref:.3f} sec) -> {ncell_tot} cells")
         else:
             if(use_cache):
                 if(not exists(f"{self.repo}/cache/output_{self.iout:05d}/ncells.pkl")):
@@ -2305,7 +2315,7 @@ class RamsesSnapshot(object):
             self.sink = sink
         return self.sink
 
-    def get_halos_cpulist(self, halos, radius=1., use_halo_radius=True, radius_name='r', n_divide=4, nthread=1, full=False):
+    def get_halos_cpulist(self, halos, radius=1., use_halo_radius=True, radius_name='r', n_divide=4, nthread=1, full=False, manual=False):
         # returns cpulist that encloses given list of halos
         cpulist = []
 
@@ -2320,7 +2330,7 @@ class RamsesSnapshot(object):
         path_in_repo = 'galaxy' if galaxy else 'halo'
         prefix = 'GAL' if galaxy else 'HAL'
         path = f"{self.repo}/{path_in_repo}/{prefix}_{self.iout:05d}/domain_{self.iout:05d}.dat"
-        if (exists(path)):
+        if (exists(path))and(not manual):
             domain = domload(path)
             cpulist = [domain[i-1] for i in halos['id']]
         else:
@@ -2924,10 +2934,6 @@ def cpumap_tracer(tracer, target_iouts=None, extend=False, nthread=4):
     if(timer.verbose>=1):
         print(f"Allocate array ({len(target_iouts)*len(ids)*16 / 1024**3:.2f}GB)")
     data = np.empty((len(target_iouts), len(ids)), dtype='int16')
-    shmname = 'tracermap'
-    snap.tracer_mem = shared_memory.SharedMemory(name=snap.make_shm_name(shmname), create=True, size=data.nbytes)
-    snap.memory.append(snap.tracer_mem)
-    data = np.ndarray(data.shape, dtype='int16', buffer=snap.tracer_mem.buf)
 
     if(timer.verbose>=1):
         pbar = tqdm(total=1000, desc=f"Reading tracer bricks")
@@ -2935,15 +2941,33 @@ def cpumap_tracer(tracer, target_iouts=None, extend=False, nthread=4):
             pbar.update()
     else:
         update = None
+    if(nthread==1):
+        for ikey in range(1000):
+            mask = keys==ikey
+            fname = f"{path}/tracer_{ikey:03d}.pkl"
+            tmp = load(fname, msg=False, format='pkl')
+            indicies = np.arange(len(ids))[mask]
+            iids = ids[mask]
+            cpumap = tmp['cpumap'][iids//1000]
+            for iout, iwhere in zip(target_iouts, where):
+                ctmp = cpumap[:, iwhere]
+                data[iwhere][indicies] = ctmp.astype('int16')
+            if(update is not None):
+                update()
+    else:
+        shmname = 'tracermap'
+        snap.tracer_mem = shared_memory.SharedMemory(name=snap.make_shm_name(shmname), create=True, size=data.nbytes)
+        snap.memory.append(snap.tracer_mem)
+        data = np.ndarray(data.shape, dtype='int16', buffer=snap.tracer_mem.buf)
 
-    signal.signal(signal.SIGTERM, signal.SIG_DFL)
-    with Pool(processes=nthread) as pool:
-        async_result = [pool.apply_async(_cpumap_tracer, (data.shape, snap.tracer_mem.name, ikey, path, target_iouts, ids, keys==ikey, where), callback=update) for ikey in range(1000)]
-        # iterobj = tqdm(async_result, desc=f"Reading tracer bricks") if (timer.verbose >= 1) else async_result
-        iterobj = async_result
-        for r in iterobj:
-            r.get()
-    signal.signal(signal.SIGTERM, snap.terminate)
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        with Pool(processes=nthread) as pool:
+            async_result = [pool.apply_async(_cpumap_tracer, (data.shape, snap.tracer_mem.name, ikey, path, target_iouts, ids, keys==ikey, where), callback=update) for ikey in range(1000)]
+            # iterobj = tqdm(async_result, desc=f"Reading tracer bricks") if (timer.verbose >= 1) else async_result
+            iterobj = async_result
+            for r in iterobj:
+                r.get()
+        signal.signal(signal.SIGTERM, snap.terminate)
 
     if(extend):
         return data
@@ -2952,8 +2976,9 @@ def cpumap_tracer(tracer, target_iouts=None, extend=False, nthread=4):
         for i in range(len(target_iouts)):
             iout = target_iouts[i]
             result[iout] = np.unique(data[i])
-        snap.tracer_mem.close()
-        snap.tracer_mem.unlink()
+        if(nthread>1):
+            snap.tracer_mem.close()
+            snap.tracer_mem.unlink()
         return result
 
 def _cpumap_tracer(shape, address, ikey, path, target_iouts, ids, mask, where):

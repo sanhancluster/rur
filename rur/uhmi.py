@@ -230,7 +230,7 @@ class HaloMaker:
 
 
     @staticmethod
-    def load(snap, path_in_repo=None, galaxy=False, full_path=None, load_parts=False, double_precision=True, copy_part_id=True, extend=True):
+    def load(snap, path_in_repo=None, galaxy=False, full_path=None, load_parts=False, double_precision=True, copy_part_id=True, extend=False):
         # boxsize: comoving length of the box in Mpc
         repo = snap.repo
         start = snap.iout
@@ -267,7 +267,7 @@ class HaloMaker:
         #print("Searching for tree_brick in ", path)
         readh.read_bricks(path, galaxy, start, end, load_parts, double_precision)
         contam=False
-        if(not galaxy):
+        if(not galaxy)and(not extend):
             fname = f"{path}/by-product/halos_contam.{start:04d}"
             if os.path.isfile(fname):
                 contam=True

@@ -98,7 +98,7 @@ def set_bins(known_lvls, minlvl, maxlvl, box_proj, shape, boxlen=1):
     return minlvl, maxlvl, basebin, edge
 
 
-def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, subpx_crop=True):
+def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, subpx_crop=True, preserve=True):
     if box is None and isinstance(cell, uri.Cell):
         box = cell.snap.box
 
@@ -125,6 +125,7 @@ def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, sub
 
     image = np.zeros(basebin)
     for ilvl in known_lvls:
+        print(ilvl)
         mask = lvl == ilvl
         cell_lvl = cell[mask]
         xm = get_vector(cell_lvl)
@@ -142,6 +143,9 @@ def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, sub
 
         if ilvl < maxlvl:
             image = rescale(image, 2, order=0)
+    if(preserve):
+        timer.record()
+        return image.T, edge
 
     crop_range = ((box_proj.T / cell.snap.unitfactor - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
     if subpx_crop:
@@ -158,16 +162,24 @@ def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, sub
     return image.T
 
 
-def draw_lvlmap(cell, box=None, proj=[0, 1], shape=None, minlvl=None, maxlvl=None, **kwargs):
-    image = lvlmap(cell, box, proj, shape=shape, minlvl=minlvl, maxlvl=maxlvl)
+def draw_lvlmap(cell, box=None, proj=[0, 1], shape=None, minlvl=None, maxlvl=None, preserve=False, **kwargs):
+    lims = None; edge = None; extent = None
+    result = lvlmap(cell, box, proj, shape=shape, minlvl=minlvl, maxlvl=maxlvl, preserve=preserve)
 
     if box is None:
         box = cell.snap.box
     box = np.array(box)
 
     box_proj = np.array(box)[proj]
+    if preserve:
+        image, edge = result
+        extent = edge.flatten()
+        lims = (box_proj[0], box_proj[1])
+    else:
+        image = result
+        if extent is None: extent = np.concatenate(box_proj)
 
-    draw_image(image, np.concatenate(box_proj), vmax=maxlvl, vmin=minlvl, normmode='linear', **kwargs)
+    return draw_image(image, extent=extent, vmax=maxlvl, vmin=minlvl, normmode='linear', lims=lims, **kwargs)
 
 
 def set_weights(mode, cell, unit, depth, weights=None, quantity=None):
@@ -209,7 +221,7 @@ def set_weights(mode, cell, unit, depth, weights=None, quantity=None):
 
 
 def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True,
-           interp_order: int=0, weights=None, quantity=None, method='hist', total=False):
+           interp_order: int=0, weights=None, quantity=None, method='hist', total=False, preserve=True):
     if total:
         print(
             "Warning!\n\t`total` is developed for testing purpose.\n\tIt just shows the total quantity in the image, "
@@ -244,6 +256,7 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
         shape = basebin * 2 ** (maxlvl - minlvl)
 
     image = np.zeros(basebin)
+    nanmap = np.zeros(basebin)
     depth_map = np.zeros(basebin)
     depth = np.diff(box[los(proj)])
 
@@ -293,6 +306,7 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
         else:
             image[mask_active] = (np.divide(image * depth_map + hist_map * add_depth, depth_map_new,
                                             where=mask_active))[mask_active]
+        nanmap[mask_active] = 1
         depth_map = depth_map_new
 
         if ilvl < maxlvl:
@@ -300,7 +314,11 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
             if total:
                 image /= 4
             depth_map = rescale(depth_map, 2, mode='constant', order=interp_order)
-
+            nanmap = rescale(nanmap, 2, mode='constant', order=interp_order)
+    if(preserve):
+        image[nanmap == 0] = np.nan
+        timer.record()
+        return image.T, edge
     crop_range = ((box_proj.T / cell.snap.unitfactor - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
     if subpx_crop:
         image = crop_float(image, crop_range, output_shape=shape)
@@ -313,22 +331,27 @@ def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl
     return image.T
 
 def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho', unit=None, minlvl=None, maxlvl=None,
-                subpx_crop=True, interp_order=0, weights=None, quantity=None, method='hist', **kwargs):
+                subpx_crop=True, interp_order=0, weights=None, quantity=None, method='hist', preserve=False, **kwargs):
     if box is None and hasattr(cell, 'snap'):
         box = cell.snap.box
-
-    image = gasmap(cell, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl,
-                   subpx_crop=subpx_crop, interp_order=interp_order, weights=weights, quantity=quantity, method=method)
-
+    
+    lims = None; edge = None
+    result = gasmap(cell, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl,
+                    subpx_crop=subpx_crop, interp_order=interp_order, weights=weights, quantity=quantity, method=method, preserve=preserve)
     box_proj = get_box_proj(box, proj) # code unit box
-    if extent is None:
-        extent = np.concatenate(box_proj)
+    if preserve:
+        image, edge = result
+        extent = edge.flatten()
+        lims = (box_proj[0], box_proj[1])
+    else:
+        image = result
+        if extent is None: extent = np.concatenate(box_proj)
+    return draw_image(image, extent=extent, lims=lims, **kwargs)
 
-    return draw_image(image, extent=extent, **kwargs)
 
 
 def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None,
-              subpx_crop=True):
+              subpx_crop=True, preserve=True):
     if box is None and hasattr(tracer_part, 'snap'):
         box = tracer_part.snap.box
 
@@ -382,6 +405,9 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
         if ilvl < maxlvl:
             image = rescale(image, 2, mode='constant', order=0)
     image /= depth
+    if(preserve):
+        timer.record()
+        return image.T, edge
 
     crop_range = ((box_proj.T / tracer_part.snap.unitfactor - edge[:, 0]) / (edge[:, 1] - edge[:, 0])).T
     if subpx_crop:
@@ -396,18 +422,24 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
 
 
 def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, mode='rho', unit=None, minlvl=None,
-                   maxlvl=None, subpx_crop=True, **kwargs):
+                   maxlvl=None, subpx_crop=True, preserve=False, **kwargs):
     if box is None and hasattr(tracer_part, 'snap'):
         box = tracer_part.snap.box
 
-    image = tracermap(tracer_part, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl,
+    lims = None; edge = None
+    result = tracermap(tracer_part, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl,
                       subpx_crop=subpx_crop)
 
     box_proj = get_box_proj(box, proj) * tracer_part.snap.unitfactor # code unit box
-    if extent is None:
-        extent = np.concatenate(box_proj)
+    if preserve:
+        image, edge = result
+        extent = edge.flatten()
+        lims = (box_proj[0], box_proj[1])
+    else:
+        image = result
+        if extent is None: extent = np.concatenate(box_proj)
 
-    return draw_image(image, extent=extent, **kwargs)
+    return draw_image(image, extent=extent, lims=lims, **kwargs)
 
 
 def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, method='hist', x=None, smooth=16,
@@ -497,13 +529,16 @@ def rgb_image(image, vmin=None, vmax=None, qscale=3., normmode='log', nanzero=Fa
 
 
 def draw_image(image, extent=None, vmin=None, vmax=None, qscale=3., normmode='log', nanzero=False, imfilter=None,
-               cmap=dr.ccm.laguna, colorbar=False, colorbar_kw={}, **kwargs):
+               cmap=dr.ccm.laguna, colorbar=False, colorbar_kw={}, lims=None, **kwargs):
     if imfilter is not None:
         image = imfilter(image)
     ax = kwargs.pop('ax', plt.gca())
     if not len(image.shape) > 2:
-        if qscale is not None and vmax is None:
+        # if qscale is not None and vmax is None:
+        if  vmax is None:
             vmax = np.nanmax(image)
+            if qscale is None:
+                vmin = np.nanmin(image)
         # image = norm(image, vmin, vmax, qscale=qscale, mode=normmode, nanzero=nanzero)
         nm = get_norm(vmin, vmax, qscale=qscale, mode=normmode)
         sm = mpl.cm.ScalarMappable(norm=nm, cmap=cmap)
@@ -512,6 +547,9 @@ def draw_image(image, extent=None, vmin=None, vmax=None, qscale=3., normmode='lo
             plt.colorbar(mappable=sm, ax=ax, **colorbar_kw)
     else:
         ims = ax.imshow(image, extent=extent, origin='lower', zorder=1, **kwargs)
+    if lims is not None:
+        ax.set_xlim(lims[0])
+        ax.set_ylim(lims[1])
 
     return ims
 
@@ -542,12 +580,13 @@ def save_figure(fname, make_dir=True, **kwargs):
 
 
 def draw_contour(image, extent, vmin=None, vmax=None, qscale=None, normmode='log', nlevel=3, **kwargs):
+    ax = kwargs.pop('ax', plt.gca())
     image = norm(image, vmin, vmax, qscale=qscale, mode=normmode)
 
     xarr = bin_centers(extent[0], extent[1], image.shape[0])
     yarr = bin_centers(extent[2], extent[3], image.shape[1])
 
-    return plt.contour(xarr, yarr, image, **kwargs)
+    return ax.contour(xarr, yarr, image, **kwargs)
 
 
 def draw_points(points, box=None, proj=[0, 1], color=None, label=None, fontsize=None, fontcolor=None, s=None, **kwargs):
@@ -734,7 +773,7 @@ def draw_grid(cell, box=None, ax=None, proj=[0, 1], minlvl=None, maxlvl=None, co
         mesh = np.stack([xm, ym], axis=-1)
         size = cell.snap.boxlen / cell.snap.unitfactor * 0.5 ** ilvl
         coords = mesh[hist_map > draw_threshold] - size / 2
-        progress = (ilvl - minlvl) / (maxlvl - minlvl)
+        progress = (ilvl - minlvl) / max(maxlvl - minlvl, 1)
         alpha = (1. - progress) / 2 + 0.5
         if cmap is not None:
             color = cmap(progress)
@@ -749,7 +788,7 @@ def draw_grid(cell, box=None, ax=None, proj=[0, 1], minlvl=None, maxlvl=None, co
         ax.set_ylim(box_proj[1] / cell.snap.unitfactor)
 
 
-def draw_vector(pos, vec, box=None, ax=None, proj=[0, 1], length=None, **kwargs):
+def draw_vector(pos, vec, box=None, ax=None, proj=[0, 1], length=None, arrowprops=dict(arrowstyle='->'), **kwargs):
     if ax is None:
         ax = plt.gca()
     if length is not None:
@@ -759,7 +798,7 @@ def draw_vector(pos, vec, box=None, ax=None, proj=[0, 1], length=None, **kwargs)
     direc = vec[proj]
 
     # ax.arrow(*origin, *direc, **kwargs)
-    ax.annotate(s='', xy=tuple(origin + direc), xytext=tuple(origin), arrowprops=dict(arrowstyle='->'), **kwargs)
+    ax.annotate(text='', xy=tuple(origin + direc), xytext=tuple(origin), arrowprops=arrowprops, **kwargs)
 
     if box is not None:
         ax.set_xlim(box[proj[0]])
