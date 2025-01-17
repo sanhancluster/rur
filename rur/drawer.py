@@ -940,7 +940,37 @@ def box_mask(coo, lims, sizes):
     return mask
 
 def amr_projection(centers, levels, quantities, weights=None, shape=100, lims=None, mode='sum', plot_method='hist', projection=['x', 'y'], interp_order=0):
-    # produce a projection plot of a quantity using the AMR data
+    """
+    Generate a 2D projection plot of a quantity using Adaptive Mesh Refinement (AMR) data.
+
+    Parameters:
+    -----------
+    centers : np.ndarray
+        Array of shape (N, 3) containing the coordinates of the cell centers.
+    levels : np.ndarray
+        Array of shape (N,) containing the refinement levels of the cells.
+    quantities : np.ndarray
+        Array of shape (N,) containing the quantity values to be projected.
+    weights : np.ndarray, optional
+        Array of shape (N,) containing the weights for each cell. If None, all weights are set to 1. Default is None.
+    shape : int or tuple of int, optional
+        Shape of the output grid. If an integer is provided, it is used for both dimensions. Default is 100.
+    lims : list of list of float, optional
+        Limits for the projection in the form [[xmin, xmax], [ymin, ymax], [zmin, zmax]]. If None, defaults to [[0, 1], [0, 1], [0, 1]]. Default is None.
+    mode : str, optional
+        Mode of projection. Options are 'sum', 'mean', 'min', 'max'. Default is 'sum'.
+    plot_method : str, optional
+        Method for plotting. Options are 'hist' for histogram and 'cic' for Cloud-In-Cell. Default is 'hist'.
+    projection : list of str, optional
+        Axes to project onto. Default is ['x', 'y'].
+    interp_order : int, optional
+        Order of interpolation for rescaling. Default is 0.
+
+    Returns:
+    --------
+    grid : np.ndarray
+        2D array representing the projected quantity.
+    """
     ndim = 3
     if lims is None:
         lims = [[0, 1],] * ndim
@@ -966,7 +996,7 @@ def amr_projection(centers, levels, quantities, weights=None, shape=100, lims=No
     lims_2d = np.array([lims[proj[0]], lims[proj[1]]])
 
     # get the levels of the grid to draw the desired resolution
-    dx_min = np.minimum((lims_2d[0][1] - lims[0][0]) / shape[0], (lims_2d[1][1] - lims[1][0]) / shape[1])
+    dx_min = np.minimum((lims_2d[0, 1] - lims_2d[0, 0]) / shape[0], (lims_2d[1, 1] - lims_2d[1, 0]) / shape[1])
     levelmax_draw = np.minimum(np.ceil(-np.log2(dx_min)).astype(int), levelmax)
     levelmin_draw = levelmin
 
