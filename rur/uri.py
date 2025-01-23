@@ -1459,6 +1459,14 @@ class RamsesSnapshot(object):
                         m = names.pop('m', None)
                     mask, _ = _classify(pname, arrs[0].shape[0], ids=ids, epoch=epoch, m=m, family=family, isstar=self.star[0])
                     if (pname is not None): arrs = [arr[mask] for arr in arrs]
+
+                    # re-order dtype to match with readr output
+                    fdtype = [idt for idt in dtype if 'f' in idt[1]]
+                    ldtype = [idt for idt in dtype if 'i8' in idt[1]]
+                    idtype = [idt for idt in dtype if 'i4' in idt[1]]
+                    bdtype = [idt for idt in dtype if 'i1' in idt[1]]
+                    dtype = fdtype + ldtype + idtype + bdtype
+
                     part = fromndarrays(arrs, dtype)
                 readr.close()
             timer.record()
