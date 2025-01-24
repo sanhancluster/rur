@@ -549,11 +549,13 @@ contains
                 end if
                 if(mode == 'y2' .or. mode == 'y3' .or. mode == 'y4' .or. mode=='nc' .or. mode=='nh2') then
                     ! Parent indices
-                    read(part_n) integer_table(pint+1, npart_c:npart_c+npart-1)
+                    read(part_n) integer_table(pint, npart_c:npart_c+npart-1)
+                    pint = pint+1
                 end if
 
                 ! Add CPU information
                 integer_table(pint, npart_c:npart_c+npart-1) = icpu
+                pint = pint+1
             end if
             close(part_n)
         end do
