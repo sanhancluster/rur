@@ -1430,7 +1430,7 @@ def weighted_median(values, *args, **kwargs):
 
 
 def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, ncols_tqdm=None,
-              direct_input=True, priorities=None, kwargs_dict=None):
+              direct_input=True, priorities=None, kwargs_dict=None, show_tqdm=True):
     """
     A simple multiprocessing tool similar to joblib, but independent to picklability.
     It runs function 'func' with parameters 'param_arr'.
@@ -1488,7 +1488,10 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
 
     head_idxs = np.arange(0, output_size, n_chunk)
     idx_proc = 0
-    iterator = tqdm(head_idxs, ncols=ncols_tqdm)
+    if show_tqdm:
+        iterator = tqdm(head_idxs, ncols=ncols_tqdm)
+    else:
+        iterator = head_idxs
     try:
         for head_idx in iterator:
             idx_slice = slice(head_idx, np.minimum(head_idx + n_chunk, output_size))

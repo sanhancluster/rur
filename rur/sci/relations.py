@@ -225,6 +225,7 @@ def gpm(m, params):
     return z0+np.log10(1-10**(-(m/m0)**gamma))
 
 def mzr_12OH(tag):
+    # mass-metallicity relation
     def T04(logm): # Tremonti+ 04, z=0
         return -1.492 + 1.847*logm - 0.08026*logm**2
 
