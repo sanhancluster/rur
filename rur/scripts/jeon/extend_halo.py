@@ -165,7 +165,7 @@ def pre_func(keys, table, snapm, members, snap, snapstar, dm_memory, star_memory
         ntable['r500'] = r500s
         table = ntable
         if(verbose): print(f" Done ({time.time()-ref:.2f} sec)")
-    if needr200:
+    if (needr200)&(not 'r200' in keys):
         assert 'r200' in table.dtype.names
     return table, snapm, members, snap, snapstar, dm_memory, star_memory, cell_memory
 
