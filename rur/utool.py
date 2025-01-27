@@ -1513,7 +1513,8 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
         return None
     finally:
         finalize()
-        iterator.close()
+        if show_progress:
+            iterator.close()
         return [output_arr[key] for key in keys_inv]
 
 
