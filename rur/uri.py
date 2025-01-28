@@ -2757,7 +2757,7 @@ def box_mask_table(table, box, snap=None, size=0, exclusive=False, chunksize=500
         memory.unlink()
     return box_mask
 
-def box_mask(coo, box, size=None, exclusive=False):
+def box_mask(coo, box, size=None, exclusive=False, nchunk=10000000):
     # masking coordinates based on the box
     if size is not None:
         size = expand_shape(size, [0], 2)
@@ -2766,8 +2766,20 @@ def box_mask(coo, box, size=None, exclusive=False):
     if (exclusive):
         size *= -1
     box = np.array(box)
-    mask = np.all((box[:, 0] <= coo + size / 2) & (coo - size / 2 <= box[:, 1]), axis=-1)
-    return mask
+    for i0 in range(0, coo.shape[0], nchunk):
+        if np.isscalar(size) or size.shape[0] == coo.shape[0]:
+            size_now = size[i0:i0+nchunk]
+        else:
+            size_now = size
+        size_now = size
+        i1 = np.minimum(i + nchunk, coo.shape[0])
+        mask = np.all((box[:, 0] <= coo[:, i0:i1] + size_now / 2) & (coo[:, i0:i1] - size_now / 2 <= box[:, 1]), axis=-1)
+
+        if i1 == 0:
+            mask_out = mask
+        else:
+            mask_out &= mask
+    return mask_out
 
 
 def interpolate_part(part1, part2, name, fraction=0.5, periodic=False):
