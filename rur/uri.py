@@ -2773,8 +2773,7 @@ def box_mask(coo, box, size=None, exclusive=False, nchunk=10000000):
             size_now = size[i0:i1]
         else:
             size_now = size
-        size_now = size
-        mask = np.all((box[:, 0] <= coo[:, i0:i1] + size_now / 2) & (coo[:, i0:i1] - size_now / 2 <= box[:, 1]), axis=-1)
+        mask = np.all((box[:, 0] <= coo[i0:i1] + size_now / 2) & (coo[i0:i1] - size_now / 2 <= box[:, 1]), axis=-1)
         mask_out.append(mask)
     mask_out = np.concatenate(mask_out)
     return mask_out
