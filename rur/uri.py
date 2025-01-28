@@ -2768,12 +2768,12 @@ def box_mask(coo, box, size=None, exclusive=False, nchunk=10000000):
     box = np.array(box)
     mask_out = []
     for i0 in range(0, coo.shape[0], nchunk):
-        if np.isscalar(size) or size.shape[0] == coo.shape[0]:
-            size_now = size[i0:i0+nchunk]
+        i1 = np.minimum(i0 + nchunk, coo.shape[0])
+        if not np.isscalar(size) and size.shape[0] == coo.shape[0]:
+            size_now = size[i0:i1]
         else:
             size_now = size
         size_now = size
-        i1 = np.minimum(i + nchunk, coo.shape[0])
         mask = np.all((box[:, 0] <= coo[:, i0:i1] + size_now / 2) & (coo[:, i0:i1] - size_now / 2 <= box[:, 1]), axis=-1)
         mask_out.append(mask)
     mask_out = np.concatenate(mask_out)
