@@ -13,9 +13,10 @@ import argparse, time, datetime, signal
 """
 Extend list:
 (halo)
-['mcontam', 'r200c','m200c','r500c','m500c', 
-'mstar_r', 'mstar_rvir', 'mstar_r200', 'mgas_r', 'mgas_rvir', 'mgas_r200',
-'mcold_r', 'mcold_rvir', 'mcold_r200', 'mdense_r', 'mdense_rvir', 'mdense_r200',
+['mcontam', 'r200','m200','r500','m500', 
+'mdm_r', 'mdm_rvir', 'mdm_r200', 'mdm_r500', 
+'mstar_r', 'mstar_rvir', 'mstar_r200', 'mstar_r500', 'mgas_r', 'mgas_rvir', 'mgas_r200', 'mgas_r500',
+'mcold_r', 'mcold_rvir', 'mcold_r200', 'mcold_r500', 'mdense_r', 'mdense_rvir', 'mdense_r200', 'mdense_r500',
 'vmaxcir, 'rmaxcir, 'cNFW', 'cNFWerr', 'inslope', 'inslopeerr']
 """
 
@@ -108,6 +109,7 @@ def calc_extended(
     if onlymem:
         for name in names:
             if 'star' in name: del name_dicts[name]
+            elif 'dm' in name: del name_dicts[name]
             elif 'gas' in name: del name_dicts[name]
             elif 'cold' in name: del name_dicts[name]
             elif 'dense' in name: del name_dicts[name]
@@ -135,6 +137,7 @@ def calc_extended(
         mtarget_fields = [field for field in fields if field in list(set(ftmp))]
         need_member = True
         if(verbose): print(f" > Member fields: {mtarget_fields}")
+    
     # Cell need?
     need_cells = {
         'm500':['x', 'y', 'z', 'rho', 'level'],
@@ -149,9 +152,11 @@ def calc_extended(
         ctarget_fields = [field for field in ctarget_fields if field in list(set(ctmp))]
         need_cell = True
         if(verbose): print(f" > Cell fields: {ctarget_fields}")
+    
     # DM need?
     need_dms = {
-        'm500':['x','y','z','m']}
+        'm500':['x','y','z','m'],
+        'mdm_r500':['x','y','z','m']}
     dtmp = []; dtarget_fields = ['x','y','z','vx','vy','vz','m']
     for name in names:
         if(name in need_dms): dtmp += need_dms[name]
@@ -159,6 +164,7 @@ def calc_extended(
         dtarget_fields = [field for field in dtarget_fields if field in list(set(dtmp))]
         need_dm = True
         if(verbose): print(f" > DM fields: {dtarget_fields}")
+    
     # Star need?
     snapstar = None
     need_stars = {
