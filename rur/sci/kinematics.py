@@ -230,7 +230,7 @@ class kinemetry:
                 xyb = np.average(np.product(points, axis=-1))
                 aa = np.sqrt(np.sum(x2b)/2 + np.sqrt((np.diff(x2b)/2)**2 + xyb**2))
                 b = np.sqrt(np.sum(x2b)/2 - np.sqrt((np.diff(x2b)/2)**2 + xyb**2))
-                pa_init = np.arctan2(2*xyb, -np.diff(x2b))/2
+                pa_init = np.arctan2(2*xyb, -np.diff(x2b)[0])/2
 
                 #aa, b, phi = phot.ellipse_fit(points, weights)
                 #pa_init = phi
@@ -263,11 +263,14 @@ class kinemetry:
 
     @staticmethod
     def do_kinemetry(a_arr, points, values, weights, widths=None, n_sample=100, interpolate='linear', moment='odd'):
-        # a_arr: desired array of semi-major axis
-        # points: coordinates of values
-        # values: values to fit
-        # weights: weights for values
-
+        """
+        Fit ellipses to a set of points using kinemetry
+        a_arr: desired array of semi-major axis
+        points: coordinates of values, shape=(n, 2)
+        values: values to fit, shape=(n,)
+        weights: weights for values
+        """
+        
         if(interpolate == 'linear'):
             interpolator = LinearNDInterpolator
         elif(interpolate == 'nearest'):

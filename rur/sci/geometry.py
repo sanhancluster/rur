@@ -75,3 +75,19 @@ def rotation_matrix(angles):
     R = np.dot(R_zz, np.dot(R_y, R_z))
 
     return R
+
+def cannonical_lattice(n, coordinate='spherical'):
+    """
+    Generate cannonical lattice points on a sphere
+    n: number of points
+    coordinate: 'sph' for spherical, 'car' for cartesian output
+    """
+    goldenRatio = (1 + 5**0.5)/2
+    i = np.arange(0, n)
+    theta = 2 * np.pi * i / goldenRatio
+    phi = np.arccos(1 - 2*(i+0.5)/n)
+    if coordinate in ('sph', 'spherical'):
+        return theta, phi
+    elif coordinate in ('car', 'cartesian', 'xyz'):
+        x, y, z = np.cos(theta) * np.sin(phi), np.sin(theta) * np.sin(phi), np.cos(phi)
+        return x, y, z
