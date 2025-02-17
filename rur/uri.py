@@ -1520,7 +1520,7 @@ class RamsesSnapshot(object):
                 if nxyz[i] == 2:
                     nml = self.read_namelist()
                     if len(nml) == 0:
-                        warinings.warn("Assymetric boundaries detected, which cannot be determined without namelist file. \
+                        warnings.warn("Assymetric boundaries detected, which cannot be determined without namelist file. \
                                       Move namelist.txt file to the output directory or manually apply offset to the cell position.")
                     else:
                         bound_min = np.array(str_to_tuple(nml['BOUNDARY_PARAMS']['%sbound_min' % key[i]]))
