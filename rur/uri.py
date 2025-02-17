@@ -690,11 +690,22 @@ class RamsesSnapshot(object):
 
     """
 
-    def __init__(self, repo, iout, mode='none', box=None, path_in_repo=default_path_in_repo['snapshots'], snap=None,
+    def __init__(self, repo, iout, z=None, mode='none', box=None, path_in_repo=default_path_in_repo['snapshots'], snap=None,
                  longint=False, verbose=timer.verbose):
         self.repo = repo
         self.path_in_repo = path_in_repo
         self.snap_path = join(repo, path_in_repo)
+
+        if z is not None:
+            path = join(self.repo, 'list_iout_avail.txt')
+            if exists(path):
+                iout_avail = np.loadtxt(path, dtype=iout_avail_dtype)
+            zs = 1/iout_avail['aexp'] - 1
+            if (z > zs.max())or(z < zs.min()):
+                raise ValueError(f"z={z} is out of range ({zs.min():.6f} ~ {zs.max():.6f})")
+            argmin = np.argmin(np.abs(zs - z))
+            iout = iout_avail[argmin]['iout']
+            print(f"Find nearest iout={iout} for z={z}")
 
         if (iout < 0):
             iouts = self.get_iout_avail()
@@ -2095,9 +2106,12 @@ class RamsesSnapshot(object):
         part_file = FortranFile(self.get_path('part', 1))
         part_file.skip_records(4)
         if (not self.longint):
-            return part_file.read_ints()
+            val = part_file.read_ints()
         else:
-            return part_file.read_longs()
+            val = part_file.read_longs()
+        try: val = val[0]
+        except: pass
+        return val
 
     def read_hydro_ng(self):
         # not used
