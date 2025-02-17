@@ -428,7 +428,7 @@ def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, m
 
     lims = None; edge = None
     result = tracermap(tracer_part, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl,
-                      subpx_crop=subpx_crop)
+                      subpx_crop=subpx_crop, preserve=preserve)
 
     box_proj = get_box_proj(box, proj) * tracer_part.snap.unitfactor # code unit box
     if preserve:
@@ -903,6 +903,8 @@ def combine_image(images_to_combine, mode='screen', weights=None):
             image = np.product(images_to_combine, axis=0)
     elif mode == 'max':
         image = np.max(images_to_combine, axis=0)
+    elif mode == 'min':
+        image = np.min(images_to_combine, axis=0)
     elif mode == 'screen':
         image = 1. - np.prod(1. - images_to_combine, axis=0)
     elif mode == 'overlay':

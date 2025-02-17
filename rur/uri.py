@@ -691,7 +691,7 @@ class RamsesSnapshot(object):
     """
 
     def __init__(self, repo, iout, mode='none', box=None, path_in_repo=default_path_in_repo['snapshots'], snap=None,
-                 longint=False):
+                 longint=False, verbose=timer.verbose):
         self.repo = repo
         self.path_in_repo = path_in_repo
         self.snap_path = join(repo, path_in_repo)
@@ -738,7 +738,7 @@ class RamsesSnapshot(object):
         else:
             self.classic_format = True
 
-        self.read_params(snap)
+        self.read_params(snap, verbose=verbose)
 
         # set initial box and default box from boxlen
         self.default_box = default_box * self.params['boxlen']
@@ -762,18 +762,18 @@ class RamsesSnapshot(object):
         atexit.unregister(self.flush)
         exit(0)
 
-    def flush(self, msg=False, parent=''):
+    def flush(self, msg=False, parent='', verbose=timer.verbose):
         try:
             if (len(self.memory) > 0):
-                if (msg or timer.verbose >= 1): print(f"{parent} Clearing memory")
-                if (msg or timer.verbose > 1): print(f"  {[i.name for i in self.memory]}")
+                if (msg or verbose >= 1): print(f"{parent} Clearing memory")
+                if (msg or verbose > 1): print(f"  {[i.name for i in self.memory]}")
             self.tracer_mem = None
             self.part_mem = None
             self.cell_mem = None
             while (len(self.memory) > 0):
                 try:
                     mem = self.memory.pop()
-                    if (msg or timer.verbose >= 1): print(f"\tUnlink `{mem.name}`")
+                    if (msg or verbose >= 1): print(f"\tUnlink `{mem.name}`")
                     mem.close()
                     mem.unlink()
                     del mem
@@ -904,7 +904,7 @@ class RamsesSnapshot(object):
             params = self.params
         return np.sqrt(params['omega_m'] * aexp ** -3 + params['omega_l'])
 
-    def set_cosmology(self, params=None, n=5000, snap=None):
+    def set_cosmology(self, params=None, n=5000, snap=None, verbose=timer.verbose):
         # calculates cosmology table with given cosmology paramters
         # unit of conformal time (u) is in function of hubble time at z=0 and aexp
         # unit_t = dt/du = (aexp)**2/H0
@@ -928,7 +928,7 @@ class RamsesSnapshot(object):
         self.params['age'] = np.interp(params['time'], self.cosmo_table['u'], self.cosmo_table['t'])
         self.params['lookback_time'] = self.cosmo_table['t'][-1] - self.params['age']
 
-        if (timer.verbose >= 1):
+        if (verbose >= 1):
             print('[Output %05d] Age (Gyr) : %.3f / %.3f, z = %.5f (a = %.4f)' % (
             self.iout, self.params['age'], self.cosmo_table['t'][-1], params['z'], params['aexp']))
 
@@ -1085,7 +1085,7 @@ class RamsesSnapshot(object):
             count += 1
         return fname
 
-    def read_params(self, snap):
+    def read_params(self, snap, verbose=timer.verbose):
 
         opened = open(self.info_path, mode='r')
 
@@ -1175,7 +1175,7 @@ class RamsesSnapshot(object):
         self.cell_extra = custom_extra_fields(self, 'cell')
         self.part_extra = custom_extra_fields(self, 'particle')
 
-        self.set_cosmology(snap=snap)
+        self.set_cosmology(snap=snap, verbose=verbose)
         self.set_unit()
 
     def get_involved_cpu(self, box=None, binlvl=None, n_divide=5):
@@ -2323,7 +2323,7 @@ class RamsesSnapshot(object):
             self.sink = sink
         return self.sink
 
-    def get_halos_cpulist(self, halos, radius=1., use_halo_radius=True, radius_name='r', n_divide=4, nthread=1, full=False, manual=False):
+    def get_halos_cpulist(self, halos, radius=1., use_halo_radius=True, radius_name='r', n_divide=4, nthread=1, full=False, manual=True):
         # returns cpulist that encloses given list of halos
         cpulist = []
 
@@ -2338,6 +2338,8 @@ class RamsesSnapshot(object):
         path_in_repo = 'galaxy' if galaxy else 'halo'
         prefix = 'GAL' if galaxy else 'HAL'
         path = f"{self.repo}/{path_in_repo}/{prefix}_{self.iout:05d}/domain_{self.iout:05d}.dat"
+        if (radius != 1.)or(not use_halo_radius)or(not radius_name == 'r'):
+            manual=True
         if (exists(path))and(not manual):
             domain = domload(path)
             cpulist = [domain[i-1] for i in halos['id']]
@@ -3355,7 +3357,10 @@ def fromndarrays(ndarrays, dtype):
     faster than np.rec.fromarrays
     only works for 2d arrays for now
     """
-    descr = np.dtype(dtype)
+    fdtype = [idt for idt in dtype if 'f' in idt[1]]
+    idtype = [idt for idt in dtype if 'i4' in idt[1]]
+    bdtype = [idt for idt in dtype if 'i1' in idt[1]]
+    descr = np.dtype(fdtype+idtype+bdtype)
 
     itemsize = 0
     nitem = None
