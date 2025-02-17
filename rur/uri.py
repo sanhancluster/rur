@@ -690,11 +690,22 @@ class RamsesSnapshot(object):
 
     """
 
-    def __init__(self, repo, iout, mode='none', box=None, path_in_repo=default_path_in_repo['snapshots'], snap=None,
+    def __init__(self, repo, iout, z=None, mode='none', box=None, path_in_repo=default_path_in_repo['snapshots'], snap=None,
                  longint=False, verbose=timer.verbose):
         self.repo = repo
         self.path_in_repo = path_in_repo
         self.snap_path = join(repo, path_in_repo)
+
+        if z is not None:
+            path = join(self.repo, 'list_iout_avail.txt')
+            if exists(path):
+                iout_avail = np.loadtxt(path, dtype=iout_avail_dtype)
+            zs = 1/iout_avail['aexp'] - 1
+            if (z > zs.max())or(z < zs.min()):
+                raise ValueError(f"z={z} is out of range ({zs.min():.6f} ~ {zs.max():.6f})")
+            argmin = np.argmin(np.abs(zs - z))
+            iout = iout_avail[argmin]['iout']
+            print(f"Find nearest iout={iout} for z={z}")
 
         if (iout < 0):
             iouts = self.get_iout_avail()
@@ -1028,7 +1039,7 @@ class RamsesSnapshot(object):
             if (timer.verbose>0):
                 warnings.warn(f"Warning! No `part_file_descriptor.txt` found, using default dtype", UserWarning)
             part_dtype = [('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
-            if(self.star[0]): part_dtype = part_dtype+[('epoch', 'f8'), ('metal', 'f8')]
+            if(self.star): part_dtype = part_dtype+[('epoch', 'f8'), ('metal', 'f8')]
             if(self.mode == 'hagn'):
                 chem = ['H', 'O', 'Fe', 'C', 'N', 'Mg', 'Si']
                 part_dtype = part_dtype + [('H', 'f8'), ('O', 'f8'), ('Fe', 'f8'), ('C', 'f8'),
@@ -1254,7 +1265,7 @@ class RamsesSnapshot(object):
         files.sort()
 
         sequential = nthread == 1
-        isstar = self.star[0]
+        isstar = self.star
         isfamily = 'family' in [p[0] for p in part_dtype]
 
         header = self.extract_header()
@@ -1417,12 +1428,12 @@ class RamsesSnapshot(object):
                                 'family' in target_fields) else None
                     if (family is None):
                         ids = arr[np.where(np.array(target_fields) == 'id')[0][0]] if ('id' in target_fields) else None
-                        if (self.star[0]):
+                        if (self.star):
                             epoch = arr[np.where(np.array(target_fields) == 'epoch')[0][0]] if (
                                         'epoch' in target_fields) else None
                         if (pname != 'dm') and (pname != 'star'):
                             m = arr[np.where(np.array(target_fields) == 'm')[0][0]] if ('m' in target_fields) else None
-                    mask, _ = _classify(pname, len(arr[0]), ids=ids, epoch=epoch, m=m, family=family, isstar=self.star[0])
+                    mask, _ = _classify(pname, len(arr[0]), ids=ids, epoch=epoch, m=m, family=family, isstar=self.star)
                     if (pname is not None): arr = [iarr[mask] for iarr in arr]
                     part = fromarrays(arr, dtype=dtype)
                 else:
@@ -1435,7 +1446,7 @@ class RamsesSnapshot(object):
                     family = arrs[-1][:, 0] if ('family' in np.dtype(dtype).names) else None
                     if (family is None):
                         names = {'epoch': None, 'id': None, 'm': None}
-                        if (not self.star[0]): del names['epoch']
+                        if (not self.star): del names['epoch']
                         if (pname == 'dm') or (pname == 'star'): del names['m']
                         for key in list(names.keys()):
                             idx = np.where(np.array(np.dtype(dtype).names) == key)[0][0]
@@ -1457,7 +1468,7 @@ class RamsesSnapshot(object):
                         ids = names.pop('id', None)
                         epoch = names.pop('epoch', None)
                         m = names.pop('m', None)
-                    mask, _ = _classify(pname, arrs[0].shape[0], ids=ids, epoch=epoch, m=m, family=family, isstar=self.star[0])
+                    mask, _ = _classify(pname, arrs[0].shape[0], ids=ids, epoch=epoch, m=m, family=family, isstar=self.star)
                     if (pname is not None): arrs = [arr[mask] for arr in arrs]
 
                     # re-order dtype to match with readr output
@@ -1517,7 +1528,7 @@ class RamsesSnapshot(object):
                 if nxyz[i] == 2:
                     nml = self.read_namelist()
                     if len(nml) == 0:
-                        warinings.warn("Assymetric boundaries detected, which cannot be determined without namelist file. \
+                        warnings.warn("Assymetric boundaries detected, which cannot be determined without namelist file. \
                                       Move namelist.txt file to the output directory or manually apply offset to the cell position.")
                     else:
                         bound_min = np.array(str_to_tuple(nml['BOUNDARY_PARAMS']['%sbound_min' % key[i]]))
@@ -2103,9 +2114,12 @@ class RamsesSnapshot(object):
         part_file = FortranFile(self.get_path('part', 1))
         part_file.skip_records(4)
         if (not self.longint):
-            return part_file.read_ints()
+            val = part_file.read_ints()
         else:
-            return part_file.read_longs()
+            val = part_file.read_longs()
+        try: val = val[0]
+        except: pass
+        return val
 
     def read_hydro_ng(self):
         # not used
