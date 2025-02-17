@@ -1039,7 +1039,7 @@ class RamsesSnapshot(object):
             if (timer.verbose>0):
                 warnings.warn(f"Warning! No `part_file_descriptor.txt` found, using default dtype", UserWarning)
             part_dtype = [('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'), ('m', 'f8')]
-            if(self.star[0]): part_dtype = part_dtype+[('epoch', 'f8'), ('metal', 'f8')]
+            if(self.star): part_dtype = part_dtype+[('epoch', 'f8'), ('metal', 'f8')]
             if(self.mode == 'hagn'):
                 chem = ['H', 'O', 'Fe', 'C', 'N', 'Mg', 'Si']
                 part_dtype = part_dtype + [('H', 'f8'), ('O', 'f8'), ('Fe', 'f8'), ('C', 'f8'),
@@ -1265,7 +1265,7 @@ class RamsesSnapshot(object):
         files.sort()
 
         sequential = nthread == 1
-        isstar = self.star[0]
+        isstar = self.star
         isfamily = 'family' in [p[0] for p in part_dtype]
 
         header = self.extract_header()
@@ -1428,12 +1428,12 @@ class RamsesSnapshot(object):
                                 'family' in target_fields) else None
                     if (family is None):
                         ids = arr[np.where(np.array(target_fields) == 'id')[0][0]] if ('id' in target_fields) else None
-                        if (self.star[0]):
+                        if (self.star):
                             epoch = arr[np.where(np.array(target_fields) == 'epoch')[0][0]] if (
                                         'epoch' in target_fields) else None
                         if (pname != 'dm') and (pname != 'star'):
                             m = arr[np.where(np.array(target_fields) == 'm')[0][0]] if ('m' in target_fields) else None
-                    mask, _ = _classify(pname, len(arr[0]), ids=ids, epoch=epoch, m=m, family=family, isstar=self.star[0])
+                    mask, _ = _classify(pname, len(arr[0]), ids=ids, epoch=epoch, m=m, family=family, isstar=self.star)
                     if (pname is not None): arr = [iarr[mask] for iarr in arr]
                     part = fromarrays(arr, dtype=dtype)
                 else:
@@ -1446,7 +1446,7 @@ class RamsesSnapshot(object):
                     family = arrs[-1][:, 0] if ('family' in np.dtype(dtype).names) else None
                     if (family is None):
                         names = {'epoch': None, 'id': None, 'm': None}
-                        if (not self.star[0]): del names['epoch']
+                        if (not self.star): del names['epoch']
                         if (pname == 'dm') or (pname == 'star'): del names['m']
                         for key in list(names.keys()):
                             idx = np.where(np.array(np.dtype(dtype).names) == key)[0][0]
@@ -1468,7 +1468,7 @@ class RamsesSnapshot(object):
                         ids = names.pop('id', None)
                         epoch = names.pop('epoch', None)
                         m = names.pop('m', None)
-                    mask, _ = _classify(pname, arrs[0].shape[0], ids=ids, epoch=epoch, m=m, family=family, isstar=self.star[0])
+                    mask, _ = _classify(pname, arrs[0].shape[0], ids=ids, epoch=epoch, m=m, family=family, isstar=self.star)
                     if (pname is not None): arrs = [arr[mask] for arr in arrs]
                     part = fromndarrays(arrs, dtype)
                 readr.close()
