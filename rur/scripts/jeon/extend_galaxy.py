@@ -45,6 +45,7 @@ inhouse = {
     'nc' : '/storage7/NewCluster',
     'nh' : '/storage6/NewHorizon',
     'nh2': '/storage7/NH2',
+    'ncdust2': '/storage8/NCdustfix/NCdustfix2',
 }
 
 global_bands = ['u', 'g', 'r', 'i', 'z']
