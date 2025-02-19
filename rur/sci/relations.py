@@ -4,7 +4,7 @@ from scipy.interpolate import interp1d
 import warnings
 
 def check_range(x, range):
-    if np.any(x <= range[0]) or np.any(x >= range[1]):
+    if np.any(x < range[0]) or np.any(x > range[1]):
         warnings.warn("Value exceeded allowed range: %s" % str(range), UserWarning)
 
 def mgal_mbh(tag, logscale=False):
@@ -130,9 +130,13 @@ def mgal_mdmh(tag):
         raise ValueError("Available tags: B13 (Behroozi+ 13), M10 (Moster+ 10), G10 (Guo+ 10)")
 
 
-def mgal_size(tag='V14'):
+def mgal_size(tag='V14', logscale=False):
     # mass-size relation
-    def V14(self, mlog, z=0, shape='circular', radius_type=1, gal_type='late', return_error=False): # van der Wel+ 2014 (SDSS)
+    def V14(m, z=0, shape='circular', radius_type=1, gal_type='late', return_error=False): # van der Wel+ 2014 (SDSS)
+        if logscale:
+            logm = m
+        else:
+            logm = np.log10(m)
         if(shape == 'circular'):
             table_16 = [
                 [[-0.07,  0.08], [-0.05,  0.04], [ 0.02,  0.03], [ 0.29,  0.04], [np.nan, np.nan], [ 0.07,  0.01], [ 0.21,  0.02], [ 0.27,  0.02], [ 0.51,  0.03], [np.nan, np.nan]],
@@ -172,16 +176,78 @@ def mgal_size(tag='V14'):
             zgrid = [0.25, 0.75, 1.25, 1.75, 2.25, 2.75]
             mgrid = [9.25, 9.75, 10.25, 10.75, 11.25]
             f = interp2d(zgrid, mgrid, table)
-            data = f(mlog, z)
+            data = f(logm, z)
             out = data[:, 0]
             err = data[:, 1]
 
-            if(return_error):
-                return out, err
-            else:
-                return out
+            if not logscale:
+                out = 10**out
+
+            return out
+
+    def M19(m, z): # Mowla+ 19
+        check_range(z, [0.37, 2.69])
+        if logscale:
+            m = 10**m
+        zarr = [0.37, 0.79, 1.24, 1.72, 2.24, 2.69]
+        table = np.array([
+            (3.8, 10.3, 0.09, 0.37),
+            (4.0, 10.7, 0.10, 0.45),
+            (4.2, 11.1, 0.13, 0.53),
+            (3.7, 11.1, 0.11, 0.50),
+            (3.1, 11.0, 0.11, 0.42),
+            (2.8, 10.9, 0.06, 0.38),])
+
+        # Create an interpolator for each column
+        interp_funcs = [interp1d(zarr, table[:, i], kind='linear', fill_value="extrapolate") for i in range(table.shape[1])]
+
+        # Evaluate at z
+        rp, logMp, alpha, beta = tuple(f(z) for f in interp_funcs)
+        delta = 6
+
+        re = rp * (m/10**logMp)**alpha * (0.5*(1 + (m/10**logMp)**delta))**((beta - alpha)/delta)
+
+        if logscale:
+            re = np.log10(re)
+        return re
+
+    def N21(m, z, type='all'): # Nedkova+ 21
+        check_range(z, [0, 2.0])
+        if logscale:
+            m = 10**logm
+        if type == 'all':
+            params = np.select([
+                (0.2 <= z) & (z <= 0.5),
+                (0.5 < z) & (z <= 1.0),
+                (1.0 < z) & (z <= 1.5),
+                (1.5 < z) & (z <= 2.0)],
+                [(0.04, 1.82, -0.24, 10.94),
+                 (-0.03, 1.60, 0.48, 10.95),
+                 (-0.33, 1.25, 3.24, 10.63),
+                 (-0.17, 1.84, 1.76, 11.09)],)
+            alpha, beta, loggamma, delta = tuple(np.array(params).T)
+            re = lambda m: 10**loggamma * m**alpha * (1+m/10**delta) ** (beta - alpha)
+        elif type == 'high':
+            params = np.select([
+                (0.2 <= z) & (z <= 0.5),
+                (0.5 < z) & (z <= 1.0),
+                (1.0 < z) & (z <= 1.5),
+                (1.5 < z) & (z <= 2.0)],
+                [(0.61, 1.82),
+                 (0.45, 0.64),
+                 (0.29, 0.63),
+                 (0.18, 0.61)],)
+            A, B = tuple(np.array(params).T)
+            re = lambda m: A * (m/5E10)**B
+        out = re(m)
+        if logscale:
+            out = np.log10(out)
+        return out
+
     if tag == 'V14':
         return V14
+    elif tag == 'N21':
+        return N21
 
 def mgal_sfr(tag='W12'):
     # star formation main sequence
@@ -191,7 +257,7 @@ def mgal_sfr(tag='W12'):
         log_sfr = alpha * (logm - 10.5) + beta
         return log_sfr
 
-    def W14(logm, z=0):
+    def W14(logm, z=0): # Whitaker+ 14
         params_arr = np.array([
             [-27.40, -26.03, -24.04, -19.99],
             [5.02, 4.62, 4.17, 3.44],

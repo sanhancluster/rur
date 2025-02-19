@@ -228,8 +228,8 @@ class kinemetry:
             else:
                 x2b = np.average(points**2, axis=0)
                 xyb = np.average(np.product(points, axis=-1))
-                aa = np.sqrt(np.sum(x2b)/2 + np.sqrt((np.diff(x2b)/2)**2 + xyb**2))
-                b = np.sqrt(np.sum(x2b)/2 - np.sqrt((np.diff(x2b)/2)**2 + xyb**2))
+                aa = np.sqrt(np.sum(x2b)/2 + np.sqrt((np.diff(x2b)[0]/2)**2 + xyb**2))
+                b = np.sqrt(np.sum(x2b)/2 - np.sqrt((np.diff(x2b)[0]/2)**2 + xyb**2))
                 pa_init = np.arctan2(2*xyb, -np.diff(x2b)[0])/2
 
                 #aa, b, phi = phot.ellipse_fit(points, weights)
@@ -286,7 +286,7 @@ class kinemetry:
         else:
             wlint = None
 
-        pars_arr = np.zeros(len(a_arr), dtype=[('a', 'f8'), ('q', 'f8'), ('PA', 'f8'), ('q_diff', 'f8'), ('chisq', 'f8')])
+        pars_arr = np.zeros(len(a_arr), dtype=[('a', 'f8'), ('q', 'f8'), ('PA', 'f8'), ('q_diff', 'f8'), ('chisq', 'f8'), ('value', 'f8')])
         pars_arr['a'] = a_arr
         for line in pars_arr:
             pars, diff, chisq = kinemetry.fit_ellipse(line['a'], lint, points, weights, wlint, n_sample=n_sample, moment=moment)
@@ -294,6 +294,10 @@ class kinemetry:
             line['PA'] = pars[1]
             line['q_diff'] = diff
             line['chisq'] = chisq
+            if moment == 'even':
+                line['value'] = np.mean(lint(kinemetry.ellipse_sample(line['a'], line['q'], line['PA'], n_sample)))
+            elif moment == 'odd':
+                line['value'] = np.max(lint(kinemetry.ellipse_sample(line['a'], line['q'], line['PA'], n_sample)))
         return pars_arr
 
 def f_getpot(pos, mm, num_thread=None, timereport=None, mesh_type=None, pole_type=None, splitval_type=None, splitdim_type=None, bsize=None):
