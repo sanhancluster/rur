@@ -55,6 +55,10 @@ default_names = {
     'm200'         : ('m200', " - m200c: Halo mass within r200c in solar mass unit"),
     'r500'         : ('r500', " - r500c: Halo radius where the mean density is 500 times the critical density"),
     'm500'         : ('m500', " - m500c: Halo mass within r500c in solar mass unit"),
+    'mdm'        : ('mdm', " - mdm_r: DM mass within Rmax in solar mass unit"),
+    'mdm_rvir'   : ('mdm_rvir', " - mdm_rvir: DM mass within Rvir in solar mass unit"),
+    'mdm_r200'   : ('mdm_r200', " - mdm_r200: DM mass within R200 in solar mass unit"),
+    'mdm_r500'   : ('mdm_r500', " - mdm_r500: DM mass within R500 in solar mass unit"),
     'mstar'        : ('mstar', " - mstar_r: Stellar mass within Rmax in solar mass unit"),
     'mstar_rvir'   : ('mstar_rvir', " - mstar_rvir: Stellar mass within Rvir in solar mass unit"),
     'mstar_r200'   : ('mstar_r200', " - mstar_r200: Stellar mass within R200 in solar mass unit"),
@@ -118,9 +122,7 @@ def skip_func(path, iout, names, verbose):
         del nnames[f'm500']
     
     # Mass
-    massprefixs = ['mstar', 'mgas', 'mcold', 'mdense']
-    # fname = f"{full_path}/mdense_r500_{iout:05d}.dat"
-    # if(os.path.exists(fname)):
+    massprefixs = ['mdm', 'mstar', 'mgas', 'mcold', 'mdense']
     for prefix in massprefixs:
         for suffix in radsuffixs:
             fname = f"{full_path}/{prefix}{suffix}_{iout:05d}.dat"
@@ -137,6 +139,7 @@ def skip_func(path, iout, names, verbose):
     if(os.path.exists(fname)):
         del nnames[f'cNFW']
         del nnames[f'cNFWerr']
+        
     fname = f"{full_path}/inslopeerr_{iout:05d}.dat"
     if(os.path.exists(fname)):
         del nnames[f'inslope']    
@@ -148,7 +151,7 @@ def pre_func(keys, table, snapm, members, snap, snapstar, dm_memory, star_memory
     # r200, r500 should be calculated first
     newcols = {}
 
-    needr200s = ['mstar','mcold','mgas','mdense']
+    needr200s = ['mdm', 'mstar','mcold','mgas','mdense']
     needr200 = True in np.isin(needr200s, keys, assume_unique=True)
     if(not 'r500' in keys)&(needr200)&(not 'r500' in table.dtype.names): # r200, r500 already done
         if(verbose):
@@ -165,7 +168,7 @@ def pre_func(keys, table, snapm, members, snap, snapstar, dm_memory, star_memory
         ntable['r500'] = r500s
         table = ntable
         if(verbose): print(f" Done ({time.time()-ref:.2f} sec)")
-    if needr200:
+    if (needr200)&(not 'r200' in keys):
         assert 'r200' in table.dtype.names
     return table, snapm, members, snap, snapstar, dm_memory, star_memory, cell_memory
 
@@ -234,9 +237,9 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
     # NFW profile
     if('inslopeerr' in result_table.dtype.names):
         warnings.filterwarnings("ignore", category=OptimizeWarning)
-        def NFW(r, rs, rho0):
+        def logNFW(r, rs, logrho0):
             x = r / rs
-            return rho0 / (x * (1 + x)**2)
+            return logrho0 - np.log10(x) - 2*np.log10(1 + x)
         if(memdist is None):
             memdist = np.sqrt( (members['x']-halo['x'])**2 + (members['y']-halo['y'])**2 + (members['z']-halo['z'])**2 )
         if(memmass is None):
@@ -245,29 +248,32 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             memdist = memdist[argsort]; memmass = memmass[argsort]
             nonzero = memdist>0; memdist = memdist[nonzero]; memmass = memmass[nonzero]
         if 'cNFW' in result_table.dtype.names:
-            bins = np.logspace(np.log10(memdist[0]), np.log10(memdist[-1]), 2*int(np.log10(halo['m'])))
-            cmas = np.histogram(memdist, bins, weights=memmass)[0]
+            bins = np.logspace(np.log10(memdist[0]), np.log10(memdist[-1]), 5*int(np.log10(halo['m']))) # code unit
+            cmas = np.histogram(memdist, bins, weights=memmass)[0] # Msol
             nums = np.histogram(memdist, bins)[0]
-            r = (bins[1:] + bins[:-1]) / 2
+            r = (bins[1:] + bins[:-1]) / 2 / sunits['kpc'] # kpc
             mask = nums > 0
             r = r[mask]; cmas = cmas[mask]; nums = nums[mask]
             poisson_error = 1/np.sqrt(nums)
-            rho = cmas / (4/3*np.pi*r**3)
-            rvir = halo['rvir']
+            rho = cmas / (4/3*np.pi*r**3) # Msol kpc-3
+            rvir = halo['rvir'] / sunits['kpc'] # kpc
             try:
-                popt, pcov = curve_fit(NFW, r, rho, p0=[halo['r'], rho[0]], sigma=poisson_error, absolute_sigma=True)
+                popt, pcov = curve_fit(logNFW, r, np.log10(rho), p0=[halo['r']/sunits['kpc'], np.log10(rho[0])], sigma=poisson_error, absolute_sigma=False, bound=([0, -np.inf], [rvir, np.inf]))
                 rs = popt[0]; rserr = np.sqrt(pcov[0,0])
                 cNFW = rvir / rs
                 cNFWerr = cNFW * np.sqrt((rserr/rs)**2)
+                rs *= sunits['kpc'] # code unit
             except:
                 cNFW = np.nan; cNFWerr = np.nan
             result_table['cNFW'][i] = cNFW
             result_table['cNFWerr'][i] = cNFWerr
+            rvir *= sunits['kpc'] # code unit
         else:
             cNFW = halo['cNFW']
             rs = halo['r'] / cNFW
             rvir = halo['rvir']
         
+        # Inner slope
         linefit = lambda x, a, b: a*x + b
         def getsingle(x, y):
             popt, pcov = curve_fit(linefit, x, y)#, bounds=([-6,2], [-np.inf, np.inf]))
@@ -279,7 +285,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             xx = np.log10(memdist[mask] / rvir) # r/rvir
             vol = 4/3*np.pi * (memdist[mask] / sunits['kpc'])**3 # kpc^3
             vol = np.diff( np.insert(vol, 0, 0) )
-            yy = np.log10( np.cumsum(memmass[mask]) / vol ) # Msol kpc-3
+            yy = np.log10( memmass[mask] / vol ) # Msol kpc-3
             try:
                 slope, error = getsingle(xx, yy)
             except:
@@ -379,6 +385,16 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             result_table['m500'][i] = m500
         else:
             r200 = halo['r200']; r500 = halo['r500']
+
+    # Mdm
+    if('mdm_r500' in result_table.dtype.names):
+        dms, ddist = _get_dm(halo, dms, ddist, dm_memory, return_dist=True)
+        for suffix in ['','_rvir','_r200','_r500']:
+            if(f'mdm{suffix}' not in result_table.dtype.names): continue
+            rname = suffix.replace('_','') if suffix != '' else 'r'
+            radius = halo[rname] if rname in halo.dtype.names else result_table[i][rname]
+            mask = ddist < radius
+            result_table[f'mdm{suffix}'][i] = np.sum(dms['m'][mask]) / sunits['Msol']
 
     # Mstar
     if('mstar_r500' in result_table.dtype.names):

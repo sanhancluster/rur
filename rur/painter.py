@@ -98,7 +98,7 @@ def set_bins(known_lvls, minlvl, maxlvl, box_proj, shape, boxlen=1):
     return minlvl, maxlvl, basebin, edge
 
 
-def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, subpx_crop=True, preserve=True):
+def lvlmap(cell, box=None, proj=[0, 1], shape=500, minlvl=None, maxlvl=None, subpx_crop=True, preserve=False):
     if box is None and isinstance(cell, uri.Cell):
         box = cell.snap.box
 
@@ -221,7 +221,7 @@ def set_weights(mode, cell, unit, depth, weights=None, quantity=None):
 
 
 def gasmap(cell, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None, subpx_crop=True,
-           interp_order: int=0, weights=None, quantity=None, method='hist', total=False, preserve=True):
+           interp_order: int=0, weights=None, quantity=None, method='hist', total=False, preserve=False):
     if total:
         print(
             "Warning!\n\t`total` is developed for testing purpose.\n\tIt just shows the total quantity in the image, "
@@ -351,7 +351,7 @@ def draw_gasmap(cell, box=None, proj=[0, 1], shape=500, extent=None, mode='rho',
 
 
 def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=None, minlvl=None, maxlvl=None,
-              subpx_crop=True, preserve=True):
+              subpx_crop=True, preserve=False):
     if box is None and hasattr(tracer_part, 'snap'):
         box = tracer_part.snap.box
 
@@ -428,7 +428,7 @@ def draw_tracermap(tracer_part, box=None, proj=[0, 1], shape=500, extent=None, m
 
     lims = None; edge = None
     result = tracermap(tracer_part, box, proj, mode=mode, unit=unit, shape=shape, minlvl=minlvl, maxlvl=maxlvl,
-                      subpx_crop=subpx_crop)
+                      subpx_crop=subpx_crop, preserve=preserve)
 
     box_proj = get_box_proj(box, proj) * tracer_part.snap.unitfactor # code unit box
     if preserve:
@@ -903,6 +903,8 @@ def combine_image(images_to_combine, mode='screen', weights=None):
             image = np.product(images_to_combine, axis=0)
     elif mode == 'max':
         image = np.max(images_to_combine, axis=0)
+    elif mode == 'min':
+        image = np.min(images_to_combine, axis=0)
     elif mode == 'screen':
         image = 1. - np.prod(1. - images_to_combine, axis=0)
     elif mode == 'overlay':
