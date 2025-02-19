@@ -690,8 +690,8 @@ class RamsesSnapshot(object):
 
     """
 
-    def __init__(self, repo, iout, z=None, mode='none', box=None, path_in_repo=default_path_in_repo['snapshots'], snap=None,
-                 longint=False, verbose=timer.verbose):
+    def __init__(self, repo, iout, mode='none', box=None, path_in_repo=default_path_in_repo['snapshots'], snap=None,
+                 longint=False, verbose=timer.verbose, z=None):
         self.repo = repo
         self.path_in_repo = path_in_repo
         self.snap_path = join(repo, path_in_repo)
