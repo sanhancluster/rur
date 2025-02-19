@@ -15,15 +15,6 @@ Download the code from bitbucket repository, or use clone it from the latest rep
 ```bash
 git clone https://github.com/sanhancluster/rur.git
 ```
-### Installing
-rur requires python version to be >= 3.8
-#### Using pip
-Use the following command to install the package using pip.
-```bash
-cd rur
-pip install .
-```
-This requires numpy to be already installed.
 #### Using Conda environment
 Use the following command to install the package on current python environment.
 ```bash
