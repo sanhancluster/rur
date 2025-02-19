@@ -46,6 +46,7 @@ class Table:
         # unit of table data in dict form, returns 'None' by default, which indicates code unit
         self.units = defaultdict(defnone)
         self.units.update(units)
+        self.size = self.table.size
 
     def __getitem__(self, item, return_code_unit=False):
         if isinstance(item, str):
@@ -73,9 +74,6 @@ class Table:
 
     def __repr__(self):
         return "%s(%r)" % (self.__class__.__name__, self.__dict__)
-
-    def __getattr__(self, item):
-        return self.table.__getattribute__(item)
 
     def __setitem__(self, key, value):
         return self.table.__setitem__(key, value)
