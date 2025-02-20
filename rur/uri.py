@@ -3380,10 +3380,7 @@ def fromndarrays(ndarrays, dtype):
     faster than np.rec.fromarrays
     only works for 2d arrays for now
     """
-    fdtype = [idt for idt in dtype if 'f' in idt[1]]
-    idtype = [idt for idt in dtype if 'i4' in idt[1]]
-    bdtype = [idt for idt in dtype if 'i1' in idt[1]]
-    descr = np.dtype(fdtype+idtype+bdtype)
+    descr = np.dtype(dtype)
 
     itemsize = 0
     nitem = None
