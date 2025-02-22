@@ -62,6 +62,10 @@ def uopen(path, mode):
 def dump(data, path, msg=True, format='pkl'):
     t = Timer()
     path = os.path.expanduser(path)
+    original = None
+    if os.path.exists(path):
+        original = path
+        path = path + '.tmp'
 
     if (format == 'pkl'):
         if(npver >= '2.0.0'): # Numpy >= 2.0.0
@@ -79,6 +83,10 @@ def dump(data, path, msg=True, format='pkl'):
 
     else:
         raise ValueError("Unknown format: %s" % format)
+    if original is not None:
+        os.remove(original)
+        os.rename(path, original)
+        path = original
 
     if (msg):
         filesize = os.path.getsize(path)
