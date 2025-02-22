@@ -2680,6 +2680,7 @@ def classify_part(part, pname, ptype=None):
         # No particle classification is possible
         raise ValueError('Particle data structure not classifiable.')
     output = part[mask]
+    id1 = np.abs(id1)
 
     timer.record()
     return output
@@ -2786,7 +2787,6 @@ def interpolate_part(part1, part2, name, fraction=0.5, periodic=False):
     id1 = part1['id']
     id2 = part2['id']
 
-    id1 = np.abs(id1)
     id2 = np.abs(id2)
 
     part_size = np.maximum(np.max(id1), np.max(id2)) + 1
@@ -2929,9 +2929,91 @@ def match_tracer(tracer, cell, min_dist_pc=1, use_cell_size=False):
     timer.record()
     return idx_tracer, idx_cell
 
-def cpumap_tracer(tracer, target_iouts=None, extend=False, nthread=4):
+def _track_tracer(shape, shmname, dtype, ikey, path, target_iouts, ids, keys, argwhere, chunk, target_fields):
+    exist = shared_memory.SharedMemory(name=shmname)
+    datamem = np.ndarray(shape=shape, dtype=dtype, buffer=exist.buf)
+
+    ipath = f"{path}/iout_{chunk:03d}"
+    mask = keys==ikey
+    indicies = np.arange(len(ids))[mask]
+    irows = ids[mask]//1000
+    for name in target_fields:
+        arr = load(f"{ipath}/tracer_{name}_{ikey:03d}.pkl", msg=False, format='pkl')[irows]
+        for jth in range(len(indicies)):
+            datamem[indicies[jth]*len(target_iouts):(indicies[jth]+1)*len(target_iouts)][name] = arr[jth][argwhere]
+
+def track_tracer(tracer, target_iouts=None, target_fields=['x','y','z','cpu','family'], nthread=1):
     snap = tracer.snap
     path = f"{snap.repo}/TRACER"
+    header = load(f"{path}/header.pkl", msg=False, format='pkl')
+    minid = header['minid']
+    if(timer.verbose>=1):
+        print(f"\n{len(tracer)} tracers are given")
+        target_iouts = header['nout'] if target_iouts is None else np.atleast_1d(target_iouts)
+        print(f"Find iouts: {target_iouts}\n")
+    lengt = len(target_iouts)
+    ids = tracer['id']-minid
+    lengi = len(ids)
+    keys = np.mod(ids,1000)
+
+    nout = header['nout']
+    where = np.where(np.isin(nout, target_iouts, assume_unique=True))[0]
+    dtype = [('x','f8'), ('y','f8'), ('z','f8'), ('cpu','i2'), ('family','i2')]
+    dtype = [(name, form) for name, form in dtype if name in target_fields] + [('id','i4'), ('iout', 'i4')]
+    bsize = np.sum([int(form[-1]) for name, form in dtype]) # byte size
+    if(timer.verbose>=1):
+        print(f"Allocate array ({len(target_iouts)*len(ids)*bsize / 1024**3:.2f} GB)")
+    data = np.empty( len(target_iouts) *len(ids), dtype=dtype)
+    data['id'] = np.repeat(ids, len(target_iouts))
+    data['iout'] = np.tile(target_iouts, len(ids))
+
+    chunks = np.unique( (nout[where]//100 * 100).astype(int) )
+    for chunk in chunks:
+        ipath = f"{path}/iout_{chunk:03d}"
+        print(f"Check snapshots of {chunk:03d}~{chunk+100:03d}")
+        used_nout = nout[(nout >= chunk) & (nout < (chunk+100))]
+        argwhere = np.where(np.isin(used_nout, target_iouts, assume_unique=True))[0]
+        print(f" > Snap Num.{used_nout[argwhere]}")
+        if(nthread==1):
+            for ikey in tqdm(range(1000), desc=f"Reading tracer bricks"):
+                if not ikey in keys: continue
+                mask = keys==ikey
+                indicies = np.arange(lengi)[mask]
+                irows = ids[mask]//1000
+                for name in target_fields:
+                    arr = load(f"{ipath}/tracer_{name}_{ikey:03d}.pkl", msg=False, format='pkl')[irows]
+                    for jth in range(len(indicies)):
+                        data[indicies[jth]*lengt:(indicies[jth]+1)*lengt][name] = arr[jth][argwhere]
+        else:
+            shmname = 'tracermap'
+            snap.tracer_mem = shared_memory.SharedMemory(name=snap.make_shm_name(shmname), create=True, size=data.nbytes)
+            snap.memory.append(snap.tracer_mem)
+            data_shared = np.ndarray(data.shape, dtype=dtype, buffer=snap.tracer_mem.buf)
+            ikeys = np.unique(keys)
+
+            if(timer.verbose>=1):
+                pbar = tqdm(total=len(ikeys), desc=f"Reading tracer bricks")
+                def update(*a): pbar.update()
+            else:
+                update = None
+
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            with Pool(processes=nthread) as pool:
+                async_result = [pool.apply_async(
+                    _track_tracer, (data_shared.shape, snap.tracer_mem.name, dtype, ikey, path, target_iouts, ids, keys, argwhere, chunk, target_fields), callback=update
+                    ) for ikey in ikeys]
+                iterobj = async_result
+                for r in iterobj: r.get()
+            signal.signal(signal.SIGTERM, snap.terminate)
+            for name in target_fields:
+                data[name] = data_shared[name]
+            snap.tracer_mem.close()
+            snap.tracer_mem.unlink()
+    return data
+
+def cpumap_tracer(tracer, target_iouts=None, extend=False, nthread=4):
+    snap = tracer.snap
+    path = f"{snap.repo}/TRACER/old"
     header = load(f"{path}/header.pkl", msg=False, format='pkl')
     minid = header['minid']
     if(timer.verbose>=1):
