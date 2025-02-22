@@ -52,7 +52,9 @@ for iout in table:
     if nmod>0:
         if iout%nmod != mod: continue
     file_tracer = f"{path}/tracer_family_{iout:03d}.pkl"
-    if os.path.exists(file_tracer): continue
+    if os.path.exists(file_tracer):
+        print(f"Skip {iout}")
+        continue
     isnap = snaps.get_snap(iout)
     isnap.get_part(pname='tracer', target_fields=['x','y','z','id','family'], nthread=nthread)
     argsort = np.argsort(isnap.part['id'])
@@ -61,7 +63,7 @@ for iout in table:
     # Save ID
     file_ids = f"{path}/tracer_ids.dat"
     if not os.path.exists(file_ids):
-        dump_as_dat(tracer['id'], file_ids, msg=False)
+        dump_as_dat(tracer['id'], file_ids, msg=True)
 
     # Save other columns
     names = ['x','y','z','cpu','family']
@@ -69,5 +71,5 @@ for iout in table:
     for name, dtype in zip(names, dtypes):
         file_name = f"{path}/tracer_{name}_{iout:03d}.dat"
         if not os.path.exists(file_name):
-            dump_as_dat(tracer[name], file_name, msg=False)
+            dump_as_dat(tracer[name], file_name, msg=True)
     isnap.clear()
