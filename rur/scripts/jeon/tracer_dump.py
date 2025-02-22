@@ -51,7 +51,7 @@ def load_from_dat(path, dtype='f8', msg=False):
 for iout in table:
     if nmod>0:
         if iout%nmod != mod: continue
-    file_tracer = f"{path}/tracer_family_{iout:03d}.pkl"
+    file_tracer = f"{path}/tracer_family_{iout:03d}.dat"
     if os.path.exists(file_tracer):
         print(f"Skip {iout}")
         continue
