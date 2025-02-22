@@ -32,14 +32,41 @@ snaps = uri.TimeSeries(snap)
 snaps.read_iout_avail()
 table = snaps.iout_avail['iout']
 
+def dump_as_dat(data1d, path, msg=False):
+    leng = len(data1d)
+    with open(path, "wb") as f:
+        f.write(leng.to_bytes(4, byteorder='little'))
+        f.write(data1d.tobytes())
+    if(msg): print(f" `{path}` saved")
+
+def load_from_dat(path, dtype='f8', msg=False):
+    bsize = int( dtype[-1] )
+    with open(path, "rb") as f:
+        leng = int.from_bytes(f.read(4), byteorder='little')
+        data = np.frombuffer(f.read(bsize*leng), dtype=dtype)
+    if(msg): print(f" `{path}` loaded")
+    return data
+
 for iout in table:
     if nmod>0:
         if iout%nmod != mod: continue
-    file_tracer = f"{path}/tracer_{iout:03d}.pkl"
+    file_tracer = f"{path}/tracer_family_{iout:03d}.pkl"
     if os.path.exists(file_tracer): continue
     isnap = snaps.get_snap(iout)
     isnap.get_part(pname='tracer', target_fields=['x','y','z','id','family'], nthread=nthread)
     argsort = np.argsort(isnap.part['id'])
     tracer = isnap.part[argsort]
-    dump(tracer, file_tracer, msg=False)
+
+    # Save ID
+    file_ids = f"{path}/tracer_ids.dat"
+    if not os.path.exists(file_ids):
+        dump_as_dat(tracer['id'], file_ids, msg=False)
+
+    # Save other columns
+    names = ['x','y','z','cpu','family']
+    dtypes = ['f8','f8','f8','i2','i1']
+    for name, dtype in zip(names, dtypes):
+        file_name = f"{path}/tracer_{name}_{iout:03d}.dat"
+        if not os.path.exists(file_name):
+            dump_as_dat(tracer[name], file_name, msg=False)
     isnap.clear()
