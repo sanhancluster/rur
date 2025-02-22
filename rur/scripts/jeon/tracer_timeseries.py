@@ -79,6 +79,7 @@ if not os.path.exists(file_header):
 header = load(file_header, msg=verbose)
 minid = header['minid']
 
+# names = ['x', 'y', 'z', 'cpu', 'family']
 for iout in table:
     # Check if this iout is already processed
     if iout in header['nout']: continue
@@ -95,6 +96,14 @@ for iout in table:
         else:
             istatus = np.zeros(5, dtype='i2') # x, y, z, cpu, family
             dump(istatus, file_status, msg=False)
+
+        # # Check file broken
+        # for iii in range(5):
+        #     fb = f"{ipath}/tracer_{names[iii]}_{ikey:03d}.pkl"
+        #     if not os.path.exists(fb):
+        #         istatus[iii] = 0
+        # dump(istatus, file_status, msg=False)
+        
         checkout = min(checkout, np.min(istatus))
     if checkout >= iout: continue
 
@@ -146,6 +155,7 @@ for iout in table:
                 dump(arr, f"{ipath}/tracer_{name}_{ikey:03d}.pkl", msg=False)
             dump(istatus, file_status, msg=False)
             if verbose: update()
+        pbar.close()
     else:
         raise NotImplementedError("MP is much slower than SP")
         ikeys = []
