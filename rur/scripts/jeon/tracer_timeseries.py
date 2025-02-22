@@ -18,7 +18,8 @@ print(args)
 
 repo = args.repo
 nthread = args.nthread
-path = f"{repo}/TRACER"
+# path = f"{repo}/TRACER"
+path = f"/storage5/TRACER"
 verbose = args.verbose
 uri.timer.verbose = 1 if verbose else 0
 

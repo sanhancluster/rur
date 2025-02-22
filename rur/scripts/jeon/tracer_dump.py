@@ -22,7 +22,8 @@ repo = args.repo
 nthread = args.nthread
 mod = args.mod
 nmod = args.nmod
-path = f"{repo}/TRACER/parking"
+# path = f"{repo}/TRACER/parking"
+path = f"/storage5/TRACER/parking"
 verbose = args.verbose
 uri.timer.verbose = 1 if verbose else 0
 
