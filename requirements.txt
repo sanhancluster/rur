@@ -5,4 +5,5 @@ tqdm>=4.32.1
 scikit-image>=0.15.0
 h5py>=3.7.0
 astropy>=5.1
-
+gfortran>=9.0
+meson>=1.7.0
