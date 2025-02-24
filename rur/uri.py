@@ -338,6 +338,7 @@ def _read_part(fname: str, kwargs: dict, part=None, mask=None, nsize=None, curso
     isfamily = kwargs["isfamily"]
     isstar = kwargs["isstar"]
     chem = kwargs["chem"]
+    print(kwargs)
     part_dtype = np.dtype(kwargs["part_dtype"]) # output dtype
     sequential = part is not None
     icpu = int(fname[-5:])
@@ -374,16 +375,13 @@ def _read_part(fname: str, kwargs: dict, part=None, mask=None, nsize=None, curso
                                                 family = f.read_ints(np.int8)  # family
                                                 if(ndeep>=11):
                                                     tag = readorskip_int(f, np.int8, 'tag', target_fields)  # tag
-                                            if (isstar):
-                                                if(ndeep>=12):
-                                                    if('epoch' in part_dtype.names):
-                                                        if (pname is None):
-                                                            epoch = readorskip_real(f, np.float64, 'epoch', target_fields)  # epoch
-                                                        else:
-                                                            epoch = f.read_reals(np.float64)
-                                                if(ndeep>=13):
-                                                    if('metal' in part_dtype.names):
-                                                        metal = readorskip_real(f, np.float64, 'metal', target_fields)
+                                            # if (isstar):
+                                            if(ndeep>=12):
+                                                if('epoch' in part_dtype.names):
+                                                    epoch = readorskip_real(f, np.float64, 'epoch', target_fields) if pname is None else f.read_reals(np.float64) # epoch
+                                            if(ndeep>=13):
+                                                if('metal' in part_dtype.names):
+                                                    metal = readorskip_real(f, np.float64, 'metal', target_fields)
 
         # Masking
         if (mask is None)or(nsize is None):
