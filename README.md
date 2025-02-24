@@ -27,6 +27,7 @@ if you want to develop the source code,
 use included bash script [f2py.sh](f2py.sh) and [conda develop][2] instead.
 ```bash
 cd rur
+conda install -c conda-forge --file requirements.txt
 ./f2py.sh
 conda develop .
 ```
