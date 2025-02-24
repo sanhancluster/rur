@@ -19,7 +19,7 @@ snap = uri.RamsesSnapshot(repo, 1)
 snaps = uri.TimeSeries(snap)
 nout = snap.get_iout_avail()
 
-ref_iout = 500
+ref_iout = 623
 nout = nout[nout<=ref_iout]
 print(nout)
 
@@ -64,7 +64,7 @@ if(start_on_middle):
         dump(header, f"{path}/header.pkl", msg=False)
 
 else:
-    header = dict(mode='nc', minid=minid, desc='(id-minid)%100 = file_suffix \n (id-minid)//100 = row_number_at_each_file', nout=np.array([fout]))
+    header = dict(mode='nc', minid=minid, desc='(id-minid)%1000 = file_suffix \n (id-minid)//1000 = row_number_at_each_file', nout=np.array([fout]))
     fhash = np.mod(ftracer['id']-minid,1000)
     # Initialize tracer dictionary
     for ihash in tqdm(range(1000), desc='Initialize...'):
