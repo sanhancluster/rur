@@ -338,7 +338,6 @@ def _read_part(fname: str, kwargs: dict, part=None, mask=None, nsize=None, curso
     isfamily = kwargs["isfamily"]
     isstar = kwargs["isstar"]
     chem = kwargs["chem"]
-    print(kwargs)
     part_dtype = np.dtype(kwargs["part_dtype"]) # output dtype
     sequential = part is not None
     icpu = int(fname[-5:])
