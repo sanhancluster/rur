@@ -93,7 +93,7 @@ def get_hash(iids):
     irows = (iids-minid)%Nrow
     return prefixs, irows
 
-names = {'x':'f8', 'y':'f8', 'z':'f8', 'family':'i1', 'cpu':'i4'}
+names = {'x':'f8', 'y':'f8', 'z':'f8', 'family':'i1', 'tag':'i1', 'partp':'i4', 'cpu':'i4'}
 
 
 
@@ -119,7 +119,7 @@ for iout in tqdm(table):
 
     # Parking
     isnap = snaps.get_snap(iout)
-    isnap.get_part(pname='tracer', target_fields=['x','y','z','id','family'], nthread=nthread)
+    isnap.get_part(pname='tracer', target_fields=['x','y','z','id','family','tag','partp'], nthread=nthread)
     argsort = np.argsort(isnap.part['id'])
     tracer = isnap.part[argsort]
 
@@ -128,7 +128,7 @@ for iout in tqdm(table):
     for name, dtype in names.items():
         # parked = load_from_dat(f"{parking}/tracer_{name}_{iout:03d}.dat", dtype=dtype)
         parked = tracer[name]
-        if dtype=='i4': parked = parked.astype('i2')
+        if name=='cpu': parked = parked.astype('i2')
         cursor = 0
         # for ihash in tqdm(range(Nhash), desc=f"[{iout}] ({name})"):
         for ihash in range(Nhash):
