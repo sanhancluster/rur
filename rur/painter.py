@@ -930,7 +930,7 @@ def composite_image(images, cmaps, weights=None, vmins=None, vmaxs=None, qscales
         vmins = np.full(nimg, None)
     if vmaxs is None:
         vmaxs = np.full(nimg, None)
-    if isinstance(qscales, float):
+    if isinstance(qscales, float) or isinstance(qscales, int):
         qscales = np.full(nimg, qscales)
     if normmodes is None:
         normmodes = np.full(nimg, 'log')
