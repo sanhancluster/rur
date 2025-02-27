@@ -8,7 +8,7 @@ from scipy.interpolate import LinearNDInterpolator
 from scipy.stats import norm
 from scipy.signal import convolve2d
 from numpy.linalg import det
-from skimage.transform import resize, rescale
+from skimage.transform import resize, rescale, warp, EuclideanTransform, AffineTransform
 
 from numba import njit
 
@@ -924,34 +924,211 @@ def load_cmap(path):
     center_emph = mpl.colors.ListedColormap((data[:256])[10:-10], name="center_emph")
     return center_emph
 
-
 def dark_cmap(color):
     color_bright = np.array(color)+0.25
     color_bright[color_bright>1] = 1
     return make_cmap([[0, 0, 0], color, color_bright], position=[0, 0.5, 1])        
 
-# Define a Numba-optimized function for mask generation
+def box_mask(coo, lims, sizes=None):
+    if sizes is None:
+        return _box_mask_nb(coo, lims)
+    else:
+        return _box_mask_sizes_nb(coo, lims, sizes)
+
 @njit
-def box_mask(coo, lims, sizes):
+def _box_mask_nb(coo, lims):
+    """
+    A Numba-optimized function for mask generation
+    """
     mask = np.zeros(coo.shape[0], dtype=np.bool_)
     for i in range(coo.shape[0]):
         ok = True
         for j in range(coo.shape[1]):
-            if coo[i, j] + sizes[i] < lims[j, 0] or coo[i, j] - sizes[i] > lims[j, 1]:
+            if coo[i, j] < lims[j, 0] or coo[i, j] > lims[j, 1]:
                 ok = False
+                break
         mask[i] = ok
     return mask
 
-def amr_projection(centers, levels, quantities, weights=None, shape=100, lims=None, mode='sum', plot_method='hist', projection=['x', 'y'], interp_order=0):
+@njit
+def _box_mask_sizes_nb(coo, lims, sizes):
     """
-    Generate a 2D projection plot of a quantity using Adaptive Mesh Refinement (AMR) data.
+    A Numba-optimized function for mask generation with sizes
+    """
+    mask = np.zeros(coo.shape[0], dtype=np.bool_)
+    for i in range(coo.shape[0]):
+        ok = True
+        for j in range(coo.shape[1]):
+            if coo[i, j] + sizes[i]/2 < lims[j, 0] or coo[i, j] - sizes[i]/2 > lims[j, 1]:
+                ok = False
+                break
+        mask[i] = ok
+    return mask
+
+
+def grid_projection(centers, levels=None, quantities=None, weights=None, shape=None, lims=None, mode='sum', plot_method='hist', projection=['x', 'y'], interp_order=0, crop_mode='subpixel', type='particle'):
+    def apply_projection(grid, grid_weight, x, y, quantity, weights, lims_2d, projector, mode='sum'):
+        shape = grid.shape
+        if mode in ['sum', 'mean']:
+            # do a weighted sum over projection
+            grid += projector(x, y, quantity*weights, lims_2d, shape)
+            if mode in ['mean']:
+                grid_weight += projector(x, y, weights, lims_2d, shape)
+        elif mode in ['min', 'max']:
+            xi, yi = np.digitize(x, np.linspace(*lims_2d[0], shape[0]+1)) - 1, np.digitize(y, np.linspace(*lims_2d[1], shape[1]+1)) - 1
+            if mode in ['min']:
+                # do a minimum over projection
+                np.minimum.at(grid, (xi, yi), quantity)
+            elif mode in ['max']:
+                # do a maximum over projection
+                np.maximum.at(grid, (xi, yi), quantity)
+
+    ndim = 3
+    levelmin, levelmax = None, None
+    if lims is None:
+        lims = [[0, 1],] * ndim
+    lims = np.array(lims)
+    if quantities is None:
+        quantities = np.ones(centers.shape[0])
+    if weights is None:
+        weights = np.ones_like(quantities)
+    # if shape is scalar, make it a tuple
+    if np.isscalar(shape):
+        shape = tuple(np.repeat(shape, 2))
+    # if number of arrays does not match the number of quantities, raise an error
+    if centers.shape[0] != len(quantities):
+        raise ValueError("The number of centers and quantities do not match.")
+    if weights is not None and centers.shape[0] != len(weights):
+        raise ValueError("The number of centers and weights do not match.")
+    if plot_method != 'hist' and mode in ['min', 'max']:
+        warnings.warn("plot_method is disabled when mode is min, max")
+
+    if type in ['particle', 'part']:
+        type = 'part'
+    elif type in ['amr', 'cell', 'grid']:
+        type = 'amr'
+
+    dim_keys = np.array(['x', 'y', 'z'][:ndim])
+    proj = [np.arange(ndim)[dim_keys==p][0] for p in projection]
+    
+    # get the z-axis that is not in the projection
+    proj_z = np.setdiff1d(np.arange(ndim), proj)[0]
+    lims_2d = np.array([lims[proj[0]], lims[proj[1]]])
+
+    if mode in ['sum', 'mean']:
+        fill_value = 0
+    elif mode in ['min']:
+        fill_value = np.inf
+    elif mode in ['max']:
+        fill_value = -np.inf
+
+    if type == 'part':
+        if shape is None:
+            shape = (100, 100)
+        # get mask that indicates particles to draw
+        mask_draw = box_mask(centers, lims)
+        shape_grid = shape
+
+    elif type == 'amr':
+        if centers.shape[0] != len(levels):
+            raise ValueError("The number of centers and levels do not match.")
+        levelmin, levelmax = np.min(levels), np.max(levels)
+
+        # get the levels of the grid to draw the desired resolution
+        dx_min = np.minimum((lims_2d[0, 1] - lims_2d[0, 0]) / shape[0], (lims_2d[1, 1] - lims_2d[1, 0]) / shape[1])
+        levelmax_draw = np.minimum(np.ceil(-np.log2(dx_min)).astype(int), levelmax)
+        levelmin_draw = levelmin
+
+        # get the smallest levelmin grid space that covers the whole region
+        i_lims_levelmin = lims_2d * 2**levelmin_draw
+        i_lims_levelmin[:, 0] = np.floor(i_lims_levelmin[:, 0])
+        i_lims_levelmin[:, 1] = np.ceil(i_lims_levelmin[:, 1])
+        i_lims_levelmin = i_lims_levelmin.astype(int)
+
+        shape_grid = tuple(i_lims_levelmin[:, 1] - i_lims_levelmin[:, 0])
+        lims_2d_draw = i_lims_levelmin / 2**levelmin_draw
+
+        # get mask that indicates cells to draw
+        #mask_draw = np.all((centers + 2**(levels-1)[:, np.newaxis] >= lims[:, 0])
+        #                   & (centers - 2**(levels-1)[:, np.newaxis] <= lims[:, 1]), axis=1)
+        mask_draw = box_mask(centers, lims, 0.5**levels)
+        ll = levels[mask_draw]
+
+    grid = np.full(shape_grid, fill_value, dtype='f8')
+    if mode in ['mean']:
+        grid_weight = np.zeros(shape_grid, dtype='f8')
+    else:
+        grid_weight = None
+
+    cc = centers[mask_draw]
+    qq = quantities[mask_draw]
+    ww = weights[mask_draw]
+
+    xx, yy = cc[:, proj[0]], cc[:, proj[1]]
+    zz = cc[:, proj_z]
+
+    if plot_method == 'cic':
+        projector = lambda x, y, w, lims, shape: cic_img(x, y, weights=w, lims=lims, reso=shape)
+    elif plot_method == 'hist':
+        projector = lambda x, y, w, lims, shape: np.histogram2d(x, y, weights=w, range=lims, bins=shape)[0]
+
+    if type == 'part':
+        pixel_area = np.prod((lims_2d[:, 1] - lims_2d[:, 0]) / np.array(shape))
+
+        # do projection onto current grid
+        apply_projection(grid=grid, grid_weight=grid_weight, x=xx, y=yy, quantity=qq, weights=ww, lims_2d=lims_2d, projector=projector, mode=mode)
+        grid /= pixel_area
+
+        if mode == 'mean':
+            grid /= grid_weight
+
+    elif type == 'amr':
+        for grid_level in range(levelmin, levelmax+1):
+            mask_level = ll == grid_level
+            shape_now = grid.shape
+            x, y, z, q = xx[mask_level], yy[mask_level], zz[mask_level], qq[mask_level]
+
+            volume_weight = 1
+            # get weight for the current level with depending on the line-of-sight depth within the limit.
+            # e.g., the weight is 0.5 if the z-coordinate is in the middle of any z-limits 
+            volume_weight += np.clip((z - lims[proj_z][0]) * 2**grid_level - 0.5, -1, 0) + np.clip((lims[proj_z][1] - z) * 2**grid_level - 0.5, -1, 0)
+            # multiply the weight by the depth of the projected grid. The weight is doubled per each decreasing level except for the levels larger than the grid resolution.
+            volume_weight *= 0.5**grid_level
+            # give additional weight to the projection if cell is smaller than the grid resolution
+            volume_weight *= 0.25**np.maximum(0, grid_level - levelmax_draw)
+            w = ww[mask_level] * volume_weight
+
+            # do projection onto current level grid
+            apply_projection(grid=grid, grid_weight=grid_weight, x=x, y=y, quantity=q, weights=w, lims_2d=lims_2d_draw, projector=projector, mode=mode)
+
+            # increase grid size if necessary
+            if grid_level >= levelmin_draw and grid_level < levelmax_draw:
+                grid = rescale(grid, 2, order=interp_order)
+                if mode in ['mean']:
+                    grid_weight = rescale(grid_weight, 2, order=interp_order)
+
+        if mode == 'mean':
+            grid /= grid_weight
+        
+        # resize and crop image to the desired shape
+        if shape is not None:
+            if crop_mode == 'grid':
+                grid = resize(grid, output_shape=shape, order=interp_order)
+            elif crop_mode in ['pixel', 'subpixel']:
+                subpixel = crop_mode == 'subpixel'
+                lims_crop = (lims_2d - lims_2d_draw[:, 0, np.newaxis]) / (lims_2d_draw[:, 1] - lims_2d_draw[:, 0])[:, np.newaxis]
+                grid = crop(grid, range=lims_crop, output_shape=shape, subpixel=subpixel, order=interp_order)
+
+    return grid
+
+def part_projection(centers, quantities=None, weights=None, shape=100, lims=None, mode='sum', plot_method='hist', projection=['x', 'y']):
+    """
+    Generate a 2D projection plot of a quantity using particle data.
 
     Parameters:
     -----------
     centers : np.ndarray
-        Array of shape (N, 3) containing the coordinates of the cell centers.
-    levels : np.ndarray
-        Array of shape (N,) containing the refinement levels of the cells.
+        Array of shape (N, 3) containing the coordinates of particles.
     quantities : np.ndarray
         Array of shape (N,) containing the quantity values to be projected.
     weights : np.ndarray, optional
@@ -974,107 +1151,72 @@ def amr_projection(centers, levels, quantities, weights=None, shape=100, lims=No
     grid : np.ndarray
         2D array representing the projected quantity.
     """
-    ndim = 3
-    if lims is None:
-        lims = [[0, 1],] * ndim
-    lims = np.array(lims)
-    if weights is None:
-        weights = np.ones_like(quantities)
-    # if shape is scalar, make it a tuple
-    if np.isscalar(shape):
-        shape = tuple(np.repeat(shape, 2))
-    # if number of arrays does not match the number of quantities, raise an error
-    if centers.shape[0] != len(quantities):
-        raise ValueError("The number of centers and quantities do not match.")
-    if centers.shape[0] != len(levels):
-        raise ValueError("The number of centers and levels do not match.")
+    return grid_projection(centers=centers, levels=None, quantities=quantities, weights=weights, shape=shape, lims=lims, mode=mode, plot_method=plot_method, projection=projection, type='particle')
 
-    dim_keys = np.array(['x', 'y', 'z'][:ndim])
-    proj = [np.arange(ndim)[dim_keys==p][0] for p in projection]
-    
-    # get the z-axis that is not in the projection
-    proj_z = np.setdiff1d(np.arange(ndim), proj)[0]
+def amr_projection(centers, levels, quantities=None, weights=None, shape=None, lims=None, mode='sum', plot_method='hist', projection=['x', 'y'], interp_order=0, crop_mode='subpixel'):
+    """
+    Generate a 2D projection plot of a quantity using Adaptive Mesh Refinement (AMR) data.
 
-    levelmin, levelmax = np.min(levels), np.max(levels)
-    lims_2d = np.array([lims[proj[0]], lims[proj[1]]])
+    Parameters:
+    -----------
+    centers : np.ndarray
+        Array of shape (N, 3) containing the coordinates of the cell centers. Should be within the range of (0, 1).
+    levels : np.ndarray
+        Array of shape (N,) containing the refinement levels of the cells.
+    quantities : np.ndarray
+        Array of shape (N,) containing the quantity values to be projected.
+    weights : np.ndarray, optional
+        Array of shape (N,) containing the weights for each cell. If None, all weights are set to 1. Default is None.
+    shape : int or tuple of int, optional
+        Shape of the output grid. If an integer is provided, it is used for both dimensions. Default is None.
+    lims : list of list of float, optional
+        Limits for the projection in the form [[xmin, xmax], [ymin, ymax], [zmin, zmax]]. If None, defaults to [[0, 1], [0, 1], [0, 1]]. Default is None.
+    mode : str, optional
+        Mode of projection. Options are 'sum', 'mean', 'min', 'max'. Default is 'sum'.
+    plot_method : str, optional
+        Method for plotting. Options are 'hist' for histogram and 'cic' for Cloud-In-Cell. Default is 'hist'.
+    projection : list of str, optional
+        Axes to project onto. Default is ['x', 'y'].
+    interp_order : int, optional
+        Order of interpolation for rescaling. Default is 0.
 
-    # get the levels of the grid to draw the desired resolution
-    dx_min = np.minimum((lims_2d[0, 1] - lims_2d[0, 0]) / shape[0], (lims_2d[1, 1] - lims_2d[1, 0]) / shape[1])
-    levelmax_draw = np.minimum(np.ceil(-np.log2(dx_min)).astype(int), levelmax)
-    levelmin_draw = levelmin
+    Returns:
+    --------
+    grid : np.ndarray
+        2D array representing the projected quantity.
+    """
+    return grid_projection(centers=centers, levels=levels, quantities=quantities, weights=weights, shape=shape, lims=lims, mode=mode, plot_method=plot_method, projection=projection, interp_order=interp_order, crop_mode=crop_mode, type='amr')
 
-    # get the smallest levelmin grid space that covers the whole region
-    i_lims_levelmin = lims_2d * 2**levelmin_draw
-    i_lims_levelmin[:, 0] = np.floor(i_lims_levelmin[:, 0])
-    i_lims_levelmin[:, 1] = np.ceil(i_lims_levelmin[:, 1])
-    i_lims_levelmin = i_lims_levelmin.astype(int)
-    lims_2d_draw = i_lims_levelmin / 2**levelmin_draw
 
-    # get mask that indicates cells to draw
-    #mask_draw = np.all((centers + 2**(levels-1)[:, np.newaxis] >= lims[:, 0])
-    #                   & (centers - 2**(levels-1)[:, np.newaxis] <= lims[:, 1]), axis=1)
-    mask_draw = box_mask(centers, lims, 2**(levels-1))
+def crop(img, range, output_shape=None, subpixel=True, **kwargs):
+    range = np.array(range)
+    shape = np.array(img.shape)
+    idx_true = shape[:, np.newaxis] * range - 0.5
+    print(idx_true, shape)
+    if not subpixel:
+        idx_int = np.array(np.round(idx_true), dtype=int)
+        #idxs = np.array([np.round(shape[0] * range[0] - 0.5), np.round(shape[1] * range[1] - 0.5)], dtype=int)
+        img = img[idx_int[0, 0]:idx_int[0, 1], idx_int[1, 0]:idx_int[1, 1]]
+        if output_shape is not None:
+            img = resize(img, output_shape, **kwargs)
+    else:
+        # subpixel crop using pixel interpolation
+        # only works for square image and ranges
+        true_shape = idx_true[:, 1] - idx_true[:, 0]
 
-    cc = centers[mask_draw]
-    ll = levels[mask_draw]
-    qq = quantities[mask_draw]
-    ww = weights[mask_draw]
+        if output_shape is None:
+            output_shape = np.round(true_shape).astype(int)
+        else:
+            output_shape = np.array(output_shape)
 
-    if mode in ['sum', 'mean']:
-        fill_value = 0
-    elif mode in ['min']:
-        fill_value = np.inf
-    elif mode in ['max']:
-        fill_value = -np.inf
-    
-    shape_min = tuple(i_lims_levelmin[:, 1] - i_lims_levelmin[:, 0])
-    grid = np.full(shape_min, fill_value, dtype='f8')
-    grid_weight = np.zeros(shape_min, dtype='f8')
+        scale = true_shape / output_shape
 
-    xx, yy = cc[:, proj[0]], cc[:, proj[1]]
-    zz = cc[:, proj_z]
+        tform1 = EuclideanTransform(translation=idx_true[:, 0])
+        tform2 = AffineTransform(scale=scale)
+        #tform3 = EuclideanTransform(translation=0.5/scale)
+        img = warp(img.T, tform2+tform1, output_shape=output_shape, **kwargs).T
 
-    if plot_method == 'cic':
-        projector = lambda x, y, w: cic_img(x, y, weights=w, reso=shape_now, lims=lims_2d_draw)
-    elif plot_method == 'hist':
-        projector = lambda x, y, w: np.histogram2d(x, y, weights=w, bins=shape_now, range=lims_2d_draw)[0]
-
-    for grid_level in range(levelmin, levelmax+1):
-        mask_level = ll == grid_level
-        shape_now = grid.shape
-
-        # get weight for the current level with depending on the line-of-sight depth within the limit.
-        # e.g., the weight is 0.5 if the z-coordinate is in the middle of any z-limits 
-        volume_weight = 1
-        volume_weight += np.clip((zz[mask_level] - lims[proj_z][0]) * 2**grid_level - 0.5, -1, 0) + np.clip((lims[proj_z][1] - zz[mask_level]) * 2**grid_level - 0.5, -1, 0)
-        # multiply the weight by the depth of the projected grid. The weight is doubled for each level except for the levels larger than the grid resolution.
-        volume_weight *= 2.**-grid_level
-        # give additional weight to the projection if cell is smaller than the grid resolution
-        volume_weight *= 4.**np.minimum(levelmax_draw - grid_level, 0)
-
-        if mode in ['sum', 'mean']:
-            # do a weighted sum over projection
-            grid += projector(xx[mask_level], yy[mask_level], qq[mask_level]*ww[mask_level]*volume_weight)
-            grid_weight += projector(xx[mask_level], yy[mask_level], ww[mask_level]*volume_weight)
-        elif mode in ['max']:
-            # do a maximum over projection
-            xi, yi = np.digitize(xx[mask_level], np.linspace(*lims_2d[0], shape[0]+1)) - 1, np.digitize(yy[mask_level], np.linspace(*lims_2d_draw[1], shape[1]+1)) - 1
-            np.maximum.at(grid, (xi, yi), qq[mask_level])
-        elif mode in ['min']:
-            # do a minimum over projection
-            xi, yi = np.digitize(xx[mask_level], np.linspace(*lims_2d[0], shape[0]+1)) - 1, np.digitize(yy[mask_level], np.linspace(*lims_2d_draw[1], shape[1]+1)) - 1
-            np.minimum.at(grid, (xi, yi), qq[mask_level])
-        if grid_level >= levelmin_draw and grid_level < levelmax_draw:
-            grid = rescale(grid, 2, order=interp_order)
-            grid_weight = rescale(grid_weight, 2, order=interp_order)
-
-    if mode == 'mean':
-        grid /= grid_weight
-    
-    # resize image to the desired shape
-    grid = resize(grid, shape, anti_aliasing=True)
-
-    return grid
+    return img
 
 
 import pkg_resources
