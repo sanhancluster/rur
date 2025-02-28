@@ -2685,7 +2685,6 @@ def classify_part(part, pname, ptype=None):
         # No particle classification is possible
         raise ValueError('Particle data structure not classifiable.')
     output = part[mask]
-    id1 = np.abs(id1)
 
     timer.record()
     return output
