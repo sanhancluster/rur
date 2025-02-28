@@ -1,5 +1,4 @@
-[1]: https://docs.anaconda.com/anaconda/install/
-[2]: https://docs.conda.io/projects/conda-build/en/latest/resources/commands/conda-develop.html
+[21: https://docs.conda.io/projects/conda-build/en/latest/resources/commands/conda-develop.html
 
 RAMSES Universal Reader
 =============================
@@ -15,17 +14,24 @@ Download the code from bitbucket repository, or use clone it from the latest rep
 ```bash
 git clone https://github.com/sanhancluster/rur.git
 ```
-### Install using Conda environment
+### Installing
 RUR requires python version to be >= 3.10
 #### installing packages
-The list of packages that are required to use rur can be seen in [requirements.txt](requirements.txt). Most of them can be obtained by [setting up an anaconda environment][1].
+The list of packages that are required to use rur can be seen in [requirements.txt](requirements.txt).
+##### using conda
 ```bash
-conda create -n rur python=3.10 && conda activate rur # optional
+conda create -n rur && conda activate rur # optional
 conda install -c conda-forge --file requirements.txt --yes
 ```
-#### compiling fortran modules and setting up package path
-Use included bash script [f2py.sh](f2py.sh) and [conda develop][2].
+##### using pip
+```bash
+cd rur
+python3 -m venv rur && source rur/bin/activate # optional
+pip install -r requirements.txt
 ```
+#### compiling fortran modules and setting up package path
+Use included bash script [f2py.sh](f2py.sh) and [conda develop][1].
+```bash
 cd rur
 ./f2py.sh
 conda develop .

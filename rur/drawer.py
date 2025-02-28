@@ -15,6 +15,7 @@ from numba import njit
 import string
 import matplotlib.collections as mcoll
 from os.path import dirname, join, abspath
+import pkg_resources
 
 def colorline(
         x, y, z=None, cmap=plt.get_cmap('copper'), norm=plt.Normalize(0.0, 1.0),
@@ -1218,8 +1219,6 @@ def crop(img, range, output_shape=None, subpixel=True, **kwargs):
 
     return img
 
-
-import pkg_resources
 class ccm:
     # write custom colormaps here
     TrueRed = make_cmap([(1, 1, 1), (1, 0, 0)])
