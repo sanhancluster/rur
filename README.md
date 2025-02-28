@@ -1,4 +1,4 @@
-[1]: https://www.anaconda.com/
+[1]: https://docs.anaconda.com/anaconda/install/
 [2]: https://docs.conda.io/projects/conda-build/en/latest/resources/commands/conda-develop.html
 
 RAMSES Universal Reader
@@ -6,7 +6,7 @@ RAMSES Universal Reader
 
 By San Han
 
-A package for reading and computing various versions of RAMSES hydro and particle data.
+A package for reading and analysing various versions of RAMSES hydro and particle data.
 
 Setup
 -----------------------------
@@ -15,19 +15,19 @@ Download the code from bitbucket repository, or use clone it from the latest rep
 ```bash
 git clone https://github.com/sanhancluster/rur.git
 ```
-### Installing
-rur requires python version to be >= 3.8
-#### Using Conda environment
-Use the following command to install the package on current python environment.
+### Install using Conda environment
+RUR requires python version to be >= 3.10
+#### installing packages
+The list of packages that are required to use rur can be seen in [requrements.txt](requrements.txt).
 ```bash
-cd rur
-python3 setup.py install
+conda create -n rur python=3.9 && conda activate rur # optional
+conda install -c conda-forge --file requirements.txt --yes
 ```
-if you want to develop the source code, 
-use included bash script [f2py.sh](f2py.sh) and [conda develop][2] instead.
-```bash
+The list of packages that are required to use rur can be seen in [requrements.txt](requrements.txt). Most of them can be obtained by [setting up an anaconda environment][1].
+#### compiling fortran modules and setting up package path
+Use included bash script [f2py.sh](f2py.sh) and [conda develop][2].
+```
 cd rur
-conda install -c conda-forge --file requirements.txt
 ./f2py.sh
 conda develop .
 ```
@@ -39,7 +39,7 @@ Usage
 ### Reading a full volume data
 ```python
 from rur import uri
-iout = 136 # arbitrary snapshot number, from output_XXXXX
+iout = 136 # snapshot number, from the directory name "output_XXXXX"
 snap = uri.RamsesSnapshot('my_RAMSES_repo', iout, mode='none', path_in_repo='')
 
 # reads cell and particle data in the selected bounding box, if the box is not specified, loads the whole volume.
@@ -65,9 +65,9 @@ part = snap.get_part()
 gives you cell and particle table of bounding box of the selected halo.
 
 ### Configuring cell and particle data column
-
-Cell and particle column data differ by RAMSES versions. This can be configured by manually modifying 
-[`config.py`](rur/config.py). Alternatively, cell column list can be changed by following code.
+Cell and particle column data differ by RAMSES versions.
+RUR automatically figures out cell and particle data types by reading ```part_type_desciptor.txt``` and ```hydro_type_descriptor.txt```.
+If your data do not have these files (e.g., older versions of RAMSES), data types can be configured by manually modifying [`config.py`](rur/config.py). Alternatively, cell column list can be changed by following code.
 ```python
 from rur import uri
 iout = 136
