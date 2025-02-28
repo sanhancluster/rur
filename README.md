@@ -20,7 +20,7 @@ RUR requires python version to be >= 3.10
 #### installing packages
 The list of packages that are required to use rur can be seen in [requrements.txt](requrements.txt).
 ```bash
-conda create -n rur python=3.9 && conda activate rur # optional
+conda create -n rur python=3.10 && conda activate rur # optional
 conda install -c conda-forge --file requirements.txt --yes
 ```
 The list of packages that are required to use rur can be seen in [requrements.txt](requrements.txt). Most of them can be obtained by [setting up an anaconda environment][1].
