@@ -18,7 +18,7 @@ git clone https://github.com/sanhancluster/rur.git
 ### Install using Conda environment
 RUR requires python version to be >= 3.10
 #### installing packages
-The list of packages that are required to use rur can be seen in [requrements.txt](requrements.txt). Most of them can be obtained by [setting up an anaconda environment][1].
+The list of packages that are required to use rur can be seen in [requirements.txt](requirements.txt). Most of them can be obtained by [setting up an anaconda environment][1].
 ```bash
 conda create -n rur python=3.10 && conda activate rur # optional
 conda install -c conda-forge --file requirements.txt --yes
