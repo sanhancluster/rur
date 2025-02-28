@@ -1,4 +1,4 @@
-[21: https://docs.conda.io/projects/conda-build/en/latest/resources/commands/conda-develop.html
+[1]: https://docs.conda.io/projects/conda-build/en/latest/resources/commands/conda-develop.html
 
 RAMSES Universal Reader
 =============================
