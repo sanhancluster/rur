@@ -8,39 +8,17 @@ from scipy.interpolate import LinearNDInterpolator
 from numpy.linalg import det
 import h5py
 from rur.sci.geometry import rss, ss, rms, align_to_vector, euler_angle
-from rur.config import Table, get_vector, Timer, alias_dict
+from rur.config import Table, get_vector, Timer, alias_dict, tqdm
 from collections.abc import Iterable
 from collections import defaultdict
 import warnings
 from numpy.lib import recfunctions as rf
-from IPython import get_ipython
 
 import pickle as pkl
 import os
 
 from multiprocessing import Process, cpu_count, Manager
 from time import sleep
-
-
-def type_of_script():
-    """
-    Detects and returns the type of python kernel
-    :return: string 'jupyter' or 'ipython' or 'terminal'
-    """
-    try:
-        ipy_str = str(type(get_ipython()))
-        if 'zmqshell' in ipy_str:
-            return 'jupyter'
-        if 'terminal' in ipy_str:
-            return 'ipython'
-    except:
-        return 'terminal'
-
-
-if (type_of_script() == 'jupyter'):
-    from tqdm.notebook import tqdm
-else:
-    from tqdm import tqdm
 
 '''
 

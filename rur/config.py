@@ -2,33 +2,7 @@ from rur.sci.geometry import rss, ss
 import numpy as np
 from collections import defaultdict
 import time
-from IPython import get_ipython
-
-
-def type_of_script():
-    """
-    Detects and returns the type of python kernel
-    :return: string 'jupyter' or 'ipython' or 'terminal'
-    """
-    try:
-        ipy_str = str(type(get_ipython()))
-        if 'zmqshell' in ipy_str:
-            return 'jupyter'
-        if 'terminal' in ipy_str:
-            return 'ipython'
-    except:
-        return 'terminal'
-
-
-if type_of_script() == 'jupyter':
-    from tqdm.notebook import tqdm
-else:
-    from tqdm import tqdm
-
-if type_of_script() == 'jupyter':
-    from tqdm.notebook import tqdm
-else:
-    from tqdm import tqdm
+from tqdm.autonotebook import tqdm
 
 def defnone(): return None
 class Table:
