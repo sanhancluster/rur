@@ -968,6 +968,41 @@ def _box_mask_sizes_nb(coo, lims, sizes):
 
 
 def grid_projection(centers, levels=None, quantities=None, weights=None, shape=None, lims=None, mode='sum', plot_method='hist', projection=['x', 'y'], interp_order=0, crop_mode='subpixel', type='particle'):
+    """
+    Generate a 2D projection plot of a quantity using particle or AMR data.
+
+    Parameters:
+    -----------
+    centers : np.ndarray
+        Array of shape (N, 3) containing the coordinates of the cell centers or particles.
+    levels : np.ndarray, optional
+        Array of shape (N,) containing the refinement levels of the cells. Required for AMR data.
+    quantities : np.ndarray, optional
+        Array of shape (N,) containing the quantity values to be projected. Default is None.
+    weights : np.ndarray, optional
+        Array of shape (N,) containing the weights for each cell or particle. If None, all weights are set to 1. Default is None.
+    shape : int or tuple of int, optional
+        Shape of the output grid. If an integer is provided, it is used for both dimensions. Default is None.
+    lims : list of list of float, optional
+        Limits for the projection in the form [[xmin, xmax], [ymin, ymax], [zmin, zmax]]. If None, defaults to [[0, 1], [0, 1], [0, 1]]. Default is None.
+    mode : str, optional
+        Mode of projection. Options are 'sum', 'mean', 'min', 'max'. Default is 'sum'.
+    plot_method : str, optional
+        Method for plotting. Options are 'hist' for histogram and 'cic' for Cloud-In-Cell. Default is 'hist'.
+    projection : list of str, optional
+        Axes to project onto. Default is ['x', 'y'].
+    interp_order : int, optional
+        Order of interpolation for rescaling. Default is 0.
+    crop_mode : str, optional
+        Mode for cropping the image. Options are 'grid', 'pixel', 'subpixel'. Default is 'subpixel'.
+    type : str, optional
+        Type of data. Options are 'particle' or 'amr'. Default is 'particle'.
+
+    Returns:
+    --------
+    grid : np.ndarray
+        2D array representing the projected quantity.
+    """
     def apply_projection(grid, grid_weight, x, y, quantity, weights, lims_2d, projector, mode='sum'):
         shape = grid.shape
         if mode in ['sum', 'mean']:
@@ -1190,10 +1225,12 @@ def amr_projection(centers, levels, quantities=None, weights=None, shape=None, l
 
 
 def crop(img, range, output_shape=None, subpixel=True, **kwargs):
+    """
+    Crop an image to a specified range.    
+    """
     range = np.array(range)
     shape = np.array(img.shape)
-    idx_true = shape[:, np.newaxis] * range - 0.5
-    print(idx_true, shape)
+    idx_true = shape[:, np.newaxis] * range
     if not subpixel:
         idx_int = np.array(np.round(idx_true), dtype=int)
         #idxs = np.array([np.round(shape[0] * range[0] - 0.5), np.round(shape[1] * range[1] - 0.5)], dtype=int)
@@ -1212,7 +1249,7 @@ def crop(img, range, output_shape=None, subpixel=True, **kwargs):
 
         scale = true_shape / output_shape
 
-        tform1 = EuclideanTransform(translation=idx_true[:, 0])
+        tform1 = EuclideanTransform(translation=idx_true[:, 0] - 0.5)
         tform2 = AffineTransform(scale=scale)
         #tform3 = EuclideanTransform(translation=0.5/scale)
         img = warp(img.T, tform2+tform1, output_shape=output_shape, **kwargs).T
