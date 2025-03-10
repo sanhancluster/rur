@@ -124,6 +124,7 @@ def measure_magnitudes(stars, filter_names, alpha=1, total=False, model='cb07', 
     })
     # measure magnitude from star data and population synthesis model.
     nstar = len(stars)
+    if verbose: print(f"Construct `{model}` table for {nstar} stars...")
     if(model == 'cb07'):
         table = read_cb07_table()
 
@@ -164,7 +165,8 @@ def measure_magnitudes(stars, filter_names, alpha=1, total=False, model='cb07', 
     else:
         raise ValueError("Unknown model '%s'" % model)
     stacked = np.stack([grid1, grid2], axis=-1)
-    msols = stars['m', 'Msol']
+    # msols = stars['m', 'Msol']
+    mconvert = 2.5*np.log10(stars['m', 'Msol']/m_unit)
     magdict = {}
     ip = None
     for filter_name in filter_names:
@@ -189,7 +191,7 @@ def measure_magnitudes(stars, filter_names, alpha=1, total=False, model='cb07', 
                 shm = shared_memory.SharedMemory(name=shmname,create=True, size=mags.nbytes)
                 sarr = np.ndarray(mags.shape, dtype=mags.dtype, buffer=shm.buf)
                 if verbose:
-                    pbar = tqdm(total=njob, desc=f"MagChunk{min(njob, nthread)}")
+                    pbar = tqdm(total=njob, desc=f"{filter_name} MagChunk{min(njob, nthread)}")
                     def update(*a): pbar.update()
                 else:
                     update = None
@@ -207,10 +209,11 @@ def measure_magnitudes(stars, filter_names, alpha=1, total=False, model='cb07', 
             # Single Processing
             else:
                 iterobj = range(0, nstar, nchunk)
-                if verbose: iterobj = tqdm(iterobj, desc="MagChunk")
+                if verbose: iterobj = tqdm(iterobj, desc=f"{filter_name} MagChunk")
                 for i in iterobj:
                     mags[i:i+nchunk] = ip(arr1[i:i+nchunk], arr2[i:i+nchunk])
-        mags = mags - 2.5*np.log10(msols/m_unit)
+        # mags = mags - 2.5*np.log10(msols/m_unit)
+        mags -= mconvert
         if(total):
             mags = mags[~np.isnan(mags)]
             magdict[filter_name] = -2.5*np.log10(np.sum(10**(0.4*-mags)))
