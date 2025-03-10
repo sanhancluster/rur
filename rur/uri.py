@@ -2950,6 +2950,13 @@ def load_tracer(tracers, input_iouts=None, target_fields=None, verbose=True, val
     npart = len(tracers)
     if input_iouts is None:
         input_iouts = iout_table
+    else:
+        isin = np.isin(input_iouts, iout_table)
+        if verbose:
+            if len(isin) != len(input_iouts):
+                print(f" > {input_iouts[~isin]} are not found in the header.")
+        input_iouts = input_iouts[isin]
+        
     lenout = len(input_iouts)
     if target_fields is None:
         target_fields = ['x','y','z','cpu','family']
@@ -2957,11 +2964,15 @@ def load_tracer(tracers, input_iouts=None, target_fields=None, verbose=True, val
     names = [it for it in names if it[0] in target_fields]
     dtype = names + [('id','i4'), ('iout','i4')]
     itemsize = np.dtype(dtype).itemsize # Byte
-    if verbose: print(f"{npart} tracers & {lenout} outputs")
+    if verbose: print(f" > {npart} tracers & {lenout} outputs")
     if verbose: print(f" > Array size: {npart*lenout*itemsize/1024/1024/1024:.2f} GB")
     newarr = np.empty(npart*lenout, dtype=dtype)
+    argsort = np.argsort(tracers['id'])
+    tracers = tracers[argsort]
     newarr['id'] = np.repeat(tracers['id'], lenout)
     newarr['iout'] = np.tile(input_iouts, npart)
+    if verbose: print(f" > Result dtype: {newarr.dtype}")
+    
 
     Nrow = 100000
     prefixs = (tracers['id']-minid)//Nrow
