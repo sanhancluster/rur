@@ -390,16 +390,20 @@ def tracermap(tracer_part, box=None, proj=[0, 1], shape=500, mode='rho', unit=No
 
         xm = get_vector(cell_lvl)
         if(tracer_part.snap.unitmode == 'code'):
-            qm = cell_lvl['m', unit] / 0.5 ** (binlvl * 2)
+            qm = cell_lvl['m', unit] / 0.5 ** (binlvl * 3)
         else:
-            qm = cell_lvl['m'] / 0.5 ** (binlvl * 2)
+            qm = cell_lvl['m'] / 0.5 ** (binlvl * 3)
         if mode == 'crho':
             qm *= depth
 
         # convert coordinates to map
         hist_map = np.histogram2d(xm[:, proj[0]], xm[:, proj[1]], bins=binsize, range=edge, weights=qm)[0]
 
-        ibin = ilvl - binlvl
+        # ibin = ilvl - binlvl
+        if ilvl < maxlvl:
+            ibin = ilvl
+        else:
+            ibin = ilvl * 3 - maxlvl * 2
         image += hist_map * 0.5 ** ibin
 
         if ilvl < maxlvl:
@@ -930,7 +934,7 @@ def composite_image(images, cmaps, weights=None, vmins=None, vmaxs=None, qscales
         vmins = np.full(nimg, None)
     if vmaxs is None:
         vmaxs = np.full(nimg, None)
-    if isinstance(qscales, float):
+    if isinstance(qscales, float) or isinstance(qscales, int):
         qscales = np.full(nimg, qscales)
     if normmodes is None:
         normmodes = np.full(nimg, 'log')
