@@ -2940,11 +2940,12 @@ def load_tracer(tracers, input_iouts=None, target_fields=None, verbose=True, val
     names = [it for it in names if it[0] in target_fields]
     dtype = names + [('id','i4'), ('iout','i4')]
     itemsize = np.dtype(dtype).itemsize # Byte
-    if verbose: print(f"{npart} tracers & {lenout} outputs")
+    if verbose: print(f" > {npart} tracers & {lenout} outputs")
     if verbose: print(f" > Array size: {npart*lenout*itemsize/1024/1024/1024:.2f} GB")
     newarr = np.empty(npart*lenout, dtype=dtype)
     newarr['id'] = np.repeat(tracers['id'], lenout)
     newarr['iout'] = np.tile(input_iouts, npart)
+    if verbose: print(f" > Result dtype: {newarr.dtype}")
 
     Nrow = 100000
     prefixs = (tracers['id']-minid)//Nrow
