@@ -688,10 +688,11 @@ class RamsesSnapshot(object):
     """
 
     def __init__(self, repo, iout, mode='none', box=None, path_in_repo=default_path_in_repo['snapshots'], snap=None,
-                 longint=False, verbose=timer.verbose, z=None):
+                 longint=False, verbose=None, z=None):
         self.repo = repo
         self.path_in_repo = path_in_repo
         self.snap_path = join(repo, path_in_repo)
+        self.verbose = timer.verbose if verbose is None else verbose
 
         if z is not None:
             path = join(self.repo, 'list_iout_avail.txt')
@@ -745,8 +746,7 @@ class RamsesSnapshot(object):
             self.classic_format = False
         else:
             self.classic_format = True
-
-        self.read_params(snap, verbose=verbose)
+        self.read_params(snap, verbose=self.verbose)
 
         # set initial box and default box from boxlen
         self.default_box = default_box * self.params['boxlen']
@@ -888,7 +888,7 @@ class RamsesSnapshot(object):
 
     def switch_iout(self, iout):
         # returns to other snapshot while maintaining repository, box, etc.
-        return RamsesSnapshot(self.repo, iout, self.mode, self.box, self.path_in_repo, snap=self, longint=self.longint)
+        return RamsesSnapshot(self.repo, iout, self.mode, self.box, self.path_in_repo, snap=self, longint=self.longint, verbose=self.verbose)
 
     def __getitem__(self, item):
         try:
@@ -2677,7 +2677,6 @@ def classify_part(part, pname, ptype=None):
         # No particle classification is possible
         raise ValueError('Particle data structure not classifiable.')
     output = part[mask]
-    id1 = np.abs(id1)
 
     timer.record()
     return output
@@ -2925,6 +2924,72 @@ def match_tracer(tracer, cell, min_dist_pc=1, use_cell_size=False):
           % (np.unique(idx_tracer).size, tracer.size, np.unique(idx_cell).size, cell.size))
     timer.record()
     return idx_tracer, idx_cell
+
+def load_tracer(tracers, input_iouts=None, target_fields=None, verbose=True, validate=False):
+    header = load(f"/storage5/TRACER/header.pkl")
+    minid = header['minid']
+    iout_table = header['nout']
+
+    npart = len(tracers)
+    if input_iouts is None:
+        input_iouts = iout_table
+    lenout = len(input_iouts)
+    if target_fields is None:
+        target_fields = ['x','y','z','cpu','family']
+    names = [('x','f8'), ('y','f8'), ('z','f8'), ('cpu','i2'), ('family','i1')]
+    names = [it for it in names if it[0] in target_fields]
+    dtype = names + [('id','i4'), ('iout','i4')]
+    itemsize = np.dtype(dtype).itemsize # Byte
+    if verbose: print(f"{npart} tracers & {lenout} outputs")
+    if verbose: print(f" > Array size: {npart*lenout*itemsize/1024/1024/1024:.2f} GB")
+    newarr = np.empty(npart*lenout, dtype=dtype)
+    newarr['id'] = np.repeat(tracers['id'], lenout)
+    newarr['iout'] = np.tile(input_iouts, npart)
+
+    Nrow = 100000
+    prefixs = (tracers['id']-minid)//Nrow
+    ufixs, counts = np.unique(prefixs, return_counts=True)
+    if verbose: print(f"Check {len(ufixs)} file bricks...")
+
+
+    chunks = np.unique(input_iouts//100)
+    ccursor = 0
+    for ic, chunk in enumerate(chunks):
+        dirname1 = f"/storage5/TRACER/{100*chunk:03d}"
+        couts = input_iouts[(input_iouts >= 100*chunk)&(input_iouts < 100*(chunk+1))]
+        irows = iout_table; irows = irows[irows >= 100*chunk]; irows = np.where(np.isin(irows, couts))[0]
+        if verbose: print(f"Time-chunk {ic+1}: {couts[0]}({irows[0]}th) - {couts[-1]}({irows[-1]}th)")
+
+        icursor = 0
+        jcursor = 0
+        for ufix, count in tqdm(zip(ufixs, counts), total=len(ufixs)):
+            ipart = tracers[icursor : icursor+count]
+            whichcols = (ipart['id']-minid)%Nrow
+
+            for name, dtype in names:
+                fname = f"{dirname1}/tracer_{name}_{ufix:04d}.dat"; bsize = int(dtype[-1])
+                with open(fname, 'rb') as f:
+                    leng = int.from_bytes(f.read(4), byteorder='little')
+                    oldrow = -1
+                    for irow, cout in zip(irows, couts):
+                        if (irow - oldrow)>1: f.seek(4 + irow*bsize*leng)
+                        tmp = np.frombuffer(f.read(bsize*leng), dtype=dtype)
+                        tmp = tmp[whichcols]
+                        if validate:
+                            # ! If you don't believe this function: set validate=True
+                            assert np.array_equal(ipart['id'], newarr['id'][ccursor+jcursor : ccursor+jcursor + count*lenout : lenout])
+                            assert np.all(newarr['iout'][ccursor+jcursor : ccursor+jcursor + count*lenout : lenout]==cout), (cout, newarr['iout'][ccursor+jcursor : ccursor+jcursor + count*lenout : lenout], ccursor+jcursor)
+                        newarr[name][ccursor+jcursor : ccursor+jcursor + count*lenout : lenout] = tmp
+                        jcursor += 1
+                        oldrow = irow
+                jcursor -= len(couts)
+            
+            
+            icursor += count
+            jcursor += count*lenout
+        ccursor += len(couts)
+    return newarr
+
 
 def _track_tracer(shape, shmname, dtype, ikey, path, target_iouts, ids, keys, argwhere, chunk, target_fields):
     exist = shared_memory.SharedMemory(name=shmname)
