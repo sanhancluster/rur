@@ -154,11 +154,12 @@ def hist_imshow(x, y, lims=None, reso=100, weights=None, filter_sigma=None, norm
     plt.imshow(pdi, origin='lower', extent=[lims[0][0], lims[0][1], lims[1][0], lims[1][1]], aspect='auto', **kwargs)
 
 
-def kde_contour(x, y, lims, reso=100, bw_method='silverman', weights=None, sig_arr=[1, 2], filled=False, **kwargs):
+def kde_contour(x, y, lims, reso=100, bw_method='silverman', weights=None, sigma_levels=[1, 2], filled=False, **kwargs):
 
     pdi = kde_img(x, y, lims, reso, weights=weights, bw_method=bw_method)
-    area_per_px = (lims[0][1]-lims[0][0])*(lims[1][1]-lims[1][0])/reso**2
-    levels = np.append([sig_level(pdi, sig_arr, area_per_px)[::-1]], np.max(pdi))
+    pdi2 = fun_img(f, lims, reso, axis)
+    #area_per_px = (lims[0][1]-lims[0][0])*(lims[1][1]-lims[1][0])/reso**2
+    levels = np.append([get_sigma_levels(pdi2, sigma_levels)[::-1]], np.max(pdi))
 
     xarr = bin_centers(lims[0][0], lims[0][1], reso)
     yarr = bin_centers(lims[1][0], lims[1][1], reso)
@@ -169,11 +170,11 @@ def kde_contour(x, y, lims, reso=100, bw_method='silverman', weights=None, sig_a
         return plt.contour(xarr, yarr, pdi, levels=levels, **kwargs)
 
 
-def fun_contour(f, lims, reso=100, axis=-1, sig_arr=[1, 2], filled=False, **kwargs):
+def fun_contour(f, lims, reso=100, axis=-1, sigma_levels=[1, 2], filled=False, **kwargs):
 
     pdi = fun_img(f, lims, reso, axis)
-    area_per_px = (lims[0][1]-lims[0][0])*(lims[1][1]-lims[1][0])/reso**2
-    levels = np.append([sig_level(pdi, sig_arr, area_per_px)[::-1]], np.max(pdi))
+    #area_per_px = (lims[0][1]-lims[0][0])*(lims[1][1]-lims[1][0])/reso**2
+    levels = np.append([get_sigma_levels(pdi, sigma_levels)[::-1]], np.max(pdi))
 
     xarr = bin_centers(lims[0][0], lims[0][1], reso)
     yarr = bin_centers(lims[1][0], lims[1][1], reso)
@@ -193,7 +194,7 @@ def hist_contour(x, y, lims, reso=100, weights=None, sig_arr=[1, 2], filled=Fals
         pdi = pdi/np.sum(pdi) / area_per_px
 
     area_per_px = (lims[0][1]-lims[0][0])*(lims[1][1]-lims[1][0])/reso**2
-    levels = np.append([sig_level(pdi, sig_arr, area_per_px)[::-1]], np.max(pdi))
+    levels = np.append([get_sigma_levels(pdi, sig_arr, area_per_px)[::-1]], np.max(pdi))
 
     xarr = bin_centers(lims[0][0], lims[0][1], reso)
     yarr = bin_centers(lims[1][0], lims[1][1], reso)
@@ -204,24 +205,11 @@ def hist_contour(x, y, lims, reso=100, weights=None, sig_arr=[1, 2], filled=Fals
         return plt.contour(xarr, yarr, pdi, levels=levels, **kwargs)
 
 
-def sig_level(pdi, sig_arr, area_per_px=1, normed=True):
-    arr = np.sort(pdi.ravel())[::-1]
-    cs = np.cumsum(arr) * area_per_px
-    if(normed):
-        cs = cs/np.max(cs)
-
-    prob_arr = (norm.cdf(sig_arr)-0.5)*2
-    levels = []
-
-    for prob in prob_arr:
-        idx = np.flatnonzero(cs>prob)[0]
-        if(idx < 1):
-            print("ERROR: Too low sigma")
-            return None
-        frac = (prob - cs[idx-1]) / (cs[idx] - cs[idx-1])
-        levels.append(arr[idx-1] + (arr[idx] - arr[idx-1]) * frac)
+def get_sigma_levels(prob_dist, sigma_arr):
+    prob_dist = np.ravel(prob_dist)
+    prob_arr = (norm.cdf(sigma_arr)-0.5)*2
+    levels = utool.weighted_quantile(prob_dist, 1-prob_arr, sample_weight=prob_dist)
     return levels
-
 
 def hist_img_adaptive(x, y, lims, reso=100, weights=None, smooth=5, supergrids=5, border='wrap'):
     x = np.array(x)
