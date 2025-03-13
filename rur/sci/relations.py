@@ -250,7 +250,9 @@ def mgal_size(tag='V14', logscale=False):
         return N21
 
 def mgal_sfr(tag='W12'):
-    # star formation main sequence
+    """
+    Star formation main sequence. Each function returns log(SFR) given log(M*).
+    """
     def W12(logm, z=0): # Whitaker+ 12
         alpha = 0.70 - 0.13 * z
         beta = 0.38 + 1.14 * z - 0.19 * z**2
@@ -273,11 +275,20 @@ def mgal_sfr(tag='W12'):
         b = np.interp(z, table['z'], params_arr[1])
         c = np.interp(z, table['z'], params_arr[2])
         return a + b * logm + c * logm**2
+    
+    def S14(logm, age):
+        # Speagle+ 14
+        # log SFR(M∗,t) = (0.84 ± 0.02 − 0.026 ± 0.003 × t) log M∗−(6.51 ± 0.24 − 0.11 ± 0.03 × t)
+        a = 0.84 - 0.026 * age
+        b = -6.51 + 0.11 * age
+        return a * logm + b
 
     if tag == 'W12':
         return W12
     elif tag == 'W14':
         return W14
+    elif tag == 'S14':
+        return S14
 
 
 def gmf():
