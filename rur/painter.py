@@ -908,7 +908,7 @@ def combine_image(images_to_combine, mode='screen', weights=None):
     elif mode == 'screen':
         image = 1. - np.prod(1. - images_to_combine, axis=0)
     elif mode == 'normalized_screen':
-        image = 1. - np.prod(1. - images_to_combine, axis=0)**(1/images_to_combine.size)
+        image = 1. - np.prod(1. - images_to_combine, axis=0)**(1/images_to_combine.shape[0])
     elif mode == 'overlay':
         image1 = images_to_combine[0]
         image = np.select([image1 < 0.5, True],
