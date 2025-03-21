@@ -43,7 +43,7 @@ class TimeSeries(object):
         self.iout_avail = None
         self.icoarse_avail = None
 
-    def get_snap(self, iout=None, aexp=None, age=None) -> 'RamsesSnapshot':
+    def get_snap(self, iout=None, aexp=None, age=None, z=None) -> 'RamsesSnapshot':
         if (iout is None):
             if aexp is not None:
                 self.read_iout_avail()
@@ -51,8 +51,11 @@ class TimeSeries(object):
             elif age is not None:
                 self.read_iout_avail()
                 iout = self.iout_avail[np.argmin(np.abs(self.iout_avail['age'] - age))]['iout']
+            elif z is not None:
+                self.read_iout_avail()
+                iout = self.iout_avail[np.argmin(np.abs(self.iout_avail['aexp']**-1 - 1 - z))]['iout']
             else:
-                raise ValueError("One of the followings has to be specified: iout, aexp, age")
+                raise ValueError("One of the followings has to be specified: iout, aexp, age, z")
 
         if iout in self.snaps:
             return self.snaps[iout]
