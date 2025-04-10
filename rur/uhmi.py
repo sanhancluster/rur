@@ -716,6 +716,9 @@ class HaloMaker:
 
     @staticmethod
     def extend_table(table, snap, galaxy=True, nthread=1, part=True, gas=True, chem=True, individual=None):
+        '''
+        LEGACY. This will be removed in the future.
+        '''
         pnames=[
             'umag','gmag','rmag','imag','zmag',
             'r50','r50g','r50i','r50r','r50u','r50z',
@@ -859,6 +862,131 @@ class HaloMaker:
         
         for oname in odtype.names: ntable[oname] = table[oname]
         return ntable
+
+    @staticmethod
+    def _check_extend(treedata, repo, galaxy):
+        path_in_repo = "galaxy" if(galaxy) else "halo"
+        if(os.path.exists(f"{repo}/{path_in_repo}/extended/avail.pkl")):
+            colname = load(f"{repo}/{path_in_repo}/extended/avail.pkl")['names']
+        else:
+            iouts = np.unique( treedata['timestep'] )
+            if(uri.timer.verbose>0): print(f" > Check {len(iouts)} iouts ({iouts[0]} ~ {iouts[-1]})")
+            paths = [f"{repo}/{path_in_repo}/extended/{iout:05d}" for iout in iouts]
+            fnames = np.concatenate( [os.listdir(path) for path in tqdm(paths, desc=' > Find extended files') if(os.path.exists(path))] )
+            fnames = [f[:-10] for f in fnames if(f.endswith('.dat'))]
+            colname = np.unique(fnames).tolist()
+        if(uri.timer.verbose>0): print(f" > Found {len(colname)} extended columns: {colname}")
+        return colname
+
+    @staticmethod
+    def extend_tree(treedata, snap, nthread=4, galaxy=True):
+        lengt = len(treedata)
+        if lengt > 2000:
+            print("Warning! This is too large tree data. It may take a long time to extend.")
+        colname = HaloMaker._check_extend(treedata, snap.repo, galaxy)
+        odtype = treedata.dtype
+        ndtype = np.dtype(odtype.descr + [(col, 'f8') for col in colname])
+        ntree = np.full(treedata.shape, np.nan, dtype=ndtype)
+        idkey = 'hmid' if('hmid' in treedata.dtype.names) else 'id'
+        nthread = min(nthread, lengt)
+        repo = snap.repo
+        path_in_repo = "galaxy" if(galaxy) else "halo"
+        # Multi Thread
+        if(nthread>1):
+            now = strftime("%Y%m%d_%H%M%S", gmtime())
+            memory = shared_memory.SharedMemory(name=f"uhmi_exttree_{now}",create=True, size=ntree.nbytes)
+            mtree = np.ndarray(ntree.shape, dtype=ntree.dtype, buffer=memory.buf)
+            pbar = tqdm(total=lengt, desc=' > Extend')
+            def update(*a): pbar.update()
+            if(uri.timer.verbose>0): print(f"Extend with Multi Thread N={nthread}")
+            with Pool(nthread) as pool:
+                async_results = [
+                    pool.apply_async(_multi_extend, (i, treedata[i], idkey, repo, galaxy, colname, now, ntree.shape, ntree.dtype), callback=update) 
+                    for i in range(lengt)
+                ]
+                for r in async_results:
+                    r.get()
+            pbar.close()
+            for col in colname:
+                ntree[col] = mtree[col]
+            memory.close()
+            memory.unlink()
+        # Single Thread
+        else:    
+            pbar = tqdm( enumerate(treedata['timestep']), total=lengt, desc=' > Extend' )
+            for i, iout in pbar:
+                itree = treedata[i]
+                iid = itree[idkey]
+                try:
+                    pbar.desc = ' > Extend (Leaf)'
+                    if galaxy:
+                        parr = load(f"{repo}/galaxy/extended/{iout:05d}/part/{iid:07d}.pkl", msg=False)
+                        pnames = parr.dtype.names
+                        garr = load(f"{repo}/galaxy/extended/{iout:05d}/gas/{iid:07d}.pkl", msg=False)
+                        gnames = garr.dtype.names
+                        carr = load(f"{repo}/galaxy/extended/{iout:05d}/chem/{iid:07d}.pkl", msg=False)
+                        cnames = carr.dtype.names
+                        for col in colname:
+                            if(col in pnames): ntree[col][i] = parr[col]
+                            elif(col in gnames): ntree[col][i] = garr[col]
+                            elif(col in cnames): ntree[col][i] = carr[col]
+                            else: ntree[col][i] = np.nan
+                    else:
+                        harr = load(f"{repo}/halo/extended/{iout:05d}/halo/{iid:07d}.pkl", msg=False)
+                        hnames = harr.dtype.names
+                        for col in colname:
+                            if(col in hnames): ntree[col][i] = harr[col]
+                            else: ntree[col][i] = np.nan
+                except:
+                    pbar.desc = ' > Extend (Branch)'
+                    iseek = 4 + 8*(iid-1)
+                    for col in colname:
+                        path = f"{repo}/{path_in_repo}/extended/{iout:05d}/{col}_{iout:05d}.dat"
+                        if(os.path.exists(path)):
+                            with open(path, "rb") as f:
+                                f.seek(iseek)
+                                ntree[col][i] = struct.unpack('d', f.read(8))[0]
+                        else:
+                            ntree[col][i] = np.nan
+        for name in odtype.names:
+            ntree[name] = treedata[name]
+        return ntree
+
+def _multi_extend(i, itree, idkey, repo, galaxy, colname, now, shape, dtype):
+    iout = itree['timestep']
+    iid = itree[idkey]
+    exist = shared_memory.SharedMemory(name=f"uhmi_exttree_{now}")
+    mtree = np.ndarray(shape, dtype=dtype, buffer=exist.buf)
+    path_in_repo = "galaxy" if(galaxy) else "halo"
+    try:
+        if galaxy:
+            parr = load(f"{repo}/galaxy/extended/{iout:05d}/part/{iid:07d}.pkl", msg=False)
+            pnames = parr.dtype.names
+            garr = load(f"{repo}/galaxy/extended/{iout:05d}/gas/{iid:07d}.pkl", msg=False)
+            gnames = garr.dtype.names
+            carr = load(f"{repo}/galaxy/extended/{iout:05d}/chem/{iid:07d}.pkl", msg=False)
+            cnames = carr.dtype.names
+            for col in colname:
+                if(col in pnames): mtree[col][i] = parr[col]
+                elif(col in gnames): mtree[col][i] = garr[col]
+                elif(col in cnames): mtree[col][i] = carr[col]
+                else: mtree[col][i] = np.nan
+        else:
+            harr = load(f"{repo}/halo/extended/{iout:05d}/halo/{iid:07d}.pkl", msg=False)
+            hnames = harr.dtype.names
+            for col in colname:
+                if(col in hnames): mtree[col][i] = harr[col]
+                else: mtree[col][i] = np.nan
+    except:
+        iseek = 4 + 8*(iid-1)
+        for col in colname:
+            path = f"{repo}/{path_in_repo}/extended/{iout:05d}/{col}_{iout:05d}.dat"
+            if(os.path.exists(path)):
+                with open(path, "rb") as f:
+                    f.seek(iseek)
+                    mtree[col][i] = struct.unpack('d', f.read(8))[0]
+            else:
+                mtree[col][i] = np.nan
 
 def _extend1(address, shape, dtype, path, iout, mask, ind, colname):
     exist = shared_memory.SharedMemory(name=address)
