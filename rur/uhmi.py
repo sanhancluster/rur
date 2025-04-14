@@ -580,7 +580,7 @@ class HaloMaker:
                 pool.join()
         else:
             with Pool(processes=nthread) as pool:
-                async_result = [pool.apply_async(_read_one, (part.shape, part.dtype, cursor, fsnap.part_mem.name, galaxy, path, hmid, timestep, nchem, target_fields)) for cursor, hmid,timestep, path in zip(cursors, hals['id'], hals['timestep'], paths)]
+                async_result = [pool.apply_async(_read_one, (part.shape, part.dtype, cursor, fsnap.part_mem.name, galaxy, path, hmid, nchem, timestep, target_fields)) for cursor, hmid,timestep, path in zip(cursors, hals['id'], hals['timestep'], paths)]
                 iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading members") if(uri.timer.verbose>=1) else async_result
                 for r in iterobj:
                     r.get()
@@ -592,18 +592,20 @@ class HaloMaker:
             fsnap.part_mem.unlink()
             fsnap.part_mem = None
         if(not simple):
-            for timestep in np.unique(hals['timestep']):
-                mask = (part['timestep']==timestep)
-                snap = snaps.get_snap(timestep)
-                boxsize_physical = snap['boxsize_physical']
-                if('x' in target_fields): part['x'][mask] = part['x'][mask] / boxsize_physical + 0.5
-                if('y' in target_fields): part['y'][mask] = part['y'][mask] / boxsize_physical + 0.5
-                if('z' in target_fields): part['z'][mask] = part['z'][mask] / boxsize_physical + 0.5
-                if('m' in target_fields): part['m'][mask] = part['m'][mask]*snap.unit['Msol']
-                if('vx' in target_fields): part['vx'][mask] = part['vx'][mask]*snap.unit['km/s']
-                if('vy' in target_fields): part['vy'][mask] = part['vy'][mask]*snap.unit['km/s']
-                if('vz' in target_fields): part['vz'][mask] = part['vz'][mask]*snap.unit['km/s']
-            return uri.Particle(part, snap)
+            further = [iname in target_fields for iname in ['x','y','z','m','vx','vy','vz']]
+            if True in further:
+                for timestep in np.unique(hals['timestep']):
+                    mask = (part['timestep']==timestep)
+                    snap = snaps.get_snap(timestep)
+                    boxsize_physical = snap['boxsize_physical']
+                    if('x' in target_fields): part['x'][mask] = part['x'][mask] / boxsize_physical + 0.5
+                    if('y' in target_fields): part['y'][mask] = part['y'][mask] / boxsize_physical + 0.5
+                    if('z' in target_fields): part['z'][mask] = part['z'][mask] / boxsize_physical + 0.5
+                    if('m' in target_fields): part['m'][mask] = part['m'][mask]*snap.unit['Msol']
+                    if('vx' in target_fields): part['vx'][mask] = part['vx'][mask]*snap.unit['km/s']
+                    if('vy' in target_fields): part['vy'][mask] = part['vy'][mask]*snap.unit['km/s']
+                    if('vz' in target_fields): part['vz'][mask] = part['vz'][mask]*snap.unit['km/s']
+            return uri.Particle(part, fsnap)
         else:
             return part
 
