@@ -866,26 +866,28 @@ class HaloMaker:
         return ntable
 
     @staticmethod
-    def _check_extend(treedata, repo, galaxy):
+    def _check_extend(treedata, repo, galaxy, verbose=None):
+        if verbose is None: verbose = uri.timer.verbose>0
         path_in_repo = "galaxy" if(galaxy) else "halo"
         if(os.path.exists(f"{repo}/{path_in_repo}/extended/avail.pkl")):
-            colname = load(f"{repo}/{path_in_repo}/extended/avail.pkl")['names']
+            colname = load(f"{repo}/{path_in_repo}/extended/avail.pkl", msg=False)['names']
         else:
             iouts = np.unique( treedata['timestep'] )
-            if(uri.timer.verbose>0): print(f" > Check {len(iouts)} iouts ({iouts[0]} ~ {iouts[-1]})")
+            if(verbose): print(f" > Check {len(iouts)} iouts ({iouts[0]} ~ {iouts[-1]})")
             paths = [f"{repo}/{path_in_repo}/extended/{iout:05d}" for iout in iouts]
             fnames = np.concatenate( [os.listdir(path) for path in tqdm(paths, desc=' > Find extended files') if(os.path.exists(path))] )
             fnames = [f[:-10] for f in fnames if(f.endswith('.dat'))]
             colname = np.unique(fnames).tolist()
-        if(uri.timer.verbose>0): print(f" > Found {len(colname)} extended columns: {colname}")
+        if(verbose): print(f" > Found {len(colname)} extended columns: {colname}")
         return colname
 
     @staticmethod
-    def extend_tree(treedata, snap, nthread=4, galaxy=True):
+    def extend_tree(treedata, snap, nthread=4, galaxy=True, verbose=None):
+        if verbose is None: verbose = uri.timer.verbose>0
         lengt = len(treedata)
         if lengt > 2000:
             print("Warning! This is too large tree data. It may take a long time to extend.")
-        colname = HaloMaker._check_extend(treedata, snap.repo, galaxy)
+        colname = HaloMaker._check_extend(treedata, snap.repo, galaxy, verbose=verbose)
         odtype = treedata.dtype
         ndtype = np.dtype(odtype.descr + [(col, 'f8') for col in colname])
         ntree = np.full(treedata.shape, np.nan, dtype=ndtype)
@@ -898,9 +900,9 @@ class HaloMaker:
             now = strftime("%Y%m%d_%H%M%S", gmtime())
             memory = shared_memory.SharedMemory(name=f"uhmi_exttree_{now}",create=True, size=ntree.nbytes)
             mtree = np.ndarray(ntree.shape, dtype=ntree.dtype, buffer=memory.buf)
+            if(verbose): print(f"Extend with Multi Thread N={nthread}")
             pbar = tqdm(total=lengt, desc=' > Extend')
             def update(*a): pbar.update()
-            if(uri.timer.verbose>0): print(f"Extend with Multi Thread N={nthread}")
             with Pool(nthread) as pool:
                 async_results = [
                     pool.apply_async(_multi_extend, (i, treedata[i], idkey, repo, galaxy, colname, now, ntree.shape, ntree.dtype), callback=update) 
@@ -954,6 +956,7 @@ class HaloMaker:
             ntree[name] = treedata[name]
         return ntree
 
+import struct
 def _multi_extend(i, itree, idkey, repo, galaxy, colname, now, shape, dtype):
     iout = itree['timestep']
     iid = itree[idkey]

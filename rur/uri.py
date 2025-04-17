@@ -2077,7 +2077,7 @@ class RamsesSnapshot(object):
                     print("\nIf you want to remove them, run `snap.clear_shm()`")
 
 
-    def clear(self, part=True, cell=True):
+    def clear(self, part=True, cell=True, verbose=timer.verbose):
         """Clear exsisting cache from snapshot data.
 
         Parameters
@@ -2107,7 +2107,7 @@ class RamsesSnapshot(object):
             self.box_cell = None
             self.cpulist_cell = np.array([], dtype='i4')
             self.bound_cell = np.array([0], dtype='i4')
-        self.flush(msg=False, parent='[clear]')
+        self.flush(msg=False, parent='[clear]', verbose=verbose)
         readr.close()
 
     def _read_nstar(self):
