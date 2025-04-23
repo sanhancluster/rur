@@ -908,7 +908,9 @@ def combine_image(images_to_combine, mode='screen', weights=None):
     elif mode == 'screen':
         image = 1. - np.prod(1. - images_to_combine, axis=0)
     elif mode == 'normalized_screen':
-        image = 1. - np.prod(1. - images_to_combine, axis=0)**(1/images_to_combine.shape[0])
+        image = np.prod(1. - images_to_combine, axis=0)
+        image /= (np.sum(image[..., :3], axis=-1)/3)**0.5
+        image = (1 - image / (np.sum(image[..., :3], axis=-1)[..., np.newaxis]/3)**0.5)
     elif mode == 'overlay':
         image1 = images_to_combine[0]
         image = np.select([image1 < 0.5, True],
@@ -1446,18 +1448,20 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
         save_figure(savefile)
     return fig, axes
 
-def add_ruler(snap, ruler_size=None, proj_now=[0, 1], direction='horizontal', unit='kpc', fontsize=8, thickness=0.02, xy_offset=(0.075, 0.1)):
+def add_ruler(snap, box=None, ruler_size=None, proj_now=[0, 1], direction='horizontal', unit='kpc', fontsize=8, thickness=0.02, xy_offset=(0.075, 0.1), zorder=100):
     """
     adds horizontal ruler in current panel
     """
-    extent_in_unit = (snap.box[proj_now[0], 1] - snap.box[proj_now[0], 0]) / snap.unit[unit]
+    if box is None:
+        box = snap.box
+    extent_in_unit = (box[proj_now[0], 1] - box[proj_now[0], 0]) / snap.unit[unit]
     if ruler_size is None:
         ruler_size = int(extent_in_unit / 5)
     bar_length = ruler_size / extent_in_unit
-    rect = Rectangle(xy_offset, bar_length, thickness, transform=plt.gca().transAxes, color='white', zorder=100)
+    rect = Rectangle(xy_offset, bar_length, thickness, transform=plt.gca().transAxes, color='white', zorder=zorder)
     plt.gca().add_patch(rect)
-    plt.text(0.075 + bar_length / 2, xy_offset[1]-thickness, '%g %s' % (ruler_size, unit), ha='center',
-                va='top', color='white', transform=plt.gca().transAxes, fontsize=fontsize)
+    plt.text(xy_offset[0] + bar_length / 2, xy_offset[1]-thickness, '%g %s' % (ruler_size, unit), ha='center',
+             va='top', color='white', transform=plt.gca().transAxes, fontsize=fontsize, zorder=zorder)
 
 
 
