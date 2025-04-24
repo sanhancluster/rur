@@ -64,7 +64,7 @@ for iout in table:
     file_ids = f"{path}/tracer_ids.dat"
     if not os.path.exists(file_ids):
         dump_as_dat(tracer['id'], file_ids, msg=True)
-
+    stop()
     # Save other columns
     names = ['x','y','z','cpu','family']
     dtypes = ['f8','f8','f8','i2','i1']
