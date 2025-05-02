@@ -239,7 +239,7 @@ def calc_extended(
             dm_memory = (dshape, daddress, ddtype, cpulist_dm, bound_dm)     
         if(need_star):
             if(verbose): print(f" > Get Star")
-            if snapstar.star[0]:
+            if snapstar.star:
                 st=snapstar.get_part(pname='star', nthread=nthread, target_fields=starget_fields, cpulist=cpulist)
                 if(len(st)==0):
                     star_memory = (None, None, None, None, None)
