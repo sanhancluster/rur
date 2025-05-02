@@ -2266,6 +2266,8 @@ class RamsesSnapshot(object):
                 exact_box = False
         else:
             # if cpulist is set,
+            if isinstance(cpulist, list):
+                cpulist = np.array(cpulist)
             if (not domain_slicing):
                 warnings.warn("cpulist cannot be set without domain_slicing!", UserWarning)
                 domain_slicing = True
