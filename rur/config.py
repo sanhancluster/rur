@@ -64,6 +64,9 @@ class Table:
     @property
     def shape(self):
         return self.table.shape
+    @property
+    def dtype(self):
+        return self.table.dtype
 
 
 class Timer:
