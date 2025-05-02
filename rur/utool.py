@@ -48,7 +48,7 @@ def dump(data, path, msg=True, format='pkl'):
     if (format == 'pkl'):
         if(npver >= '2.0.0'): # Numpy >= 2.0.0
             if(path[-3:] == 'pkl'): path = path[:-3] + 'pkl2'
-            if(path[-6:] == 'pickle'): path = path[:-3] + 'pickle2'
+            if(path[-6:] == 'pickle'): path = path[:-6] + 'pickle2'
             with uopen(path, 'wb') as opened:
                 pkl.dump(data, opened, protocol=4)
         else:
@@ -87,6 +87,10 @@ def load(path, msg=True, format=None):
         format = ext[1:]
     path = os.path.expanduser(path)
     if (format == 'pkl'):
+        if(npver >= '2.0.0'): # Numpy >= 2.0.0
+            if not os.path.exists(path):
+                if(path[-3:] == 'pkl'): path = path[:-3] + 'pkl2'
+                if(path[-6:] == 'pickle'): path = path[:-6] + 'pickle2'
         with open(path, 'rb') as opened:
             data = pkl.load(opened, encoding='latin1')
     elif (format == 'pkl2'):
