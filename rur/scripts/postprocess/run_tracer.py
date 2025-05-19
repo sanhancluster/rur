@@ -22,7 +22,7 @@ repo = '/storage7/NewCluster'
 snap = uri.RamsesSnapshot(repo, 1)
 snaps = uri.TimeSeries(snap)
 snaps.read_iout_avail()
-table = snaps.iout_avail['iout']
+table = snaps.iout_avail['iout'] # type: ignore
 
 
 def dump_as_dat(data1d, path, msg=False):
@@ -96,6 +96,17 @@ def get_hash(iids):
 names = {'x':'f8', 'y':'f8', 'z':'f8', 'family':'i1', 'tag':'i1', 'partp':'i4', 'cpu':'i4'}
 
 
+header_name = f"{path}/header.pkl"
+if os.path.exists(header_name):
+    header = load(header_name)
+else:
+    header = dict(
+        mode='nc', 
+        minid=minid, 
+        desc='(id-minid)%1000 = file_suffix \n (id-minid)//1000 = row_number_at_each_file', 
+        nout=np.array([1]))
+nout = header['nout']
+
 
 for iout in tqdm(table):
     mynumber = iout//100
@@ -111,9 +122,21 @@ for iout in tqdm(table):
 
     # Check in progress
     calced_iout, done_icol = load(file_progress, msg=False) if os.path.exists(file_progress) else (iout, -1)
-    if calced_iout > iout: continue # Already done
+    if calced_iout > iout:
+        if not iout in nout:
+            nout = np.append(nout, iout)
+            nout = np.unique(nout)
+            header['nout'] = nout
+            dump(header, header_name, msg=False)
+        continue # Already done
     elif calced_iout == iout:
-        if done_icol == icol: continue # Already done
+        if done_icol == icol:
+            if not iout in nout:
+                nout = np.append(nout, iout)
+                nout = np.unique(nout)
+                header['nout'] = nout
+                dump(header, header_name, msg=False)
+            continue # Already done
         else: clear_col = done_icol # Terminated in the middle
     else: clear_col = None
 
@@ -143,4 +166,8 @@ for iout in tqdm(table):
             dump_as_dats(arr, fname, first, msg=False, clear_col=clear_col)
             cursor += npart
     dump(np.array([iout, icol]), file_progress, msg=False)
+    nout = np.append(nout, iout)
+    nout = np.unique(nout)
+    header['nout'] = nout
+    dump(header, header_name, msg=False)
     isnap.clear()

@@ -36,12 +36,14 @@ class TimeSeries(object):
     A class to manage multiple snapshots in the same repository
     """
 
-    def __init__(self, snap: 'RamsesSnapshot'):
-        self.snaps: dict[RamsesSnapshot] = {}
+    def __init__(self, snap: 'RamsesSnapshot', auto=False):
+        self.snaps: dict[int, RamsesSnapshot] = {}
         self.basesnap = snap
         self.snaps[snap.iout] = snap
-        self.iout_avail = None
-        self.icoarse_avail = None
+        self.iout_avail:np.ndarray = None
+        self.icoarse_avail:np.ndarray = None
+        if auto:
+            self.read_iout_avail()
 
     def get_snap(self, iout=None, aexp=None, age=None, z=None) -> 'RamsesSnapshot':
         if (iout is None):
@@ -126,12 +128,15 @@ class TimeSeries(object):
                    fmt='%18d %18.9e %18.9e %18.9e', header=('%16s' + ' %18s' * (len(names) - 1)) % names)
         timer.record()
 
-    def read_icoarse_avail(self):
+    def read_icoarse_avail(self, allow_write=False):
         path = join(self.repo, 'list_icoarse_avail.txt')
         if exists(path):
             self.icoarse_avail = np.loadtxt(path, dtype=icoarse_avail_dtype)
         else:
-            return np.empty((0,), dtype=icoarse_avail_dtype)
+            if allow_write:
+                self.write_icoarse_avail()
+            else:
+                self.icoarse_avail = np.empty((0,), dtype=icoarse_avail_dtype)
 
     def write_iout_avail(self, use_cache=False):
         path = join(self.repo, 'list_iout_avail.txt')
@@ -163,12 +168,15 @@ class TimeSeries(object):
                    fmt='%18d %18.9e %18.9e %18d %18.9e', header=('%16s' + ' %18s' * (len(names) - 1)) % names)
         timer.record()
 
-    def read_iout_avail(self):
+    def read_iout_avail(self, allow_write=False):
         path = join(self.repo, 'list_iout_avail.txt')
         if exists(path):
             self.iout_avail = np.loadtxt(path, dtype=iout_avail_dtype)
         else:
-            return np.empty((0,), dtype=iout_avail_dtype)
+            if allow_write:
+                self.write_iout_avail()
+            else:
+                self.iout_avail = np.empty((0,), dtype=iout_avail_dtype)
 
     def clear(self):
         # Later: need to load all **opened** snaps and clear them manually
@@ -2266,6 +2274,8 @@ class RamsesSnapshot(object):
                 exact_box = False
         else:
             # if cpulist is set,
+            if isinstance(cpulist, list):
+                cpulist = np.array(cpulist)
             if (not domain_slicing):
                 warnings.warn("cpulist cannot be set without domain_slicing!", UserWarning)
                 domain_slicing = True
@@ -2945,8 +2955,8 @@ def match_tracer(tracer, cell, min_dist_pc=1, use_cell_size=False):
     timer.record()
     return idx_tracer, idx_cell
 
-def load_tracer(tracers, input_iouts=None, target_fields=None, verbose=True, validate=False):
-    header = load(f"/storage5/TRACER/header.pkl")
+def load_tracer(tracers, input_iouts:np.ndarray=None, target_fields=None, verbose=True, validate=False):
+    header:np.ndarray = load(f"/storage5/TRACER/header.pkl")
     minid = header['minid']
     iout_table = header['nout']
 
@@ -3036,6 +3046,7 @@ def _track_tracer(shape, shmname, dtype, ikey, path, target_iouts, ids, keys, ar
             datamem[indicies[jth]*len(target_iouts):(indicies[jth]+1)*len(target_iouts)][name] = arr[jth][argwhere]
 
 def track_tracer(tracer, target_iouts=None, target_fields=['x','y','z','cpu','family'], nthread=1):
+    warnings.warn("`track_tracer` is deprecated. Use `load_tracer` instead.", DeprecationWarning)
     snap = tracer.snap
     path = f"{snap.repo}/TRACER"
     header = load(f"{path}/header.pkl", msg=False, format='pkl')
@@ -3105,6 +3116,7 @@ def track_tracer(tracer, target_iouts=None, target_fields=['x','y','z','cpu','fa
     return data
 
 def cpumap_tracer(tracer, target_iouts=None, extend=False, nthread=4):
+    warnings.warn("`cpumap_tracer` is deprecated. Use `load_tracer` instead.", DeprecationWarning)
     snap = tracer.snap
     path = f"{snap.repo}/TRACER/old"
     header = load(f"{path}/header.pkl", msg=False, format='pkl')

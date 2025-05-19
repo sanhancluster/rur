@@ -1,0 +1,13 @@
+This module does post-process for new snapshots.
+For example, when you get a new snapshot of ramses simulation,
+you want to build galaxy/halo catalog or merger tree.
+
+This routine tells you what you need and how to do.
+
+- Galaxy for NewCluster
+`$ python3 run_prepare.py /storage7/NewCluster --galaxy`
+
+- Halo for NewCluster
+`$ python3 run_prepare.py /storage7/NewCluster`
+
+Ask to Seyoung Jeon (syj3514@yonsei.ac.kr)

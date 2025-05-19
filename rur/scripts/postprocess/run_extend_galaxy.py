@@ -1,10 +1,10 @@
 print("ex: python3 Extend.py --mode nc --nthread 24 --verbose")
 print("If you lack memory, use --partition 1, 2, or 3")
-print("If you want to use for custom simul, add `inhouse` in `extend_halo.py`")
+print("If you want to use for custom simul, add `inhouse` in `extend_galaxy.py`")
 
 import numpy as np
 from rur import uri, uhmi
-from rur.utool import load, domload, domload_legacy, domsave, datload
+from rur.utool import load, domload, domsave, domload_legacy, datload
 import os, glob, sys
 from multiprocessing import Pool, shared_memory
 from tqdm import tqdm
@@ -12,12 +12,8 @@ import argparse, time, datetime, signal
 
 """
 Extend list:
-(halo)
-['mcontam', 'r200','m200','r500','m500', 
-'mdm_r', 'mdm_rvir', 'mdm_r200', 'mdm_r500', 
-'mstar_r', 'mstar_rvir', 'mstar_r200', 'mstar_r500', 'mgas_r', 'mgas_rvir', 'mgas_r200', 'mgas_r500',
-'mcold_r', 'mcold_rvir', 'mcold_r200', 'mcold_r500', 'mdense_r', 'mdense_rvir', 'mdense_r200', 'mdense_r500',
-'vmaxcir, 'rmaxcir, 'cNFW', 'cNFWerr', 'inslope', 'inslopeerr']
+(galaxy)
+['age','ageg','agei','ager','ageu','agez','umag','gmag','rmag','imag','zmag','metal','r50','r50g','r50i','r50r','r50u','r50z','r90','r90g','r90i','r90r','r90u','r90z','SBg','SBg_r50','SBg_r90','SBi','SBi_r50','SBi_r90','SBr','SBr_r50','SBr_r90','SBu','SBu_r50','SBu_r90','SBz','SBz_r50','SBz_r90','SFR','SFR10','SFR10_r50','SFR10_r90','SFR_r50','SFR_r90','vsig','vsig_r50','vsig_r90','MBH','dBH','vsig_gas','vsig_gas_r50','vsig_gas_r90','Mcold_gas','Mcold_gas_r50','Mcold_gas_r90','Mdense_gas','Mdense_gas_r50','Mdense_gas_r90','metal_gas','M_gas','M_gas_r50','M_gas_r90','H_gas','O_gas','Fe_gas','Mg_gas','C_gas','N_gas','Si_gas','S_gas','D_gas','CDustLarge_gas','CDustSmall_gas','SiDustLarge_gas','SiDustSmall_gas']
 """
 
 
@@ -30,11 +26,13 @@ def delprint(n=1):
 parser = argparse.ArgumentParser(description='Extend HaloMaker (syj3514@yonsei.ac.kr)')
 parser.add_argument("-m", "--mode", default='nc', required=False, help='Simulation mode', type=str)
 parser.add_argument("-n", "--nthread", default=8, required=False, help='Ncore', type=int)
-parser.add_argument("-s", "--sep", default=-1, required=False, help='Separation', type=int)
+parser.add_argument("-s", "--sep", default=-1, required=False, help='Separation iout (s%4)', type=int)
 parser.add_argument("-N", "--nsep", default=4, required=False, help="Nsep", type=int)
-parser.add_argument("-p", "--partition", default=0, required=False, help='Divide halo domain (1=x, 2=xy, 3=xyz)', type=int)
+parser.add_argument("-p", "--partition", default=0, required=False, help='Divide galaxy domain (1=x, 2=xy, 3=xyz)', type=int)
 parser.add_argument("--verbose", action='store_true')
-parser.add_argument("--onlymem", action='store_true')
+parser.add_argument("--nocell", action='store_true')
+parser.add_argument("--nochem", action='store_true')
+parser.add_argument("--debug", action='store_true')
 parser.add_argument("--validation", action='store_true')
 args = parser.parse_args()
 print(args)
@@ -59,20 +57,48 @@ ZIP = partition>0
 # verbose:
 #   If True, the progress bar will be shown and the verbose mode will be activated.
 verbose = args.verbose
-# onlymem:
-#   If True, only the member particles will be calculated.
-onlymem = args.onlymem
+# nocell:
+#   If True, the cell data will not be loaded.
+nocell = args.nocell
+# chem:
+#   If True, the chemical data will be loaded.
 validation = args.validation
 # validation:
 #   If True, check validity of the data.
-galaxy = False
+chem = not args.nochem
+print("chem mode", chem)
+galaxy = True
+DEBUG = args.debug
+if(nocell): chem = False
 uri.timer.verbose = 1 if verbose else 0
+
+def check_chems(result_dtype, hvars):
+    global chem
+    checklist = ['H', 'O', 'Fe', 'Mg', 'C', 'N',
+    'Si', 'S', 'D', 'd1','d2','d3','d4']
+
+    dtype = np.dtype(result_dtype)
+    if(chem):
+        ndtype = [descr for descr in dtype.descr if(descr[0] not in checklist)or(descr[0] in hvars)]
+    else:
+        ndtype = [descr for descr in dtype.descr if(descr[0] not in checklist)]
+    return ndtype
 
 def getmem(members, cparts, i):
     if(members is None):
         return None
     else:
         return members.table[cparts[i]:cparts[i+1]]
+
+
+
+
+
+
+
+
+
+
 
 # --------------------------------------------------------------
 # Main Function
@@ -81,12 +107,10 @@ def calc_extended(
     path, iout, name_dicts, pre_func, calc_func, dump_func,
     nthread=8, verbose=False,
     need_member=False, mtarget_fields=None,
-    need_dm=False, dtarget_fields=None,
-    need_star=False, starget_fields=None,
+    need_part=False, ptarget_fields=None,
     need_cell=False, ctarget_fields=None, 
     get_additional=None, func_additional=None,
-    izip=None, partition=-1, 
-    **kwargs):
+    izip=None, partition=-1, DEBUG=False, **kwargs):
     global mode
     walltimes = []
     ref = time.time()
@@ -96,40 +120,54 @@ def calc_extended(
         print(f"--- ZIP mode: {izip}/{nzip} ---")
 
     # Setting database
-    path_in_repo = 'halo'
+    path_in_repo = 'galaxy'
     names = list(name_dicts.keys())
-    prefix = "HAL"
+    prefix = "GAL"
     full_path = f"{path}/{path_in_repo}/extended/{iout:05d}"
     if(not os.path.exists(full_path)): os.makedirs(full_path)
     uri.timer.verbose=0
-    snap = uri.RamsesSnapshot(path, iout); snap.shmprefix = "extendhalo"
+    snap = uri.RamsesSnapshot(path, iout); snap.shmprefix = "extendgalaxy"
     uri.timer.verbose = 1 if verbose else 0
 
-    names = list(name_dicts.keys())
-    if onlymem:
-        for name in names:
-            if 'star' in name: del name_dicts[name]
-            elif 'dm' in name: del name_dicts[name]
-            elif 'gas' in name: del name_dicts[name]
-            elif 'cold' in name: del name_dicts[name]
-            elif 'dense' in name: del name_dicts[name]
-            elif '200' in name: del name_dicts[name]
-            elif '500' in name: del name_dicts[name]
-        names = list(name_dicts.keys())
-    if(len(names)==0):
+    # Check names
+    hnames = snap.hydro_names
+    for name in names:
+        delete = False
+        if(name in ['H','O','Fe','Mg','C','Si','N','S','D','d1','d3','d2','d4']):
+            if(name not in hnames)or(nocell)or(not chem):
+                delete = True
+        if('gas' in name_dicts[name][0])&(nocell):
+            delete = True
+        if(delete): del name_dicts[name]
+    if(len(name_dicts)==0):
         print(f"\n=================\nSkip {iout}\n=================")
         return True
     print(f"Extend this: {names}")
-
-
+    names = list(name_dicts.keys())
     result_dtype = [(name, 'f8') for name in names]
-
+    if(verbose): print(f"\nExtended: {names} of {path_in_repo}\n")
+    if('dBH' in names):
+        def _f1(table, snapm, members, snap, part_memory, cell_memory):
+            snap.read_sink()
+            return snap.sink_data
+        get_additional = _f1
+        def _f2(dat):
+            ndtype = np.dtype([('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('m', 'f8')])
+            ndat = np.empty(len(dat), dtype=ndtype)
+            for name in ndtype.names: ndat[name] = dat[name]
+            return ndat
+        func_additional = _f2
     # Member need?
     need_members = {
-        'mcontam':['m'],
-        'vmaxcir':['x','y','z','m'],
-        'cNFW':['x','y','z','m'],
-        'inslope':['x','y','z','m']}
+        'r50z':['x', 'y', 'z', 'm', 'epoch', 'metal'],
+        'r50':['x', 'y', 'z', 'm'],
+        'SBz':['x','y','z','epoch','metal'],
+        'metal':['m','metal'],
+        'vsig':['x', 'y', 'z', 'vx','vy','vz', 'm'],
+        'sfr':['x', 'y', 'z', 'm', 'epoch'],
+        'sfr10':['x', 'y', 'z', 'm', 'epoch'],
+        'age':['m', 'epoch','metal'],
+        'zmag':['m', 'epoch', 'metal']}
     ftmp = []; fields = ['x', 'y', 'z', 'vx','vy','vz', 'm', 'epoch', 'metal']
     for name in names:
         if(name in need_members): ftmp += need_members[name]
@@ -137,12 +175,15 @@ def calc_extended(
         mtarget_fields = [field for field in fields if field in list(set(ftmp))]
         need_member = True
         if(verbose): print(f" > Member fields: {mtarget_fields}")
-    
     # Cell need?
     need_cells = {
-        'm500':['x', 'y', 'z', 'rho', 'level'],
-        'mgas_r500':['x', 'y', 'z', 'rho', 'level'],
-        'mdense_r500':['x', 'y', 'z', 'rho', 'P', 'level']}
+        'mgas_r90':['x', 'y', 'z', 'rho', 'level'],
+        'mcold_r90':['x', 'y', 'z', 'rho', 'P', 'level'],
+        'mdense_r90':['x', 'y', 'z', 'rho', 'P', 'level'],
+        'vsig_gas_r90':['x', 'y', 'z', 'vx','vy','vz', 'rho', 'level'],
+        'metal_gas':['x','y','z','rho','level','metal'],
+        'H':['x','y','z','rho','level','H','O','Fe','Mg','C','Si','N','S','D'] if chem else ['x','y','z','rho','level'],
+        'd1':['x','y','z','rho','level','d1','d2','d3','d4'] if chem else ['x','y','z','rho','level']}
     ctmp = []; ctarget_fields = [
         'x', 'y', 'z', 'vx','vy','vz', 'rho','P','level','metal',
         'H', 'O', 'Fe', 'Mg', 'C', 'Si', 'N', 'S', 'D', 'd1', 'd2', 'd3', 'd4']
@@ -152,37 +193,17 @@ def calc_extended(
         ctarget_fields = [field for field in ctarget_fields if field in list(set(ctmp))]
         need_cell = True
         if(verbose): print(f" > Cell fields: {ctarget_fields}")
-    
-    # DM need?
-    need_dms = {
-        'm500':['x','y','z','m'],
-        'mdm_r500':['x','y','z','m']}
-    dtmp = []; dtarget_fields = ['x','y','z','vx','vy','vz','m']
-    for name in names:
-        if(name in need_dms): dtmp += need_dms[name]
-    if(len(dtmp)>0):
-        dtarget_fields = [field for field in dtarget_fields if field in list(set(dtmp))]
-        need_dm = True
-        if(verbose): print(f" > DM fields: {dtarget_fields}")
-    
-    # Star need?
-    snapstar = None
-    need_stars = {
-        'm500':['x','y','z','m'],
-        'mstar_r500':['x','y','z','m']}
-    stmp = []; starget_fields = ['x','y','z','vx','vy','vz','m']
-    for name in names:
-        if(name in need_stars): stmp += need_stars[name]
-    if(len(stmp)>0):
-        starget_fields = [field for field in starget_fields if field in list(set(stmp))]
-        need_star = True
-        snapstar = uri.RamsesSnapshot(path, iout); snapstar.shmprefix = "extendhalo"
-        if(verbose): delprint(1)
-        if(verbose): print(f" > Star fields: {starget_fields}")
+       
+    # need_cell = len([value[0] for value in name_dicts.values() if('gas' in value[0])]) >0
+    if(nocell): need_cell = False
+    if(need_cell)&(verbose): print(f" > Need to load cell data")
+    # if(need_cell)&(not chem): ctarget_fields = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'rho','P','level','metal','cpu']
 
+
+    
     # Load HaloMaker
     sparams = snap.params; sunits = snap.unit
-    table = uhmi.HaloMaker.load(snap, galaxy=False, extend=True)
+    table = uhmi.HaloMaker.load(snap,galaxy=True, extend=False)
     if(ZIP):
         ntable = len(table)
         if(partition >= 1): # nzip=2, 4, 8
@@ -207,20 +228,19 @@ def calc_extended(
     # Load Member particles
     snapm = None
     members=None; cparts=None
-    dm_memory = (None, None, None, None, None)
-    star_memory = (None, None, None, None, None)
+    part_memory = (None, None, None, None, None)
     cell_memory = (None, None, None, None, None)
     if(need_member):
         if(verbose): print(f" > Read member particles ({np.sum(table['nparts'])})")
-        snapm = uri.RamsesSnapshot(path, iout); snapm.shmprefix = "extendhalo"
-        members = uhmi.HaloMaker.read_member_parts(snapm, table, galaxy=False, nthread=nthread, copy=True, target_fields=mtarget_fields)
+        snapm = uri.RamsesSnapshot(path, iout); snapm.shmprefix = "extendgalaxy"
+        members = uhmi.HaloMaker.read_member_parts(snapm, table, galaxy=galaxy, nthread=nthread, copy=True, target_fields=mtarget_fields)
         nparts = table['nparts']
         cparts = np.cumsum(nparts); cparts = np.insert(cparts, 0, 0)
         if(verbose): delprint(2)
     walltime = ("Read member", time.time()-ref); walltimes.append(walltime); ref = time.time()
 
     # Load Raw data
-    if(need_dm)or(need_cell)or(need_star):
+    if(need_part)or(need_cell):
         fdomain = f"{path}/{path_in_repo}/{prefix}_{iout:05d}/domain_{iout:05d}.dat"
         if(os.path.exists(fdomain)):
             if(verbose): print(f" > Load domain")
@@ -231,42 +251,39 @@ def calc_extended(
             if(verbose): print(f" > Get halos cpu list")
             cpulist, domain = snap.get_halos_cpulist(table, nthread=nthread, full=True, manual=True)
             if(not ZIP): domsave(fdomain, domain)
-        if(need_dm):
-            if(verbose): print(f" > Get DM")
-            snap.get_part(pname='dm', nthread=nthread, target_fields=dtarget_fields, cpulist=cpulist)
-            dshape = snap.part.shape; daddress = snap.part_mem.name; ddtype = snap.part.dtype
-            cpulist_dm = snap.cpulist_part; bound_dm = snap.bound_part
-            dm_memory = (dshape, daddress, ddtype, cpulist_dm, bound_dm)     
-        if(need_star):
-            if(verbose): print(f" > Get Star")
-            if snapstar.star:
-                st=snapstar.get_part(pname='star', nthread=nthread, target_fields=starget_fields, cpulist=cpulist)
-                if(len(st)==0):
-                    star_memory = (None, None, None, None, None)
-                else:
-                    sshape = snapstar.part.shape; saddress = snapstar.part_mem.name; sdtype = snapstar.part.dtype
-                    cpulist_star = snapstar.cpulist_part; bound_star = snapstar.bound_part
-                    star_memory = (sshape, saddress, sdtype, cpulist_star, bound_star)
-            else:
-                star_memory = (None, None, None, None, None)
+        if(need_part):
+            if(verbose): print(f" > Get Part")
+            pname = 'star' if galaxy else 'dm'
+            snap.get_part(pname=pname, nthread=nthread, target_fields=ptarget_fields, cpulist=cpulist)
+            pshape = snap.part.shape; paddress = snap.part_mem.name; pdtype = snap.part.dtype
+            part_memory = (pshape, paddress, pdtype)        
         if(need_cell):
             if(verbose): print(f" > Get Cell")
             snap.get_cell(target_fields=ctarget_fields, nthread=nthread, cpulist=cpulist)
             cshape = snap.cell.shape; caddress = snap.cell_mem.name; cdtype = snap.cell.dtype
             cpulist_cell = snap.cpulist_cell; bound_cell = snap.bound_cell
             cell_memory = (cshape, caddress, cdtype, cpulist_cell, bound_cell)
+            result_dtype = check_chems(result_dtype, snap.hydro_names)
         walltime = ("Read raw", time.time()-ref); walltimes.append(walltime); ref = time.time()
 
     # Preprocess
     if(pre_func is not None):
         if(verbose): print(f" > Preprocess datasets")
-        table, snapm, members, snap, snapstar, dm_memory, star_memory, cell_memory = pre_func(names, table, snapm, members, snap, snapstar, dm_memory, star_memory, cell_memory, full_path, nthread, verbose)
+        table, snapm, members, snap, part_memory, cell_memory = pre_func(names, table, snapm, members, snap, part_memory, cell_memory, full_path, nthread, verbose)
         walltime = ("Preprocess", time.time()-ref); walltimes.append(walltime); ref = time.time()
 
+    # Additional data
+    send = None
+    if(func_additional is not None):
+        if(verbose): print(f" > Get additional data")
+        dat = get_additional(table, snapm, members, snap, part_memory, cell_memory)
+        if(verbose): delprint(2)
+        send = func_additional(dat)
+        walltime = ("Additional data", time.time()-ref); walltimes.append(walltime); ref = time.time()
 
     # Assign shared memory
     if(verbose): print(f" > Make shared memory")
-    shmname = f"extendhalo_{mode}_{path_in_repo}_{snap.iout:05d}"
+    shmname = f"extendgalaxy_{mode}_{path_in_repo}_{snap.iout:05d}"
     if(os.path.exists(f"/dev/shm/{shmname}")): os.remove(f"/dev/shm/{shmname}")
     result_table = np.empty(len(table), dtype=result_dtype)
     memory = shared_memory.SharedMemory(name=shmname, create=True, size=result_table.nbytes)
@@ -281,24 +298,19 @@ def calc_extended(
     else: update = None
     if(snap is not None): signal.signal(signal.SIGTERM, signal.SIG_DFL)
     with Pool(processes=min(len(table),nthread)) as pool:
-        async_result = [pool.apply_async(calc_func, args=(i, table[i], shape, address, dtype, sparams, sunits, getmem(members, cparts, i), dm_memory, star_memory, cell_memory, domain[i]), callback=update) for i in range(len(table))]
+        async_result = [pool.apply_async(calc_func, args=(i, table[i], shape, address, dtype, sparams, sunits, getmem(members, cparts, i), part_memory, cell_memory, domain[i], send), callback=update) for i in range(len(table))]
         iterobj = async_result
         for result in iterobj: result.get()
     if(snap is not None): signal.signal(signal.SIGTERM, snap.terminate)
     if(verbose):
         pbar.close(); delprint(1)
     walltime = ("Get results", time.time()-ref); walltimes.append(walltime); ref = time.time()
-    if('cNFW' in result_table.dtype.names)and('inslope' in result_table.dtype.names):
-        NnanNFW = np.sum(np.isnan(result_table['cNFW']))
-        Nnanslope = np.sum(np.isnan(result_table['inslope']))
-        print(f"#### {NnanNFW}, {Nnanslope} of {len(result_table)}failed fitting ####")
 
     # Dump and relase memory
     if(verbose): print(f" > Dumping")
-    dump_func(result_table, table, full_path, iout, name_dicts, verbose, izip, partition)
+    dump_func(result_table, table, full_path, iout, name_dicts, verbose, izip, partition, DEBUG)
     memory.close(); memory.unlink()
     if(snap is not None): snap.clear()
-    if(snapstar is not None): snapstar.clear()
     if(snapm is not None): snapm.clear()
     if(verbose): print(f" Done\n")
     walltime = ("Dump", time.time()-ref); walltimes.append(walltime); ref = time.time()
@@ -316,11 +328,11 @@ def calc_extended(
 
 
 
+
 # --------------------------------------------------------------
 # Verify Function
 # --------------------------------------------------------------
 def verify(path, iout, verbose=False, nthread=8,izip=None, partition=-1, DEBUG=False):
-    global mode
     walltimes = []
     ref = time.time()
     ZIP = partition>0
@@ -329,19 +341,19 @@ def verify(path, iout, verbose=False, nthread=8,izip=None, partition=-1, DEBUG=F
         print(f"--- ZIP mode: {izip}/{nzip} ---")
 
     # Setting database
-    path_in_repo = 'halo'
-    prefix = "HAL"
+    path_in_repo = 'galaxy'
+    prefix = "GAL"
     full_path = f"{path}/{path_in_repo}/extended/{iout:05d}"
     if(not os.path.exists(full_path)): os.makedirs(full_path)
     if os.path.exists(f"{full_path}/wrong_verified.txt"): return False
     if os.path.exists(f"{full_path}/good_verified.txt"): return True
     uri.timer.verbose=0
-    snap = uri.RamsesSnapshot(path, iout); snap.shmprefix = "extendhalo"
+    snap = uri.RamsesSnapshot(path, iout); snap.shmprefix = "extendgalaxy"
     uri.timer.verbose = 1 if verbose else 0
 
     # Load HaloMaker
     sparams = snap.params; sunits = snap.unit
-    table = uhmi.HaloMaker.load(snap,galaxy=False, extend=False)
+    table = uhmi.HaloMaker.load(snap,galaxy=True, extend=False)
     if(ZIP):
         ntable = len(table)
         if(partition >= 1): # nzip=2, 4, 8
@@ -383,7 +395,7 @@ def verify(path, iout, verbose=False, nthread=8,izip=None, partition=-1, DEBUG=F
 
     # Assign shared memory
     if(verbose): print(f" > Make shared memory")
-    shmname = f"extendhalo_{mode}_{path_in_repo}_{snap.iout:05d}"
+    shmname = f"extendgalaxy_{mode}_{path_in_repo}_{snap.iout:05d}"
     if(os.path.exists(f"/dev/shm/{shmname}")): os.remove(f"/dev/shm/{shmname}")
     result_table = np.empty(len(table), dtype='f8')
     memory = shared_memory.SharedMemory(name=shmname, create=True, size=result_table.nbytes)
@@ -406,7 +418,7 @@ def verify(path, iout, verbose=False, nthread=8,izip=None, partition=-1, DEBUG=F
         pbar.close(); delprint(1)
     walltime = ("Get results", time.time()-ref); walltimes.append(walltime); ref = time.time()
 
-    preexist = datload(f"{full_path}/mgas_{iout:05d}.dat", msg=False)[0]
+    preexist = datload(f"{full_path}/M_gas_{iout:05d}.dat", msg=False)[0]
     allclose = np.allclose(result_table, preexist)
     if not allclose:
         print()
@@ -425,7 +437,6 @@ def verify(path, iout, verbose=False, nthread=8,izip=None, partition=-1, DEBUG=F
         for name, walltime in walltimes: print(f" > {name}: {walltime:.2f} sec")
     return allclose
 
-# This is used in multiprocessing
 def _verify(i, halo, shape, address, dtype, sparams, sunits, cell_memory, cdomain):
     # Common
     exist = shared_memory.SharedMemory(name=address)
@@ -453,22 +464,19 @@ def _verify(i, halo, shape, address, dtype, sparams, sunits, cell_memory, cdomai
 
     # Cell mass
     cellmass = cells['rho']*vol / sunits['Msol']
-    radius = halo['r']
-    mask = cdist < radius
-    result_table[i] = np.sum(cellmass[mask])
+    result_table[i] = np.sum(cellmass)
 # --------------------------------------------------------------
-
 
 # --------------------------------------------------------------
 # Execution
 # --------------------------------------------------------------
 if __name__ == "__main__":
     # Import calculation functions
-    from extend_halo import default_names, pre_func, calc_func, dump_func, skip_func, inhouse
+    from _extend_galaxy import default_names, pre_func, calc_func, dump_func, skip_func, inhouse
 
     # Set path
     path = inhouse[mode]
-    path_in_repo = 'halo'
+    path_in_repo = 'galaxy'
 
     # Load nout
     full_path = f"{path}/{path_in_repo}/"
@@ -479,7 +487,6 @@ if __name__ == "__main__":
     # Run!
     iterator = nout# if verbose else tqdm(nout)
     for iout in iterator:
-        # if(iout>100): continue
         if sep>=0:
             if iout%nsep != sep: continue
 
@@ -494,18 +501,17 @@ if __name__ == "__main__":
 
             if not allclose:
                 print(f"!! Failed to validate {iout} !!")
-                removes = ['m200','m500','mstar','mstar_rvir','mgas','mgas_rvir','mcold','mcold_rvir','mdense','mdense_rvir','r200','r500']
-                for remove in removes:
-                    fname = f"{path}/{path_in_repo}/extended/{iout:05d}/{remove}_{iout:05d}.dat"
-                    if os.path.exists(fname):
-                        print(f" > Remove `{fname}`")
-                        os.remove(f"{fname}")
+                fnames = os.listdir(f"{path}/{path_in_repo}/extended/{iout:05d}")
+                fnames = [fname for fname in fnames if('_gas' in fname)&(fname.endswith('.dat'))]
+                for fname in fnames:
+                    print(f" > Remove `{path}/{path_in_repo}/extended/{iout:05d}/{fname}`")
+                    os.remove(f"{path}/{path_in_repo}/extended/{iout:05d}/{fname}")
             else:
                 print(f"!! Safe {iout} !!")
                 continue
         #---------------------------------------------------------------
 
-        names = skip_func(path, iout, default_names, verbose)
+        names = skip_func(path, iout, default_names, verbose, DEBUG)
         skip = len(names)==0
         if(skip):
             print(f"\n=================\nSkip {iout}\n=================")
@@ -518,7 +524,7 @@ if __name__ == "__main__":
             skipped = calc_extended(
                 path, iout, names, 
                 pre_func, calc_func, dump_func, 
-                verbose=verbose, nthread=nthread,izip=izip, partition=partition)
+                verbose=verbose, nthread=nthread,izip=izip, partition=partition, DEBUG=DEBUG)
             if skipped: break
         if(not skipped): print(f"Done ({time.time()-ref:.2f} sec)")
 

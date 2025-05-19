@@ -60,6 +60,13 @@ class Table:
         if units is None:
             units = self.units
         return self.__class__(table, snap, units)
+    
+    @property
+    def shape(self):
+        return self.table.shape
+    @property
+    def dtype(self):
+        return self.table.dtype
 
 
 class Timer:

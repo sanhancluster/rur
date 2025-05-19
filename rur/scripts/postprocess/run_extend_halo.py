@@ -464,7 +464,7 @@ def _verify(i, halo, shape, address, dtype, sparams, sunits, cell_memory, cdomai
 # --------------------------------------------------------------
 if __name__ == "__main__":
     # Import calculation functions
-    from extend_halo import default_names, pre_func, calc_func, dump_func, skip_func, inhouse
+    from _extend_halo import default_names, pre_func, calc_func, dump_func, skip_func, inhouse
 
     # Set path
     path = inhouse[mode]
