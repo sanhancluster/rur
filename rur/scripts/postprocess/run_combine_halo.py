@@ -14,8 +14,8 @@ import shutil
 # ---------------------------------------------
 # Edit this
 snap = uri.RamsesSnapshot('/storage7/NewCluster', 623)
-skip = 100000 # No skip
-# skip = 623 # No check iout<skip
+#skip = 100000 # No skip
+skip = 623 # No check iout<skip
 # ----------------------------------------------
 
 
@@ -57,7 +57,10 @@ if(os.path.exists(f"{snap.repo}/halo/extended/avail.pkl2")):
     avail = load(f"{snap.repo}/halo/extended/avail.pkl2")['avail']
 if(os.path.exists(f"{snap.repo}/halo/extended/avail.pkl")):
     avail = load(f"{snap.repo}/halo/extended/avail.pkl")['avail']
-
+if avail.shape[0] != len(nout):
+    add_avail = np.full((len(nout)-avail.shape[0], len(names)), False, dtype=bool)
+    avail = np.vstack((avail, add_avail))
+    
 # ----------------------------------------------
 # Main run
 # ----------------------------------------------
