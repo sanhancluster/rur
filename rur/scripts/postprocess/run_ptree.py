@@ -48,9 +48,12 @@ if(iout < np.max(fouts)):
         iout = np.max(fouts)
 pbrick_exist = os.listdir(full_path_ptree)
 pbrick_exist = [p for p in pbrick_exist if(p.startswith('ptree_0'))and(p.endswith('.pkl'))]
+skip_from_halomaker = False
 if(start_on_middle):
     # if start_on_middle, then pbrick_exist should be less than halomaker_exist
-    assert len(pbrick_exist) < len(halomaker_exist)
+    assert len(pbrick_exist) <= len(halomaker_exist)
+    if len(pbrick_exist) == len(halomaker_exist):
+        skip_from_halomaker = True
 
 # 4. Main run
 # -----------
@@ -59,17 +62,18 @@ def do_phantom_tree(repo):
     snap = uri.RamsesSnapshot(repo=repo, iout=iout, path_in_repo='snapshots', mode=mode)
     PhantomTree.path_in_repo='ptree'
 
-    # Save each snapshot's ptree brick to `ptree_xxxxx.pkl`
-    #   Added columns: `desc`, `npass`
-    PhantomTree.from_halomaker(
-        snap, 4, 4,
-        galaxy=galaxy,
-        double_precision=dp,
-        start_on_middle=start_on_middle,
-        skip_jumps=True,
-        path_in_repo_halomaker=path_in_repo_halomaker,
-        full_path_halomaker=full_path_halomaker,
-        full_path_ptree=full_path_ptree)
+    if not skip_from_halomaker:
+        # Save each snapshot's ptree brick to `ptree_xxxxx.pkl`
+        #   Added columns: `desc`, `npass`
+        PhantomTree.from_halomaker(
+            snap, 4, 4,
+            galaxy=galaxy,
+            double_precision=dp,
+            start_on_middle=start_on_middle,
+            skip_jumps=True,
+            path_in_repo_halomaker=path_in_repo_halomaker,
+            full_path_halomaker=full_path_halomaker,
+            full_path_ptree=full_path_ptree)
 
     # Merge all ptree bricks to `ptree.pkl`
     #   Removed columns: `mcontam`
