@@ -4,6 +4,7 @@ os.nice(10)
 from rur.uhmi import PhantomTree
 from rur import uri
 import numpy as np
+assert np.__version__ < '2.0.0', 'numpy version should be less than 2.0.0'
 
 
 print("example: `python3 run_ptree_NC.py 2>&1 | tee -a ptree_00613.log`")
