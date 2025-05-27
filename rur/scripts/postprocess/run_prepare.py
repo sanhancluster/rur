@@ -68,7 +68,7 @@ new_iouts = []
 for iout in fnames:
     if not iout in full_iouts: new_iouts.append(iout)
 if len(new_iouts)==0:
-    print(f" > {bs}All iouts are recorded in `iout_avail.txt`{be}")
+    print(f" > {bs}All iouts are recorded in `iout_avail.txt` ({full_iouts[0]}~{full_iouts[-1]}){be}")
 else:
     print(f" > Missing iouts in `iout_avail.txt`")
     print(f" > Missing iouts: {new_iouts}")
