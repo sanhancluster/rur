@@ -514,12 +514,14 @@ class HaloMaker:
             for r in async_result:
                 r.get()
         signal.signal(signal.SIGTERM, snap.terminate)
+        if(uri.timer.verbose>=1): print(f"{part.shape[0]} particles of {len(hals)} halos are read")
         if(copy):
             part = part.copy()
             snap.memory.remove(snap.part_mem)
             snap.part_mem.close()
             snap.part_mem.unlink()
             snap.part_mem = None
+        if(uri.timer.verbose>=1): print(f"Converting units...")
         boxsize_physical = snap['boxsize_physical']
         if('x' in target_fields): part['x'] = part['x'] / boxsize_physical + 0.5
         if('y' in target_fields): part['y'] = part['y'] / boxsize_physical + 0.5

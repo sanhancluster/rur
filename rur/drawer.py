@@ -994,7 +994,10 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
     interp_order : int, optional
         Order of interpolation for rescaling. Default is 0.
     crop_mode : str, optional
-        Mode for cropping the image. Options are 'grid', 'pixel', 'subpixel'. Default is 'subpixel'.
+        Mode for cropping the image to fit the output to be within desired limits. Options are 'grid', 'pixel', 'subpixel'. Default is 'subpixel'.
+        'grid': crop the image based on the current minimum resolution of the grid.
+        'pixel': crop the image based on the pixel size of the drawing image.
+        'subpixel': crop the image with allowing subpixel cropping.
     type : str, optional
         Type of data. Options are 'particle' or 'amr'. Default is 'particle'.
 
@@ -1021,11 +1024,14 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
 
     ndim = 3
     levelmin, levelmax = None, None
+    # if lims is None, set all limits to [0, 1]
     if lims is None:
         lims = [[0, 1],] * ndim
     lims = np.array(lims)
+    # if quantities is None, set all quantities to 1
     if quantities is None:
         quantities = np.ones(centers.shape[0])
+    # if weights is None, set all weights to 1
     if weights is None:
         weights = np.ones_like(quantities)
     # if shape is scalar, make it a tuple
@@ -1034,6 +1040,7 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
     # if number of arrays does not match the number of quantities, raise an error
     if centers.shape[0] != len(quantities):
         raise ValueError("The number of centers and quantities do not match.")
+    # if number of arrays does not match the number of weights, raise an error
     if weights is not None and centers.shape[0] != len(weights):
         raise ValueError("The number of centers and weights do not match.")
     if plot_method != 'hist' and mode in ['min', 'max']:
@@ -1070,11 +1077,12 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
             raise ValueError("The number of centers and levels do not match.")
         levelmin, levelmax = np.min(levels), np.max(levels)
 
-        # get the levels of the grid to draw the desired resolution
         if shape is not None:
+            # get the levels of the grid to draw the desired resolution
             dx_min = np.minimum((lims_2d[0, 1] - lims_2d[0, 0]) / shape[0], (lims_2d[1, 1] - lims_2d[1, 0]) / shape[1])
             levelmax_draw = np.minimum(np.ceil(-np.log2(dx_min)).astype(int), levelmax)
         else:
+            # if shape is not specified, draw with the full resolution
             levelmax_draw = levelmax
         levelmin_draw = levelmin
 
@@ -1093,24 +1101,29 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
         mask_draw = box_mask(centers, lims, 0.5**levels)
         ll = levels[mask_draw]
 
+    # initialize grid and grid_weight
     grid = np.full(shape_grid, fill_value, dtype='f8')
     if mode in ['mean']:
         grid_weight = np.zeros(shape_grid, dtype='f8')
     else:
         grid_weight = None
 
+    # apply mask based on the current drawing scope
     cc = centers[mask_draw]
     qq = quantities[mask_draw]
     ww = weights[mask_draw]
 
+    # get the projected coordinates
     xx, yy = cc[:, proj[0]], cc[:, proj[1]]
     zz = cc[:, proj_z]
 
+    # set the projector lambda based on the plot method
     if plot_method == 'cic':
         projector = lambda x, y, w, lims, shape: cic_img(x, y, weights=w, lims=lims, reso=shape)
     elif plot_method == 'hist':
         projector = lambda x, y, w, lims, shape: np.histogram2d(x, y, weights=w, range=lims, bins=shape)[0]
 
+    # do projection
     if type == 'part':
         pixel_area = np.prod((lims_2d[:, 1] - lims_2d[:, 0]) / np.array(shape))
 
