@@ -214,7 +214,7 @@ def mgal_size(tag='V14', logscale=False):
     def N21(m, z, type='all'): # Nedkova+ 21
         check_range(z, [0, 2.0])
         if logscale:
-            m = 10**logm
+            m = 10**m
         if type == 'all':
             params = np.select([
                 (0.2 <= z) & (z <= 0.5),
@@ -246,6 +246,8 @@ def mgal_size(tag='V14', logscale=False):
 
     if tag == 'V14':
         return V14
+    if tag == 'M19':
+        return M19
     elif tag == 'N21':
         return N21
 
