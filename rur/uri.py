@@ -3156,7 +3156,7 @@ def get_cpulist(box_unit, binlvl, maxlvl, bound_key, ndim, n_divide, ncpu=None):
     keys = hilbert3d(*(bin_list.T), binlvl, bin_list.shape[0])
     keys = np.array(keys)
     key_range = np.stack([keys, keys + 1], axis=-1)
-    key_range = key_range.astype('f8')
+    key_range = key_range.astype('float128')
 
     # check all involved domains
     involved_cpu = np.zeros(ncpu, dtype='?')
