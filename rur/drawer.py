@@ -1071,8 +1071,11 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
         levelmin, levelmax = np.min(levels), np.max(levels)
 
         # get the levels of the grid to draw the desired resolution
-        dx_min = np.minimum((lims_2d[0, 1] - lims_2d[0, 0]) / shape[0], (lims_2d[1, 1] - lims_2d[1, 0]) / shape[1])
-        levelmax_draw = np.minimum(np.ceil(-np.log2(dx_min)).astype(int), levelmax)
+        if shape is not None:
+            dx_min = np.minimum((lims_2d[0, 1] - lims_2d[0, 0]) / shape[0], (lims_2d[1, 1] - lims_2d[1, 0]) / shape[1])
+            levelmax_draw = np.minimum(np.ceil(-np.log2(dx_min)).astype(int), levelmax)
+        else:
+            levelmax_draw = levelmax
         levelmin_draw = levelmin
 
         # get the smallest levelmin grid space that covers the whole region
