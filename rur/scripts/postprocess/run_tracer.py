@@ -1,6 +1,6 @@
 from rur import uri
 import numpy as np
-# assert np.__version__ < '2.0.0', 'numpy version should be less than 2.0.0'
+assert np.__version__ < '2.0.0', "This script is not compatible with numpy 2.0.0 or later."
 import os, sys, glob
 from rur.utool import *
 

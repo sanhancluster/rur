@@ -86,9 +86,9 @@ def howtodo_halomaker(catrepo, new_iouts, galaxy=False, debug=False, snaprepo="/
     cprint(f"          ...")
     if not debug:
         cprint(f"      iout={new_iouts[0]}~{new_iouts[-1]} ({len(new_iouts)})")
-    answer = input(f"      {bs}Do you want me to generate this file? (y/n) {be}")
+    answer = input(f"  |      {bs}Do you want me to generate this file? (y/n) {be}")
     if answer in yess:
-        cprint(f"      Okay, I will generate this file!")
+        cprint(f"    Okay, I will generate this file!")
         if not debug:
             makeinput(new_iouts, snaprepo, catrepo, version='Ra4', ncore=48)
         cprint(f"      {bs}`{fname}` prepared!{be}")

@@ -1,5 +1,6 @@
 print("ex: $ python3 run_prepare.py /storage7/NewCluster --galaxy")
 import numpy as np
+assert np.__version__ < '2.0.0', "This script is not compatible with numpy 2.0.0 or later."
 from rur import uri,uhmi
 uri.timer.verbose=0
 from rur.utool import *
@@ -9,19 +10,27 @@ from tqdm import tqdm
 from multiprocessing import shared_memory, Pool
 import argparse, time
 import _guide as guide
-from _pfunc import vprint, yess, bs, be
+from _pfunc import vprint, yess, bs, be, filemode
 
 # ---------------------------------------------
 # Arguments
 # ----------------------------------------------
 parser = argparse.ArgumentParser(description='Fast tracer timeseries')
 parser.add_argument("repo", help='repo', type=str)
-parser.add_argument("--galaxy", action='store_true')
+parser.add_argument("--galaxy", action='store_true', default=False)
+parser.add_argument("--halo", action='store_true', default=False)
 parser.add_argument("--verbose", action='store_true')
 parser.add_argument("--debug", action='store_true')
 args = parser.parse_args()
 repo = args.repo
 galaxy = args.galaxy
+halo = args.halo
+if galaxy and halo:
+    print("You cannot use both --galaxy and --halo at the same time")
+    sys.exit(1)
+if not galaxy and not halo:
+    print("You must use either --galaxy or --halo")
+    sys.exit(1)
 verbose = args.verbose
 debug = args.debug
 gstr = 'Galaxy' if galaxy else 'Halo'
@@ -63,13 +72,43 @@ fnames = glob.glob(f"{snaprepo}/output*")
 fnames = [int(f[-5:]) for f in fnames]
 fnames.sort()
 vprint(f" > Found iouts: {fnames[0]}~{fnames[-1]} ({len(fnames)})", verbose)
+check_link = [f for f in fnames if os.path.islink(f"{snaprepo}/output_{f:05d}")]
+if len(check_link)>0:
+    vprint(f" \t> Found {len(check_link)} links in snapshots ({check_link[0]}~{check_link[-1]})", verbose)
+    realpath = os.path.realpath(f"{snaprepo}/output_{check_link[0]:05d}")
+    realpath = os.path.dirname(realpath)
+    vprint(f" \t> Check `{realpath}`", verbose)
+    fnames2 = glob.glob(f"{realpath}/output*")
+    fnames2 = [int(f[-5:]) for f in fnames2]
+    fnames2.sort()
+    fnames2 = [f for f in fnames2 if f not in fnames]
+    if len(fnames2)>0:
+        print(f" \t> You have (maybe) new snapshots in `{realpath}`")
+        print(f" \t> Found iouts: {fnames2[0]}~{fnames2[-1]} ({len(fnames2)})")
+        ans = input(f" \t> Do you want to link them? (y/n): ")
+        if ans in yess:
+            uid, gid, permissions = filemode(realpath)
+            if not permissions:
+                print(f" > {bs}You don't have permission to link files in `{realpath}`{be}")
+                print(f" > Please ask your system manager to change the permission.")
+            for f2 in fnames2:
+                os.system(f"ln -s {realpath}/output_{f2} {snaprepo}/")
+                print(f"ln -s {realpath}/output_{f2} {snaprepo}/")
 # Check if all iouts are available
 new_iouts = []
 for iout in fnames:
     if not iout in full_iouts: new_iouts.append(iout)
 if len(new_iouts)==0:
-    print(f" > {bs}All iouts are recorded in `iout_avail.txt`{be}")
+    print(f" > {bs}All iouts are recorded in `iout_avail.txt` ({full_iouts[0]}~{full_iouts[-1]}){be}")
 else:
+    uid, gid, permissions = filemode(f"{repo}/iout_avail.txt")
+    if not permissions:
+        print(f" > {bs}You don't have permission to write `iout_avail.txt`{be}")
+        print(f" > Please ask your system manager to change the permission.")
+    uid, gid, permissions = filemode(f"{repo}/iout_avail.txt")
+    if not permissions:
+        print(f" > {bs}You don't have permission to write `iout_avail.txt`{be}")
+        print(f" > Please ask your system manager to change the permission.")
     print(f" > Missing iouts in `iout_avail.txt`")
     print(f" > Missing iouts: {new_iouts}")
     if not debug: snaps.write_iout_avail(use_cache=True)
