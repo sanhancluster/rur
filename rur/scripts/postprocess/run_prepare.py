@@ -63,7 +63,7 @@ print(f"=================================")
 snap = uri.RamsesSnapshot(repo, 1)
 snaps = uri.TimeSeries(snap)
 snaps.read_iout_avail()
-vprint(f" > Check `{repo}/iout_avail.txt`", verbose)
+vprint(f" > Check `{repo}/list_iout_avail.txt`", verbose)
 full_iouts = snaps.iout_avail['iout'] # type: ignore
 vprint(f" > Recorded iouts: {full_iouts[0]}~{full_iouts[-1]} ({len(full_iouts)})", verbose)
 # Manual check iout table
@@ -94,25 +94,29 @@ if len(check_link)>0:
             for f2 in fnames2:
                 os.system(f"ln -s {realpath}/output_{f2:05d} {snaprepo}/")
                 print(f"ln -s {realpath}/output_{f2:05d} {snaprepo}/")
+        fnames += fnames2
+        fnames = np.unique(fnames)
 # Check if all iouts are available
 new_iouts = []
 for iout in fnames:
     if not iout in full_iouts: new_iouts.append(iout)
 if len(new_iouts)==0:
-    print(f" > {bs}All iouts are recorded in `iout_avail.txt` ({full_iouts[0]}~{full_iouts[-1]}){be}")
+    print(f" > {bs}All iouts are recorded in `list_iout_avail.txt` ({full_iouts[0]}~{full_iouts[-1]}){be}")
 else:
-    uid, gid, permissions = filemode(f"{repo}/iout_avail.txt")
+    uid, gid, permissions = filemode(f"{repo}/list_iout_avail.txt")
     if not permissions:
-        print(f" > {bs}You don't have permission to write `iout_avail.txt`{be}")
+        print(f" > {bs}You don't have permission to write `list_iout_avail.txt`{be}")
         print(f" > Please ask your system manager to change the permission.")
-    uid, gid, permissions = filemode(f"{repo}/iout_avail.txt")
+    uid, gid, permissions = filemode(f"{repo}/list_iout_avail.txt")
     if not permissions:
-        print(f" > {bs}You don't have permission to write `iout_avail.txt`{be}")
+        print(f" > {bs}You don't have permission to write `list_iout_avail.txt`{be}")
         print(f" > Please ask your system manager to change the permission.")
-    print(f" > Missing iouts in `iout_avail.txt`")
+    print(f" > Missing iouts in `list_iout_avail.txt`")
     print(f" > Missing iouts: {new_iouts}")
     if not debug: snaps.write_iout_avail(use_cache=True)
-    print(f" > `iout_avail.txt` updated")
+    print(f" > `list_iout_avail.txt` updated")
+snaps.read_iout_avail()
+full_iouts = snaps.iout_avail['iout'] # type: ignore
 
 catrepo = f"{repo}/{gstr.lower()}"
 print()
