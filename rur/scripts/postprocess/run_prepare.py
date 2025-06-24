@@ -92,8 +92,8 @@ if len(check_link)>0:
                 print(f" > {bs}You don't have permission to link files in `{realpath}`{be}")
                 print(f" > Please ask your system manager to change the permission.")
             for f2 in fnames2:
-                os.system(f"ln -s {realpath}/output_{f2} {snaprepo}/")
-                print(f"ln -s {realpath}/output_{f2} {snaprepo}/")
+                os.system(f"ln -s {realpath}/output_{f2:05d} {snaprepo}/")
+                print(f"ln -s {realpath}/output_{f2:05d} {snaprepo}/")
 # Check if all iouts are available
 new_iouts = []
 for iout in fnames:
