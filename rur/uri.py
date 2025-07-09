@@ -2192,10 +2192,14 @@ class RamsesSnapshot(object):
         self.cpu = np.concatenate(amr_cpus)
 
     def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False,
-                 ripses=False, python=True, nthread=8, use_cache=False):
+                 ripses=False, python=True, nthread=8, use_cache=False, hdf=True):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
+
+        if hdf:
+            return self.get_cell_hdf(box=box, target_fields=target_fields, exact_box=exact_box)
+
         if (cpulist is None):
             if (self.box is None or np.array_equal(self.box, self.default_box)):
                 # box is default box or None: load the whole volume
@@ -2385,12 +2389,12 @@ class RamsesSnapshot(object):
             chunk_bound = grp['chunk_boundary']
             levelmax = grp.attrs.get('levelmax', self.levelmax)
             
-            involved_idx = get_hilbert_indices(box, bound_key=hilbert_bound, level_key=levelmax)
+            involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax)
             data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields)
 
             if (self.box is not None and exact_box):
                 timer.start("Getting mask...", tab=1)
-                mask = box_mask_table(data, self.box, snap=self, nthread=8)
+                mask = box_mask_table(data, self.box, snap=self, size=self.cell_extra['dx'](data), nthread=8)
                 timer.record(tab=1)
                 if timer.verbose>1:
                     msg = 'Masking cells... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
