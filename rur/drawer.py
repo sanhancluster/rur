@@ -1084,6 +1084,10 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
         else:
             # if shape is not specified, draw with the full resolution
             levelmax_draw = levelmax
+            dx_min = 2. ** -levelmax_draw
+            shape = (lims_2d[0, 1] - lims_2d[0, 0]) // dx_min, (lims_2d[1, 1] - lims_2d[1, 0]) // dx_min
+            if shape >= 1E8:
+                warnings.warn("The shape of the grid is too large: {shape}, it may cause memory issues.")
         levelmin_draw = levelmin
 
         # get the smallest levelmin grid space that covers the whole region
