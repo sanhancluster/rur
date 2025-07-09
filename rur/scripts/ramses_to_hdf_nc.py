@@ -112,7 +112,7 @@ def export_part(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load
         create_hdf5_part(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite)
         
         snap.clear()
-        timer.message(f"Particle data extraction completed for iout {snap.iout}.")
+        timer.record(f"Particle data extraction completed for iout {snap.iout}.", name='part_hdf')
 
 def create_hdf5_part(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True):
     if cpu_list is None:
@@ -127,7 +127,7 @@ def create_hdf5_part(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output
         print(f"File {output_file} already exists. Skipping creation.")
         return
     
-    timer.message(f"Generating new part dictionary for iout {snap.iout} with {len(cpu_list)} CPUs...")
+    timer.message(f"Generating new part dictionary for iout {snap.iout} with {len(cpu_list)} CPUs...", name='part_hdf')
     new_part_dict, pointer_dict = get_new_part_dict(snap, cpu_list=cpu_list, size_load=size_load)
     names = converted_dtypes.keys()
     
@@ -293,7 +293,8 @@ def export_cell(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load
         create_hdf5_cell(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite)
         
         snap.clear()
-        timer.message(f"Cell data extraction completed for iout {snap.iout}.")
+        timer.record(f"Cell data extraction completed for iout {snap.iout}.", name='cell_hdf')
+
 
 def create_hdf5_cell(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True):
     """
@@ -311,7 +312,7 @@ def create_hdf5_cell(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output
         print(f"File {output_file} already exists. Skipping creation.")
         return
     
-    timer.message(f"Generating new cell array for iout {snap.iout} with {len(cpu_list)} CPUs...")
+    timer.message(f"Generating new cell array for iout {snap.iout} with {len(cpu_list)} CPUs...", name='cell_hdf')
     new_cell, pointer = get_new_cell(snap, cpu_list=cpu_list, size_load=size_load)
     new_cell = new_cell[:pointer]
 
@@ -429,6 +430,7 @@ def get_new_cell(snap:uri.RamsesSnapshot, cpu_list, size_load) -> np.ndarray:
         snap.clear()
     return new_cell, pointer
 
+
 def get_ncell(snap:uri.RamsesSnapshot, python=False, leaf_only=True) -> int:
 
     if not python:
@@ -475,12 +477,14 @@ def get_ncell(snap:uri.RamsesSnapshot, python=False, leaf_only=True) -> int:
                         f.skip_records(skip_amr)
     return ncell
 
+
 def get_hilbert_key(coordinates:np.ndarray, levelmax:int) -> np.ndarray:
     subdivisions = 2 ** levelmax
     if levelmax > 21:
         raise ValueError("Levelmax must be less than or equal to 21 to avoid overflow in Hilbert key calculation.")
     idx_list = np.floor(coordinates * subdivisions).astype(int)
     return hilbert3d(*idx_list.T, levelmax, idx_list.shape[0]).astype('uint64')
+
 
 def get_chunk_boundaries(hilbert_key:np.ndarray, n_chunk:int) -> np.ndarray:
     """
@@ -500,6 +504,7 @@ def get_chunk_boundaries(hilbert_key:np.ndarray, n_chunk:int) -> np.ndarray:
 
     return chunk_boundary
 
+
 def assert_sorted(arr: np.ndarray):
     """
     Assert that the input array is sorted in ascending order.
@@ -507,6 +512,7 @@ def assert_sorted(arr: np.ndarray):
     if not np.all(arr[:-1] <= arr[1:]):
         raise ValueError("Input array must be sorted in ascending order.")
     return True
+
 
 def add_basic_attrs(fl: h5py.File, snap: uri.RamsesSnapshot):
     """
@@ -546,7 +552,6 @@ def main():
     dataset_kw = {
         'compression': 'lzf',
         'shuffle': True,
-#        'compression_opts': 4,
     }
     # receive the snapshot from the simulation repository
     repo_name = 'nc'  # or 'hagn', 'nh', 'nh2', 'yzics', etc.
