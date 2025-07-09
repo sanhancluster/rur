@@ -915,6 +915,10 @@ class RamsesSnapshot(object):
     def get_path(self, type='amr', icpu=1):
         if(type == 'namelist'):
             return join(self.path, "namelist.txt")
+        if type == 'hdf_part':
+            return join(self.repo, f"hdf/part_{self.iout:05d}.h5")
+        elif type == 'hdf_cell':
+            return join(self.repo, f"hdf/cell_{self.iout:05d}.h5")
         if(self.mode=='ng'): return join(self.path, f"{type}.out{icpu:05d}")
         return join(self.path, f"{type}_{self.iout:05d}.out{icpu:05d}")
 
@@ -1398,7 +1402,7 @@ class RamsesSnapshot(object):
                 if pname == self.part.ptype:
                     if (timer.verbose >= 1): print('Searching for extra files...')
                     cpulist = np.array(cpulist)[np.isin(cpulist, self.cpulist_part, assume_unique=True, invert=True)]
-
+        cpulist = np.array(cpulist)
         if (cpulist.size > 0):
             filesize = 0
             for icpu in cpulist:
@@ -2263,10 +2267,16 @@ class RamsesSnapshot(object):
         self.cell['z'] *= boxlen/(l2-l1)
 
     def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None,
-                 python=True, nthread=8, use_cache=False):
+                 python=True, nthread=8, use_cache=False, hdf=False):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
+        
+        if hdf:
+            if pname is None:
+                raise ValueError("Particle type (pname) must be specified when using HDF5 mode.")
+            return self.get_part_hdf(pname, box=box, target_fields=target_fields, exact_box=exact_box)
+
         if (cpulist is None):
             if (self.box is None or np.array_equal(self.box, self.default_box)):
                 # box is default box or None: load the whole volume
@@ -2324,6 +2334,74 @@ class RamsesSnapshot(object):
             self.box_part = self.box
             self.part = part
         return self.part
+
+
+    def get_part_hdf(self, pname, box=None, target_fields=None, exact_box=True):
+        hdf_path = self.get_path('hdf_part')
+        if not exists(hdf_path):
+            raise FileNotFoundError(f"HDF5 part file not found: {hdf_path}")
+        if (box is not None):
+            # if box is not specified, use self.box by default
+            self.box = box
+        
+        with h5py.File(hdf_path, 'r') as hdf:
+            if pname not in hdf:
+                raise KeyError(f"Particle type '{pname}' not found in HDF5 file.")
+            grp = hdf[pname]
+            
+            hilbert_bound = grp['hilbert_boundary'][:]
+            chunk_bound = grp['chunk_boundary']
+            levelmax = grp.attrs.get('levelmax', self.levelmax)
+            
+            involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax)
+            data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields)
+
+            if (self.box is not None and exact_box):
+                timer.start("Getting mask...", tab=1)
+                mask = box_mask_table(data, self.box, snap=self, nthread=8)
+                timer.record(tab=1)
+                if timer.verbose>1:
+                    msg = 'Masking particles... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
+                elif timer.verbose>0:
+                    msg = 'Masking particles...'
+                timer.start(msg, 1)
+                data = data[mask]
+                timer.record()
+            part = Particle(data, self, ptype=pname)
+        return part
+
+
+    def get_cell_hdf(self, box=None, target_fields=None, exact_box=True):
+        hdf_path = self.get_path('hdf_cell')
+        if not exists(hdf_path):
+            raise FileNotFoundError(f"HDF5 cell file not found: {hdf_path}")
+        if (box is not None):
+            # if box is not specified, use self.box by default
+            self.box = box
+        
+        with h5py.File(hdf_path, 'r') as hdf:
+            grp = hdf['leaf']
+            hilbert_bound = grp['hilbert_boundary'][:]
+            chunk_bound = grp['chunk_boundary']
+            levelmax = grp.attrs.get('levelmax', self.levelmax)
+            
+            involved_idx = get_hilbert_indices(box, bound_key=hilbert_bound, level_key=levelmax)
+            data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields)
+
+            if (self.box is not None and exact_box):
+                timer.start("Getting mask...", tab=1)
+                mask = box_mask_table(data, self.box, snap=self, nthread=8)
+                timer.record(tab=1)
+                if timer.verbose>1:
+                    msg = 'Masking cells... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
+                elif timer.verbose>0:
+                    msg = 'Masking cells...'
+                timer.start(msg, 1)
+                data = data[mask]
+                timer.record()
+            cell = Cell(data, self)
+        return cell
+
 
     def get_sink(self, box=None, all=False):
         if (all):
@@ -3263,6 +3341,52 @@ def get_cpulist(box_unit, binlvl, maxlvl, bound_key, ndim, n_divide, ncpu=None):
     return involved_cpu
 
 
+def get_hilbert_indices(box, bound_key, level_key, level_bin=None, n_divide=3, nseg=None):
+    # get list of cpu domains involved in selected box using hilbert key.
+    # box_unit should be in unit (0, 1)^3
+    # calculate volume
+    ndim = 3
+
+    if nseg is None:
+        nseg = len(bound_key) - 1
+    
+    # set level of bin to compute hilbery curve (larger is finer, slower)
+    if (level_bin is None):
+        volume = np.prod([box[:, 1] - box[:, 0]])
+        if volume > 0:
+            level_bin = int(np.log2(1. / volume) / ndim) + n_divide
+        else:
+            level_bin = level_key
+    # avoid too large binlvl
+    if (level_bin > 64 // ndim):
+        level_bin = 64 // ndim - 1
+
+    # compute the indices of minimum bounding box of the current box in binlvl
+    box_bin = np.array(box) * 2 ** level_bin
+    lower = np.floor(box_bin[:, 0]).astype(int)
+    upper = np.ceil(box_bin[:, 1]).astype(int)
+    bbox = np.stack([lower, upper], axis=-1)
+
+    # do cartesian product to list all bins within the bounding box 
+    bin_list = utool.cartesian(*[np.arange(bbox[i, 0], bbox[i, 1]) for i in range(ndim)])
+
+    # compute hilbert key of all bins
+    keys = hilbert3d(*(bin_list.T), level_bin, bin_list.shape[0])
+    keys = np.array(keys)
+    key_range = np.stack([*merge_segments(keys, keys + 1)], axis=-1)
+    key_range = key_range.astype('float128')
+
+    # check all involved domains
+    involved_mask = np.zeros(nseg, dtype='?')
+    icpu_ranges = np.searchsorted(bound_key // 2 ** (ndim * (level_key - level_bin)), key_range, side='left')
+    icpu_ranges = np.unique(icpu_ranges, axis=0)
+    for icpu_range in icpu_ranges:
+        involved_mask[icpu_range[0]-1:icpu_range[1]] = True # this works, why?
+    involved_idx = np.where(involved_mask)[0]
+
+    return involved_idx
+
+
 def ckey2idx(amr_keys, nocts, levelmin, ndim=3):
     idx = 0
     poss = []
@@ -3286,19 +3410,40 @@ def ckey2idx(amr_keys, nocts, levelmin, ndim=3):
     return poss, lvls
 
 
-def domain_slice(array, cpulist, cpulist_all, bound):
+def domain_slice(array, cpulist, bound, cpulist_all=None, target_fields=None):
+    if cpulist_all is None:
+        cpulist_all = np.arange(bound.size-1)
     # array should already been aligned with bound
     idxs = np.where(np.isin(cpulist_all, cpulist, assume_unique=True))[0]
-    doms = np.stack([bound[idxs], bound[idxs + 1]], axis=-1)
+    
+    merged_starts, merged_ends = merge_segments(idxs, idxs + 1)
+    doms = np.stack([bound[merged_starts], bound[merged_ends]], axis=-1)
     segs = doms[:, 1] - doms[:, 0]
 
-    out = np.empty(np.sum(segs), dtype=array.dtype)  # same performance with np.concatenate
+    # if target_fields is not None, filter the fields
+    if target_fields is None:
+        new_dtype = array.dtype
+    else:
+        new_dtype = [(name, array.dtype[name]) for name in target_fields]
+
+    out = np.empty(np.sum(segs), dtype=new_dtype)  # same performance with np.concatenate
     now = 0
     for dom, seg in zip(doms, segs):
-        out[now:now + seg] = array[dom[0]:dom[1]]
+        if target_fields is not None:
+            for name in target_fields:
+                out[now:now + seg][name] = array[dom[0]:dom[1]][name]
+        else:
+            out[now:now + seg] = array[dom[0]:dom[1]]
         now += seg
 
     return out
+
+
+def merge_segments(starts, ends):
+    discontinuity = np.where(starts[1:] != ends[:-1])[0] + 1
+    merged_starts = np.concatenate(([starts[0]], starts[discontinuity]))
+    merged_ends = np.concatenate((ends[discontinuity - 1], [ends[-1]]))
+    return merged_starts, merged_ends
 
 
 def bulk_sort(array):
