@@ -452,7 +452,7 @@ def _read_part(fname: str, kwargs: dict, part=None, mask=None, nsize=None, curso
     exist.close()
 
 
-def _calc_ncell(fname: str, amr_kwargs: dict):
+def _calc_ncell(fname: str, amr_kwargs: dict, read_branch=False):
     ncpu = amr_kwargs['ncpu']
     nboundary = amr_kwargs['nboundary']
     nlevelmax = amr_kwargs['nlevelmax']
@@ -482,8 +482,12 @@ def _calc_ncell(fname: str, amr_kwargs: dict):
                 f.skip_records(3 * ndim + 1)
                 for _ in range(twotondim):
                     son = f.read_ints()
-                    if 0 in son:
-                        ncell += len(son.flatten()) - np.count_nonzero(son)
+                    if not read_branch:
+                        if 0 in son:
+                            ncell += len(son.flatten()) - np.count_nonzero(son)
+                    else:
+                        ncell += np.count_nonzero(son)
+                    
                 f.skip_records(2 * twotondim)
             else:
                 f.skip_records(skip_amr)
@@ -491,7 +495,7 @@ def _calc_ncell(fname: str, amr_kwargs: dict):
 
 
 def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, cell=None, nsize=None, cursor=None,
-               address=None, shape=None):
+               address=None, shape=None, read_branch=False):
     # 0) From snapshot
     nhvar = snap_kwargs['nhvar']
     hydro_names = snap_kwargs['hydro_names']
@@ -588,7 +592,10 @@ def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, cell=None, nsize=
 
             f_amr.skip_records(2 * ndim + 1)  # Skip father index & nbor index
             # Read son index to check refinement
-            ileaf = f_amr.read_arrays(twotondim) == 0
+            if not read_branch:
+                ileaf = f_amr.read_arrays(twotondim) == 0
+            else:
+                ileaf = f_amr.read_arrays(twotondim) != 0
             f_amr.skip_records(2 * twotondim)  # Skip cpu, refinement map
             icell = np.count_nonzero(ileaf)
             # Allocate hydro variables
@@ -1514,7 +1521,9 @@ class RamsesSnapshot(object):
             if (timer.verbose >= 1):
                 print('CPU list already satisfied.')
 
-    def read_cell_py(self, cpulist: Iterable, target_fields: Iterable = None, nthread: int = 8, read_grav: bool = False, use_cache=True):
+    def read_cell_py(self, cpulist: Iterable, target_fields: Iterable = None, nthread: int = 8, read_grav: bool = False, use_cache=True, read_branch=False):
+        if read_branch:
+            use_cache = False
         # 1) Read AMR params
         sequential = nthread == 1   
         fname = self.get_path('amr', 1)
@@ -1600,7 +1609,7 @@ class RamsesSnapshot(object):
                 sizes = np.zeros(len(cpulist), dtype=np.int32)
                 for i, icpu in enumerate(cpulist):
                     fname = f"{self.snap_path}/output_{self.iout:05d}/amr_{self.iout:05d}.out{icpu:05d}"
-                    sizes[i] = _calc_ncell(fname, amr_kwargs)
+                    sizes[i] = _calc_ncell(fname, amr_kwargs, read_branch)
                 if(use_cache):
                     if(not exists(f"{self.repo}/cache/output_{self.iout:05d}/ncells.pkl")):
                         if(not exists(f"{self.repo}/cache")):
@@ -1623,7 +1632,7 @@ class RamsesSnapshot(object):
                 files = [f"{self.snap_path}/output_{self.iout:05d}/amr_{self.iout:05d}.out{icpu:05d}" for icpu in cpulist]
                 signal.signal(signal.SIGTERM, signal.SIG_DFL)
                 with Pool(processes=nthread) as pool:
-                    sizes = pool.starmap(_calc_ncell, [(fname, amr_kwargs) for fname in files])
+                    sizes = pool.starmap(_calc_ncell, [(fname, amr_kwargs, read_branch) for fname in files])
                 signal.signal(signal.SIGTERM, self.terminate)
                 sizes = np.asarray(sizes, dtype=np.int32)
                 if(use_cache):
@@ -1656,7 +1665,7 @@ class RamsesSnapshot(object):
                         timer.verbose >= 1) else enumerate(cpulist)
             for i, icpu in iterobj:
                 cursor = _read_cell(icpu, snap_kwargs, amr_kwargs, cell=cell, nsize=sizes[i], cursor=cursor,
-                                    address=None, shape=None)
+                                    address=None, shape=None, read_branch=read_branch)
             cell = cell[:cursor]
         else:
             if(timer.verbose>=1):
@@ -1668,7 +1677,7 @@ class RamsesSnapshot(object):
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(_read_cell, (
-                icpu, snap_kwargs, amr_kwargs, None, size, cursor, self.cell_mem.name, cell.shape), callback=update) for
+                icpu, snap_kwargs, amr_kwargs, None, size, cursor, self.cell_mem.name, cell.shape, read_branch), callback=update) for
                                 icpu, size, cursor in zip(cpulist, sizes, cursors)]
                 # iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading cells") if (
                 #             timer.verbose >= 1) else async_result
@@ -1679,7 +1688,7 @@ class RamsesSnapshot(object):
         if(sequential): return cell, None
         return cell, np.append(cursors, np.sum(sizes))
 
-    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, python=True, nthread=8, use_cache=True):
+    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, python=True, nthread=8, use_cache=True, read_branch=False):
         """Reads amr data from current box.
 
         Parameters
@@ -1714,7 +1723,7 @@ class RamsesSnapshot(object):
             nthread = min(nthread, cpulist.size)
             if (python):
                 self.clear_shm(clean=False)
-                cell, bound = self.read_cell_py(cpulist, read_grav=read_grav, nthread=nthread, target_fields=target_fields, use_cache=use_cache)
+                cell, bound = self.read_cell_py(cpulist, read_grav=read_grav, nthread=nthread, target_fields=target_fields, use_cache=use_cache, read_branch=read_branch)
             else:
                 bound=None
                 if (nthread > 1):
@@ -2192,7 +2201,7 @@ class RamsesSnapshot(object):
         self.cpu = np.concatenate(amr_cpus)
 
     def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False,
-                 ripses=False, python=True, nthread=8, use_cache=False, hdf=True):
+                 ripses=False, python=True, nthread=8, use_cache=False, hdf=False, read_branch=False):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -2223,7 +2232,7 @@ class RamsesSnapshot(object):
                 exact_box = False
             if (not ripses):
                 self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist, python=python,
-                               nthread=nthread, use_cache=use_cache)
+                               nthread=nthread, use_cache=use_cache, read_branch=read_branch)
             else:
                 self.read_ripses(target_fields=target_fields, cpulist=cpulist)
             if (domain_slicing):
