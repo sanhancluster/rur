@@ -2384,7 +2384,7 @@ class RamsesSnapshot(object):
         return part
 
 
-    def get_cell_hdf(self, box=None, target_fields=None, exact_box=True,, read_branch=False):
+    def get_cell_hdf(self, box=None, target_fields=None, exact_box=True, read_branch=False):
         hdf_path = self.get_path('hdf_cell')
         if not exists(hdf_path):
             raise FileNotFoundError(f"HDF5 cell file not found: {hdf_path}")
