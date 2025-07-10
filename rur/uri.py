@@ -2207,7 +2207,7 @@ class RamsesSnapshot(object):
             self.box = box
 
         if hdf:
-            return self.get_cell_hdf(box=box, target_fields=target_fields, exact_box=exact_box)
+            return self.get_cell_hdf(box=box, target_fields=target_fields, exact_box=exact_box, read_branch=read_branch)
 
         if (cpulist is None):
             if (self.box is None or np.array_equal(self.box, self.default_box)):
@@ -2384,7 +2384,7 @@ class RamsesSnapshot(object):
         return part
 
 
-    def get_cell_hdf(self, box=None, target_fields=None, exact_box=True):
+    def get_cell_hdf(self, box=None, target_fields=None, exact_box=True,, read_branch=False):
         hdf_path = self.get_path('hdf_cell')
         if not exists(hdf_path):
             raise FileNotFoundError(f"HDF5 cell file not found: {hdf_path}")
@@ -2393,7 +2393,10 @@ class RamsesSnapshot(object):
             self.box = box
         
         with h5py.File(hdf_path, 'r') as hdf:
-            grp = hdf['leaf']
+            if not read_branch:
+                grp = hdf['leaf']
+            else:
+                grp = hdf['branch']
             hilbert_bound = grp['hilbert_boundary'][:]
             chunk_bound = grp['chunk_boundary']
             levelmax = grp.attrs.get('levelmax', self.levelmax)
