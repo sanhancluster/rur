@@ -452,7 +452,7 @@ def _read_part(fname: str, kwargs: dict, part=None, mask=None, nsize=None, curso
     exist.close()
 
 
-def _calc_ncell(fname: str, amr_kwargs: dict):
+def _calc_ncell(fname: str, amr_kwargs: dict, read_branch=False):
     ncpu = amr_kwargs['ncpu']
     nboundary = amr_kwargs['nboundary']
     nlevelmax = amr_kwargs['nlevelmax']
@@ -482,8 +482,12 @@ def _calc_ncell(fname: str, amr_kwargs: dict):
                 f.skip_records(3 * ndim + 1)
                 for _ in range(twotondim):
                     son = f.read_ints()
-                    if 0 in son:
-                        ncell += len(son.flatten()) - np.count_nonzero(son)
+                    if not read_branch:
+                        if 0 in son:
+                            ncell += len(son.flatten()) - np.count_nonzero(son)
+                    else:
+                        ncell += np.count_nonzero(son)
+                    
                 f.skip_records(2 * twotondim)
             else:
                 f.skip_records(skip_amr)
@@ -491,7 +495,7 @@ def _calc_ncell(fname: str, amr_kwargs: dict):
 
 
 def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, cell=None, nsize=None, cursor=None,
-               address=None, shape=None):
+               address=None, shape=None, read_branch=False):
     # 0) From snapshot
     nhvar = snap_kwargs['nhvar']
     hydro_names = snap_kwargs['hydro_names']
@@ -588,7 +592,10 @@ def _read_cell(icpu: int, snap_kwargs: dict, amr_kwargs: dict, cell=None, nsize=
 
             f_amr.skip_records(2 * ndim + 1)  # Skip father index & nbor index
             # Read son index to check refinement
-            ileaf = f_amr.read_arrays(twotondim) == 0
+            if not read_branch:
+                ileaf = f_amr.read_arrays(twotondim) == 0
+            else:
+                ileaf = f_amr.read_arrays(twotondim) != 0
             f_amr.skip_records(2 * twotondim)  # Skip cpu, refinement map
             icell = np.count_nonzero(ileaf)
             # Allocate hydro variables
@@ -915,6 +922,10 @@ class RamsesSnapshot(object):
     def get_path(self, type='amr', icpu=1):
         if(type == 'namelist'):
             return join(self.path, "namelist.txt")
+        if type == 'hdf_part':
+            return join(self.repo, f"hdf/part_{self.iout:05d}.h5")
+        elif type == 'hdf_cell':
+            return join(self.repo, f"hdf/cell_{self.iout:05d}.h5")
         if(self.mode=='ng'): return join(self.path, f"{type}.out{icpu:05d}")
         return join(self.path, f"{type}_{self.iout:05d}.out{icpu:05d}")
 
@@ -1398,7 +1409,7 @@ class RamsesSnapshot(object):
                 if pname == self.part.ptype:
                     if (timer.verbose >= 1): print('Searching for extra files...')
                     cpulist = np.array(cpulist)[np.isin(cpulist, self.cpulist_part, assume_unique=True, invert=True)]
-
+        cpulist = np.array(cpulist)
         if (cpulist.size > 0):
             filesize = 0
             for icpu in cpulist:
@@ -1510,7 +1521,9 @@ class RamsesSnapshot(object):
             if (timer.verbose >= 1):
                 print('CPU list already satisfied.')
 
-    def read_cell_py(self, cpulist: Iterable, target_fields: Iterable = None, nthread: int = 8, read_grav: bool = False, use_cache=True):
+    def read_cell_py(self, cpulist: Iterable, target_fields: Iterable = None, nthread: int = 8, read_grav: bool = False, use_cache=True, read_branch=False):
+        if read_branch:
+            use_cache = False
         # 1) Read AMR params
         sequential = nthread == 1   
         fname = self.get_path('amr', 1)
@@ -1596,7 +1609,7 @@ class RamsesSnapshot(object):
                 sizes = np.zeros(len(cpulist), dtype=np.int32)
                 for i, icpu in enumerate(cpulist):
                     fname = f"{self.snap_path}/output_{self.iout:05d}/amr_{self.iout:05d}.out{icpu:05d}"
-                    sizes[i] = _calc_ncell(fname, amr_kwargs)
+                    sizes[i] = _calc_ncell(fname, amr_kwargs, read_branch)
                 if(use_cache):
                     if(not exists(f"{self.repo}/cache/output_{self.iout:05d}/ncells.pkl")):
                         if(not exists(f"{self.repo}/cache")):
@@ -1619,7 +1632,7 @@ class RamsesSnapshot(object):
                 files = [f"{self.snap_path}/output_{self.iout:05d}/amr_{self.iout:05d}.out{icpu:05d}" for icpu in cpulist]
                 signal.signal(signal.SIGTERM, signal.SIG_DFL)
                 with Pool(processes=nthread) as pool:
-                    sizes = pool.starmap(_calc_ncell, [(fname, amr_kwargs) for fname in files])
+                    sizes = pool.starmap(_calc_ncell, [(fname, amr_kwargs, read_branch) for fname in files])
                 signal.signal(signal.SIGTERM, self.terminate)
                 sizes = np.asarray(sizes, dtype=np.int32)
                 if(use_cache):
@@ -1652,7 +1665,7 @@ class RamsesSnapshot(object):
                         timer.verbose >= 1) else enumerate(cpulist)
             for i, icpu in iterobj:
                 cursor = _read_cell(icpu, snap_kwargs, amr_kwargs, cell=cell, nsize=sizes[i], cursor=cursor,
-                                    address=None, shape=None)
+                                    address=None, shape=None, read_branch=read_branch)
             cell = cell[:cursor]
         else:
             if(timer.verbose>=1):
@@ -1664,7 +1677,7 @@ class RamsesSnapshot(object):
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(_read_cell, (
-                icpu, snap_kwargs, amr_kwargs, None, size, cursor, self.cell_mem.name, cell.shape), callback=update) for
+                icpu, snap_kwargs, amr_kwargs, None, size, cursor, self.cell_mem.name, cell.shape, read_branch), callback=update) for
                                 icpu, size, cursor in zip(cpulist, sizes, cursors)]
                 # iterobj = tqdm(async_result, total=len(async_result), desc=f"Reading cells") if (
                 #             timer.verbose >= 1) else async_result
@@ -1675,7 +1688,7 @@ class RamsesSnapshot(object):
         if(sequential): return cell, None
         return cell, np.append(cursors, np.sum(sizes))
 
-    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, python=True, nthread=8, use_cache=True):
+    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, python=True, nthread=8, use_cache=True, read_branch=False):
         """Reads amr data from current box.
 
         Parameters
@@ -1710,7 +1723,7 @@ class RamsesSnapshot(object):
             nthread = min(nthread, cpulist.size)
             if (python):
                 self.clear_shm(clean=False)
-                cell, bound = self.read_cell_py(cpulist, read_grav=read_grav, nthread=nthread, target_fields=target_fields, use_cache=use_cache)
+                cell, bound = self.read_cell_py(cpulist, read_grav=read_grav, nthread=nthread, target_fields=target_fields, use_cache=use_cache, read_branch=read_branch)
             else:
                 bound=None
                 if (nthread > 1):
@@ -2188,10 +2201,14 @@ class RamsesSnapshot(object):
         self.cpu = np.concatenate(amr_cpus)
 
     def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False,
-                 ripses=False, python=True, nthread=8, use_cache=False):
+                 ripses=False, python=True, nthread=8, use_cache=False, hdf=False, read_branch=False):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
+
+        if hdf:
+            return self.get_cell_hdf(box=box, target_fields=target_fields, exact_box=exact_box, read_branch=read_branch)
+
         if (cpulist is None):
             if (self.box is None or np.array_equal(self.box, self.default_box)):
                 # box is default box or None: load the whole volume
@@ -2215,7 +2232,7 @@ class RamsesSnapshot(object):
                 exact_box = False
             if (not ripses):
                 self.read_cell(target_fields=target_fields, read_grav=read_grav, cpulist=cpulist, python=python,
-                               nthread=nthread, use_cache=use_cache)
+                               nthread=nthread, use_cache=use_cache, read_branch=read_branch)
             else:
                 self.read_ripses(target_fields=target_fields, cpulist=cpulist)
             if (domain_slicing):
@@ -2263,10 +2280,16 @@ class RamsesSnapshot(object):
         self.cell['z'] *= boxlen/(l2-l1)
 
     def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None,
-                 python=True, nthread=8, use_cache=False):
+                 python=True, nthread=8, use_cache=False, hdf=False):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
+        
+        if hdf:
+            if pname is None:
+                raise ValueError("Particle type (pname) must be specified when using HDF5 mode.")
+            return self.get_part_hdf(pname, box=box, target_fields=target_fields, exact_box=exact_box)
+
         if (cpulist is None):
             if (self.box is None or np.array_equal(self.box, self.default_box)):
                 # box is default box or None: load the whole volume
@@ -2324,6 +2347,77 @@ class RamsesSnapshot(object):
             self.box_part = self.box
             self.part = part
         return self.part
+
+
+    def get_part_hdf(self, pname, box=None, target_fields=None, exact_box=True):
+        hdf_path = self.get_path('hdf_part')
+        if not exists(hdf_path):
+            raise FileNotFoundError(f"HDF5 part file not found: {hdf_path}")
+        if (box is not None):
+            # if box is not specified, use self.box by default
+            self.box = box
+        
+        with h5py.File(hdf_path, 'r') as hdf:
+            if pname not in hdf:
+                raise KeyError(f"Particle type '{pname}' not found in HDF5 file.")
+            grp = hdf[pname]
+            
+            hilbert_bound = grp['hilbert_boundary'][:]
+            chunk_bound = grp['chunk_boundary']
+            levelmax = grp.attrs.get('levelmax', self.levelmax)
+            
+            involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax)
+            data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields)
+
+            if (self.box is not None and exact_box):
+                timer.start("Getting mask...", tab=1)
+                mask = box_mask_table(data, self.box, snap=self, nthread=8)
+                timer.record(tab=1)
+                if timer.verbose>1:
+                    msg = 'Masking particles... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
+                elif timer.verbose>0:
+                    msg = 'Masking particles...'
+                timer.start(msg, 1)
+                data = data[mask]
+                timer.record()
+            part = Particle(data, self, ptype=pname)
+        return part
+
+
+    def get_cell_hdf(self, box=None, target_fields=None, exact_box=True,, read_branch=False):
+        hdf_path = self.get_path('hdf_cell')
+        if not exists(hdf_path):
+            raise FileNotFoundError(f"HDF5 cell file not found: {hdf_path}")
+        if (box is not None):
+            # if box is not specified, use self.box by default
+            self.box = box
+        
+        with h5py.File(hdf_path, 'r') as hdf:
+            if not read_branch:
+                grp = hdf['leaf']
+            else:
+                grp = hdf['branch']
+            hilbert_bound = grp['hilbert_boundary'][:]
+            chunk_bound = grp['chunk_boundary']
+            levelmax = grp.attrs.get('levelmax', self.levelmax)
+            
+            involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax)
+            data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields)
+
+            if (self.box is not None and exact_box):
+                timer.start("Getting mask...", tab=1)
+                mask = box_mask_table(data, self.box, snap=self, size=self.cell_extra['dx'](data), nthread=8)
+                timer.record(tab=1)
+                if timer.verbose>1:
+                    msg = 'Masking cells... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
+                elif timer.verbose>0:
+                    msg = 'Masking cells...'
+                timer.start(msg, 1)
+                data = data[mask]
+                timer.record()
+            cell = Cell(data, self)
+        return cell
+
 
     def get_sink(self, box=None, all=False):
         if (all):
@@ -3263,6 +3357,52 @@ def get_cpulist(box_unit, binlvl, maxlvl, bound_key, ndim, n_divide, ncpu=None):
     return involved_cpu
 
 
+def get_hilbert_indices(box, bound_key, level_key, level_bin=None, n_divide=3, nseg=None):
+    # get list of cpu domains involved in selected box using hilbert key.
+    # box_unit should be in unit (0, 1)^3
+    # calculate volume
+    ndim = 3
+
+    if nseg is None:
+        nseg = len(bound_key) - 1
+    
+    # set level of bin to compute hilbery curve (larger is finer, slower)
+    if (level_bin is None):
+        volume = np.prod([box[:, 1] - box[:, 0]])
+        if volume > 0:
+            level_bin = int(np.log2(1. / volume) / ndim) + n_divide
+        else:
+            level_bin = level_key
+    # avoid too large binlvl
+    if (level_bin > 64 // ndim):
+        level_bin = 64 // ndim - 1
+
+    # compute the indices of minimum bounding box of the current box in binlvl
+    box_bin = np.array(box) * 2 ** level_bin
+    lower = np.floor(box_bin[:, 0]).astype(int)
+    upper = np.ceil(box_bin[:, 1]).astype(int)
+    bbox = np.stack([lower, upper], axis=-1)
+
+    # do cartesian product to list all bins within the bounding box 
+    bin_list = utool.cartesian(*[np.arange(bbox[i, 0], bbox[i, 1]) for i in range(ndim)])
+
+    # compute hilbert key of all bins
+    keys = hilbert3d(*(bin_list.T), level_bin, bin_list.shape[0])
+    keys = np.array(keys)
+    key_range = np.stack([*merge_segments(keys, keys + 1)], axis=-1)
+    key_range = key_range.astype('float128')
+
+    # check all involved domains
+    involved_mask = np.zeros(nseg, dtype='?')
+    icpu_ranges = np.searchsorted(bound_key // 2 ** (ndim * (level_key - level_bin)), key_range, side='left')
+    icpu_ranges = np.unique(icpu_ranges, axis=0)
+    for icpu_range in icpu_ranges:
+        involved_mask[icpu_range[0]-1:icpu_range[1]] = True # this works, why?
+    involved_idx = np.where(involved_mask)[0]
+
+    return involved_idx
+
+
 def ckey2idx(amr_keys, nocts, levelmin, ndim=3):
     idx = 0
     poss = []
@@ -3286,19 +3426,40 @@ def ckey2idx(amr_keys, nocts, levelmin, ndim=3):
     return poss, lvls
 
 
-def domain_slice(array, cpulist, cpulist_all, bound):
+def domain_slice(array, cpulist, bound, cpulist_all=None, target_fields=None):
+    if cpulist_all is None:
+        cpulist_all = np.arange(bound.size-1)
     # array should already been aligned with bound
     idxs = np.where(np.isin(cpulist_all, cpulist, assume_unique=True))[0]
-    doms = np.stack([bound[idxs], bound[idxs + 1]], axis=-1)
+    
+    merged_starts, merged_ends = merge_segments(idxs, idxs + 1)
+    doms = np.stack([bound[merged_starts], bound[merged_ends]], axis=-1)
     segs = doms[:, 1] - doms[:, 0]
 
-    out = np.empty(np.sum(segs), dtype=array.dtype)  # same performance with np.concatenate
+    # if target_fields is not None, filter the fields
+    if target_fields is None:
+        new_dtype = array.dtype
+    else:
+        new_dtype = [(name, array.dtype[name]) for name in target_fields]
+
+    out = np.empty(np.sum(segs), dtype=new_dtype)  # same performance with np.concatenate
     now = 0
     for dom, seg in zip(doms, segs):
-        out[now:now + seg] = array[dom[0]:dom[1]]
+        if target_fields is not None:
+            for name in target_fields:
+                out[now:now + seg][name] = array[dom[0]:dom[1]][name]
+        else:
+            out[now:now + seg] = array[dom[0]:dom[1]]
         now += seg
 
     return out
+
+
+def merge_segments(starts, ends):
+    discontinuity = np.where(starts[1:] != ends[:-1])[0] + 1
+    merged_starts = np.concatenate(([starts[0]], starts[discontinuity]))
+    merged_ends = np.concatenate((ends[discontinuity - 1], [ends[-1]]))
+    return merged_starts, merged_ends
 
 
 def bulk_sort(array):
