@@ -3456,6 +3456,8 @@ def domain_slice(array, cpulist, bound, cpulist_all=None, target_fields=None):
 
 
 def merge_segments(starts, ends):
+    if starts.size == 0:
+        return starts, ends
     discontinuity = np.where(starts[1:] != ends[:-1])[0] + 1
     merged_starts = np.concatenate(([starts[0]], starts[discontinuity]))
     merged_ends = np.concatenate((ends[discontinuity - 1], [ends[-1]]))
