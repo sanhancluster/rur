@@ -2240,7 +2240,7 @@ class RamsesSnapshot(object):
                     cell = self.cell_data
                 else:
                     timer.start('Domain Slicing...')
-                    cell = domain_slice(self.cell_data, cpulist, self.cpulist_cell, self.bound_cell)
+                    cell = domain_slice(self.cell_data, cpulist, self.bound_cell, cpulist_all=self.cpulist_cell)
                     timer.record()
             else:
                 cell = self.cell_data
@@ -2249,13 +2249,16 @@ class RamsesSnapshot(object):
                 timer.start("Masking...",tab=1)
                 mask = box_mask_table(cell, self.box, snap=self, size=self.cell_extra['dx'](cell), nthread=nthread)
                 timer.record(tab=1)
-                if(timer.verbose>1):
-                    msg = 'Masking cells... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
+                if mask.all():
+                    pass
                 else:
-                    msg = 'Masking cells...'
-                timer.start(msg, 1)
-                cell = cell[mask]
-                timer.record()
+                    if(timer.verbose>1):
+                        msg = 'Masking cells... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
+                    else:
+                        msg = 'Masking cells...'
+                    timer.start(msg, 1)
+                    cell = cell[mask]
+                    timer.record()
 
             cell = Cell(cell, self)
             self.box_cell = self.box
@@ -2327,7 +2330,7 @@ class RamsesSnapshot(object):
                     part = self.part_data
                 else:
                     timer.start('Domain Slicing...')
-                    part = domain_slice(self.part_data, cpulist, self.cpulist_part, self.bound_part)
+                    part = domain_slice(self.part_data, cpulist, self.bound_part, cpulist_all=self.cpulist_part)
                     timer.record()
             else:
                 part = self.part_data
@@ -2336,13 +2339,16 @@ class RamsesSnapshot(object):
                     timer.start("Masking...", tab=1)
                     mask = box_mask_table(part, self.box, snap=self, nthread=nthread)
                     timer.record(tab=1)
-                    if(timer.verbose>1):
-                        msg = 'Masking particles... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
+                    if mask.all():
+                        pass
                     else:
-                        msg = 'Masking particles...'
-                    timer.start(msg, 1)
-                    part = part[mask]
-                    timer.record()
+                        if(timer.verbose>1):
+                            msg = 'Masking particles... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
+                        else:
+                            msg = 'Masking particles...'
+                        timer.start(msg, 1)
+                        part = part[mask]
+                        timer.record()
             part = Particle(part, self, ptype=pname)
             self.box_part = self.box
             self.part = part
@@ -2373,13 +2379,16 @@ class RamsesSnapshot(object):
                 timer.start("Getting mask...", tab=1)
                 mask = box_mask_table(data, self.box, snap=self, nthread=8)
                 timer.record(tab=1)
-                if timer.verbose>1:
-                    msg = 'Masking particles... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
-                elif timer.verbose>0:
-                    msg = 'Masking particles...'
-                timer.start(msg, 1)
-                data = data[mask]
-                timer.record()
+                if mask.all():
+                    pass
+                else:
+                    if timer.verbose>1:
+                        msg = 'Masking particles... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
+                    elif timer.verbose>0:
+                        msg = 'Masking particles...'
+                    timer.start(msg, 1)
+                    data = data[mask]
+                    timer.record()
             part = Particle(data, self, ptype=pname)
         return part
 
@@ -2408,13 +2417,16 @@ class RamsesSnapshot(object):
                 timer.start("Getting mask...", tab=1)
                 mask = box_mask_table(data, self.box, snap=self, size=self.cell_extra['dx'](data), nthread=8)
                 timer.record(tab=1)
-                if timer.verbose>1:
-                    msg = 'Masking cells... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
-                elif timer.verbose>0:
-                    msg = 'Masking cells...'
-                timer.start(msg, 1)
-                data = data[mask]
-                timer.record()
+                if mask.all():
+                    pass
+                else:
+                    if timer.verbose>1:
+                        msg = 'Masking cells... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
+                    elif timer.verbose>0:
+                        msg = 'Masking cells...'
+                    timer.start(msg, 1)
+                    data = data[mask]
+                    timer.record()
             cell = Cell(data, self)
         return cell
 
@@ -3438,6 +3450,10 @@ def domain_slice(array, cpulist, bound, cpulist_all=None, target_fields=None):
 
     # if target_fields is not None, filter the fields
     if target_fields is None:
+        # No need to domain slice if this case
+        if len(segs)==1:
+            if segs[0] == doms[0,1]:
+                return array
         new_dtype = array.dtype
     else:
         new_dtype = [(name, array.dtype[name]) for name in target_fields]
