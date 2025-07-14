@@ -10,8 +10,6 @@ from scipy.signal import convolve2d
 from numpy.linalg import det
 from skimage.transform import resize, rescale, warp, EuclideanTransform, AffineTransform
 
-from numba import njit
-
 import string
 import matplotlib.collections as mcoll
 from os.path import dirname, join, abspath
@@ -929,43 +927,6 @@ def dark_cmap(color):
     color_bright = np.array(color)+0.25
     color_bright[color_bright>1] = 1
     return make_cmap([[0, 0, 0], color, color_bright], position=[0, 0.5, 1])        
-
-def box_mask(coo, lims, sizes=None):
-    if sizes is None:
-        return _box_mask_nb(coo, lims)
-    else:
-        return _box_mask_sizes_nb(coo, lims, sizes)
-
-@njit
-def _box_mask_nb(coo, lims):
-    """
-    A Numba-optimized function for mask generation
-    """
-    mask = np.zeros(coo.shape[0], dtype=np.bool_)
-    for i in range(coo.shape[0]):
-        ok = True
-        for j in range(coo.shape[1]):
-            if coo[i, j] < lims[j, 0] or coo[i, j] > lims[j, 1]:
-                ok = False
-                break
-        mask[i] = ok
-    return mask
-
-@njit
-def _box_mask_sizes_nb(coo, lims, sizes):
-    """
-    A Numba-optimized function for mask generation with sizes
-    """
-    mask = np.zeros(coo.shape[0], dtype=np.bool_)
-    for i in range(coo.shape[0]):
-        ok = True
-        for j in range(coo.shape[1]):
-            if coo[i, j] + sizes[i]/2 < lims[j, 0] or coo[i, j] - sizes[i]/2 > lims[j, 1]:
-                ok = False
-                break
-        mask[i] = ok
-    return mask
-
 
 def grid_projection(centers, levels=None, quantities=None, weights=None, shape=None, lims=None, mode='sum', plot_method='hist', projection=['x', 'y'], interp_order=0, crop_mode='subpixel', type='particle'):
     """

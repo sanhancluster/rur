@@ -359,7 +359,7 @@ def create_hdf5_cell(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output
 
         read_branch = None
         for name in ['leaf', 'branch']:
-            timer.message(f"Generating new {name} cell array for iout = {snap.iout} with {len(cpu_list)} CPUs...", name='cell_hdf')
+            timer.message(f"Generating new {name} cell array for iout = {snap.iout} with {len(cpu_list)} CPUs...")
             if name == 'leaf':
                 read_branch = False
             elif name == 'branch':
