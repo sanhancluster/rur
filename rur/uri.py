@@ -2207,7 +2207,7 @@ class RamsesSnapshot(object):
             self.box = box
 
         if hdf:
-            return self.get_cell_hdf(box=box, target_fields=target_fields, exact_box=exact_box, read_branch=read_branch)
+            return self.get_cell_hdf(box=box, target_fields=target_fields, exact_box=exact_box, read_branch=read_branch, nthread=nthread)
 
         if (cpulist is None):
             if (self.box is None or np.array_equal(self.box, self.default_box)):
@@ -2252,6 +2252,7 @@ class RamsesSnapshot(object):
                 if mask.all():
                     pass
                 else:
+                    msg = None
                     if(timer.verbose>1):
                         msg = 'Masking cells... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
                     else:
@@ -2291,7 +2292,7 @@ class RamsesSnapshot(object):
         if hdf:
             if pname is None:
                 raise ValueError("Particle type (pname) must be specified when using HDF5 mode.")
-            return self.get_part_hdf(pname, box=box, target_fields=target_fields, exact_box=exact_box)
+            return self.get_part_hdf(pname, box=box, target_fields=target_fields, exact_box=exact_box, nthread=nthread)
 
         if (cpulist is None):
             if (self.box is None or np.array_equal(self.box, self.default_box)):
@@ -2342,6 +2343,7 @@ class RamsesSnapshot(object):
                     if mask.all():
                         pass
                     else:
+                        msg = None
                         if(timer.verbose>1):
                             msg = 'Masking particles... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
                         else:
@@ -2355,7 +2357,7 @@ class RamsesSnapshot(object):
         return self.part
 
 
-    def get_part_hdf(self, pname, box=None, target_fields=None, exact_box=True):
+    def get_part_hdf(self, pname, box=None, target_fields=None, exact_box=True, nthread=8):
         hdf_path = self.get_path('hdf_part')
         if not exists(hdf_path):
             raise FileNotFoundError(f"HDF5 part file not found: {hdf_path}")
@@ -2377,11 +2379,12 @@ class RamsesSnapshot(object):
 
             if (self.box is not None and exact_box):
                 timer.start("Getting mask...", tab=1)
-                mask = box_mask_table(data, self.box, snap=self, nthread=8)
+                mask = box_mask_table(data, self.box, snap=self, nthread=nthread)
                 timer.record(tab=1)
                 if mask.all():
                     pass
                 else:
+                    msg = None
                     if timer.verbose>1:
                         msg = 'Masking particles... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
                     elif timer.verbose>0:
@@ -2393,7 +2396,7 @@ class RamsesSnapshot(object):
         return part
 
 
-    def get_cell_hdf(self, box=None, target_fields=None, exact_box=True, read_branch=False):
+    def get_cell_hdf(self, box=None, target_fields=None, exact_box=True, read_branch=False, nthread=8):
         hdf_path = self.get_path('hdf_cell')
         if not exists(hdf_path):
             raise FileNotFoundError(f"HDF5 cell file not found: {hdf_path}")
@@ -2415,11 +2418,12 @@ class RamsesSnapshot(object):
 
             if (self.box is not None and exact_box):
                 timer.start("Getting mask...", tab=1)
-                mask = box_mask_table(data, self.box, snap=self, size=self.cell_extra['dx'](data), nthread=8)
+                mask = box_mask_table(data, self.box, snap=self, size=self.cell_extra['dx'](data), nthread=nthread)
                 timer.record(tab=1)
                 if mask.all():
                     pass
                 else:
+                    msg = None
                     if timer.verbose>1:
                         msg = 'Masking cells... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size)
                     elif timer.verbose>0:
