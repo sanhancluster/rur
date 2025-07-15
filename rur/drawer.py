@@ -1083,10 +1083,18 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
     zz = cc[:, proj_z]
 
     # set the projector lambda based on the plot method
-    if plot_method == 'cic':
-        projector = lambda x, y, w, lims, shape: cic_img(x, y, weights=w, lims=lims, reso=shape)
-    elif plot_method == 'hist':
+    if plot_method == 'hist':
         projector = lambda x, y, w, lims, shape: np.histogram2d(x, y, weights=w, range=lims, bins=shape)[0]
+    elif plot_method == 'cic':
+        projector = lambda x, y, w, lims, shape: cic_img(x, y, weights=w, lims=lims, reso=shape)
+    elif plot_method == 'dtfe':
+        projector = lambda x, y, w, lims, shape: dtfe_img(x, y, weights=w, lims=lims, reso=shape, smooth=1)
+    elif plot_method == 'gaussian':
+        projector = lambda x, y, w, lims, shape: gauss_img(x, y, weights=w, lims=lims, reso=shape)        
+    elif plot_method == 'gaussian_kde':
+        projector = lambda x, y, w, lims, shape: kde_img(x, y, weights=w, lims=lims, reso=shape)
+    else:
+        raise ValueError(f"Unknown plot method: {plot_method}. Supported methods are 'cic', 'hist', 'dtfe', 'gaussian', 'gaussian_kde'.")
 
     # do projection
     if type == 'part':
