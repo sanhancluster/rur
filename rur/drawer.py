@@ -972,10 +972,10 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
         if mode in ['sum', 'mean']:
             # do a weighted sum over projection
             grid += projector(x, y, quantity*weights, lims_2d, shape)
-            if mode in ['mean']:
+            if grid_weight is not None:
                 grid_weight += projector(x, y, weights, lims_2d, shape)
         elif mode in ['min', 'max']:
-            xi, yi = np.digitize(x, np.linspace(*lims_2d[0], shape[0]+1)) - 1, np.digitize(y, np.linspace(*lims_2d[1], shape[1]+1)) - 1
+            xi, yi = np.digitize(x, np.linspace(lims_2d[0][0], lims_2d[0][1], shape[0]+1)) - 1, np.digitize(y, np.linspace(lims_2d[1][0], lims_2d[1][1], shape[1]+1)) - 1
             if mode in ['min']:
                 # do a minimum over projection
                 np.minimum.at(grid, (xi, yi), quantity)
@@ -984,7 +984,7 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
                 np.maximum.at(grid, (xi, yi), quantity)
 
     ndim = 3
-    levelmin, levelmax = None, None
+    levelmin, levelmax = 1, 1
     # if lims is None, set all limits to [0, 1]
     if lims is None:
         lims = [[0, 1],] * ndim
@@ -1034,6 +1034,8 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
         shape_grid = shape
 
     elif type == 'amr':
+        if levels is None:
+            raise ValueError("Levels must be provided for AMR data.")
         if centers.shape[0] != len(levels):
             raise ValueError("The number of centers and levels do not match.")
         levelmin, levelmax = np.min(levels), np.max(levels)
@@ -1047,7 +1049,7 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
             levelmax_draw = levelmax
             dx_min = 2. ** -levelmax_draw
             shape = (lims_2d[0, 1] - lims_2d[0, 0]) // dx_min, (lims_2d[1, 1] - lims_2d[1, 0]) // dx_min
-            if shape >= 1E8:
+            if np.prod(shape) >= 1E8:
                 warnings.warn("The shape of the grid is too large: {shape}, it may cause memory issues.")
         levelmin_draw = levelmin
 
@@ -1104,7 +1106,7 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
         apply_projection(grid=grid, grid_weight=grid_weight, x=xx, y=yy, quantity=qq, weights=ww, lims_2d=lims_2d, projector=projector, mode=mode)
         grid /= pixel_area
 
-        if mode == 'mean':
+        if mode in ['mean'] and grid_weight is not None:
             grid /= grid_weight
 
     elif type == 'amr':
@@ -1114,11 +1116,14 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
             x, y, z, q = xx[mask_level], yy[mask_level], zz[mask_level], qq[mask_level]
 
             volume_weight = 1
+            
             # get weight for the current level with depending on the line-of-sight depth within the limit.
             # e.g., the weight is 0.5 if the z-coordinate is in the middle of any z-limits 
             volume_weight += np.clip((z - lims[proj_z][0]) * 2**grid_level - 0.5, -1, 0) + np.clip((lims[proj_z][1] - z) * 2**grid_level - 0.5, -1, 0)
+            
             # multiply the weight by the depth of the projected grid. The weight is doubled per each decreasing level except for the levels larger than the grid resolution.
             volume_weight *= 0.5**grid_level
+            
             # give additional weight to the projection if cell is smaller than the grid resolution
             volume_weight *= 0.25**np.maximum(0, grid_level - levelmax_draw)
             w = ww[mask_level] * volume_weight
@@ -1143,6 +1148,8 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
                 subpixel = crop_mode == 'subpixel'
                 lims_crop = (lims_2d - lims_2d_draw[:, 0, np.newaxis]) / (lims_2d_draw[:, 1] - lims_2d_draw[:, 0])[:, np.newaxis]
                 grid = crop(grid, range=lims_crop, output_shape=shape, subpixel=subpixel, order=interp_order)
+    else:
+        raise ValueError(f"Unknown type: {type}. Supported types are 'particle' and 'amr'.")
 
     return grid
 
