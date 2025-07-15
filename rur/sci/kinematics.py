@@ -152,9 +152,6 @@ def vel_spherical(part: Particle, gal, pole):
 
 #    return jrot/jcire
 
-def surface_brightness(absmag, area_pc2):
-    return absmag + 2.5*np.log10(area_pc2) - 5 + 5 * np.log10(3600*180/np.pi)
-
 def rotate2d(p, angle=0, origin=(0, 0)):
     R = np.array([[np.cos(angle), -np.sin(angle)],
                   [np.sin(angle),  np.cos(angle)]])

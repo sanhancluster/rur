@@ -6,7 +6,6 @@ with open("README.md", "r") as fh:
 readr = Extension(name='rur.readr', sources=['rur/readr.f90'], language='f90')
 readhtm = Extension(name='rur.readhtm', sources=['rur/readhtm.f90'], language='f90')
 hilbert3d = Extension(name='rur.hilbert3d', sources=['rur/hilbert3d.f90'], language='f90')
-io_ramses = Extension(name='rur.io_ramses', sources=['rur/io_ramses.f90'], language='f90')
 if __name__ == "__main__":
     setup(
         name='rur',
@@ -16,7 +15,7 @@ if __name__ == "__main__":
         description="A package for reading and analyzing the RAMSES data",
         packages=['rur'],
         ext_packages=['rur'],
-        ext_modules=[readr, readhtm, hilbert3d, io_ramses],
+        ext_modules=[readr, readhtm, hilbert3d],
         long_description=long_description,
         package_data={'rur': ['colormaps/data/*.csv', 'sci/*', 'cb07/*','YEPS/*']},
         install_requires=[
