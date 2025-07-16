@@ -3,7 +3,7 @@
 RAMSES Universal Reader
 =============================
 
-By San Han
+By San Han and Seyoung Jeon
 
 A package for reading and analysing various versions of RAMSES hydro and particle data.
 
@@ -20,13 +20,13 @@ RUR requires python version to be >= 3.10
 The list of packages that are required to use rur can be seen in [requirements.txt](requirements.txt).
 ##### using conda
 ```bash
-conda create -n rur && conda activate rur # optional
+conda create -n rur && conda activate rur # Optional, to create virtual environment
 conda install -c conda-forge --file requirements.txt --yes
 ```
 ##### using pip
 ```bash
 cd rur
-python3 -m venv rur && source rur/bin/activate # optional
+python3 -m venv rur && source rur/bin/activate # Optional, to create virtual environment
 pip install -r requirements.txt
 ```
 #### compiling fortran modules and setting up package path
@@ -63,11 +63,24 @@ snap = uri.RamsesSnapshot('my_RAMSES_repo', iout, mode='none')
 rst = Rockstar.load(snap, path_in_repo='path_to_rockstar_in_repo')
 
 target_halo = rst[123] # arbitrary halo number
-snap.set_box_halo(target_halo, radius=1)
+snap.set_box_halo(target_halo, radius=1, radius_name='rvir')
 cell = snap.get_cell()
 part = snap.get_part()
 ```
 gives you cell and particle table of bounding box of the selected halo.
+The loading process is done by setting the bounding box at the position (```rst['x'], rst['y'], rst['z']```) with radius (```rst['rvir']```) informations.
+RUR checks for the hilbert boundaries to visit least number of RAMSES files to fully load the target box region.
+
+The target box can also be explicitly defined.
+```python
+from rur import uri
+iout = 136
+snap = uri.RamsesSnapshot('my_RAMSES_repo', iout, mode='none')
+
+box = [[0.4, 0.6], [0.4, 0.6], [0.48, 0.52]] # 3-d coordinates of the boundary
+snap.box = box
+part = snap.get_part()
+```
 
 ### Configuring cell and particle data column
 Cell and particle column data differ by RAMSES versions.
