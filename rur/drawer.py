@@ -1047,7 +1047,7 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
             levelmax_draw = levelmax
             dx_min = 2. ** -levelmax_draw
             shape = (lims_2d[0, 1] - lims_2d[0, 0]) // dx_min, (lims_2d[1, 1] - lims_2d[1, 0]) // dx_min
-            if shape >= 1E8:
+            if np.prod(shape) >= 1E8:
                 warnings.warn("The shape of the grid is too large: {shape}, it may cause memory issues.")
         levelmin_draw = levelmin
 
@@ -1126,7 +1126,6 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
 
         if mode == 'mean':
             grid /= grid_weight
-        
         # resize and crop image to the desired shape
         if shape is not None:
             if crop_mode == 'grid':
@@ -1232,8 +1231,8 @@ def crop(img, range, output_shape=None, subpixel=True, **kwargs):
 
         tform1 = EuclideanTransform(translation=idx_true[:, 0] - 0.5)
         tform2 = AffineTransform(scale=scale)
-        #tform3 = EuclideanTransform(translation=0.5/scale)
-        img = warp(img.T, tform2+tform1, output_shape=output_shape, **kwargs).T
+        # need to trnspose the image to apply the transformation correctly
+        img = warp(img.T, tform2+tform1, output_shape=output_shape[::-1], **kwargs).T
 
     return img
 
