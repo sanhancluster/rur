@@ -2194,13 +2194,13 @@ class RamsesSnapshot(object):
         self.cpu = np.concatenate(amr_cpus)
 
     def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False,
-                 ripses=False, python=True, nthread=8, use_cache=False, hdf=False, read_branch=False, dev=False):
+                 ripses=False, python=True, nthread=8, use_cache=False, hdf=False, read_branch=False, dev=False, htype='lzf'):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
 
         if hdf:
-            return self.get_cell_hdf(box=box, target_fields=target_fields, exact_box=exact_box, read_branch=read_branch, nthread=nthread, dev=dev)
+            return self.get_cell_hdf(box=box, target_fields=target_fields, exact_box=exact_box, read_branch=read_branch, nthread=nthread, dev=dev, htype=htype)
 
         if (cpulist is None):
             if (self.box is None or np.array_equal(self.box, self.default_box)):
@@ -2275,7 +2275,7 @@ class RamsesSnapshot(object):
         self.cell['z'] *= boxlen/(l2-l1)
 
     def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None,
-                 python=True, nthread=8, use_cache=False, hdf=False, dev=False):
+                 python=True, nthread=8, use_cache=False, hdf=False, dev=False, htype='lzf'):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -2283,7 +2283,7 @@ class RamsesSnapshot(object):
         if hdf:
             if pname is None:
                 raise ValueError("Particle type (pname) must be specified when using HDF5 mode.")
-            return self.get_part_hdf(pname, box=box, target_fields=target_fields, exact_box=exact_box, nthread=nthread, dev=dev)
+            return self.get_part_hdf(pname, box=box, target_fields=target_fields, exact_box=exact_box, nthread=nthread, dev=dev, htype=htype)
 
         if (cpulist is None):
             if (self.box is None or np.array_equal(self.box, self.default_box)):
@@ -2346,10 +2346,17 @@ class RamsesSnapshot(object):
         return self.part
 
 
-    def get_part_hdf(self, pname, box=None, target_fields=None, exact_box=True, nthread=1, dev=False):
+    def get_part_hdf(self, pname, box=None, target_fields=None, exact_box=True, nthread=1, dev=False, htype='lzf'):
         hdf_path = self.get_path('hdf_part')
+        if htype == 'gzip':
+            hdf_path = f"{hdf_path.split('.')[0]}_gzip4.h5"
+        elif htype == 'plain':
+            hdf_path = f"{hdf_path.split('.')[0]}_plain.h5"
+
         if not exists(hdf_path):
             raise FileNotFoundError(f"HDF5 part file not found: {hdf_path}")
+        else:
+            print(f"Reading HDF5: `{hdf_path}`")
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -2441,10 +2448,16 @@ class RamsesSnapshot(object):
         # -------------------------------------------
 
 
-    def get_cell_hdf(self, box=None, target_fields=None, exact_box=True, read_branch=False, nthread=8, dev=False):
+    def get_cell_hdf(self, box=None, target_fields=None, exact_box=True, read_branch=False, nthread=8, dev=False, htype='lzf'):
         hdf_path = self.get_path('hdf_cell')
+        if htype == 'gzip':
+            hdf_path = f"{hdf_path.split('.')[0]}_gzip4.h5"
+        elif htype == 'plain':
+            hdf_path = f"{hdf_path.split('.')[0]}_plain.h5"
         if not exists(hdf_path):
             raise FileNotFoundError(f"HDF5 cell file not found: {hdf_path}")
+        else:
+            print(f"Reading HDF5: `{hdf_path}`")
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
