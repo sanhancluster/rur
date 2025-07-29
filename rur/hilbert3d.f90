@@ -3,13 +3,12 @@ subroutine hilbert3d(x,y,z,order,bit_length,npoint)
 
   integer     ,INTENT(IN)                     ::bit_length,npoint
   integer     ,INTENT(IN) ,dimension(1:npoint)::x,y,z
-  integer(kind=8),INTENT(OUT),dimension(1:npoint)::order
+  real(kind=8),INTENT(OUT),dimension(1:npoint)::order
 
   logical,dimension(0:3*bit_length-1)::i_bit_mask
   logical,dimension(0:1*bit_length-1)::x_bit_mask,y_bit_mask,z_bit_mask
   integer,dimension(0:7,0:1,0:11)::state_diagram
   integer::i,ip,cstate,nstate,b0,b1,b2,sdigit,hdigit
-  integer(kind=8)::two=2
 
   if(bit_length>bit_size(bit_length))then
      write(*,*)'Maximum bit length=',bit_size(bit_length)
@@ -42,7 +41,8 @@ subroutine hilbert3d(x,y,z,order,bit_length,npoint)
                             &  10, 3, 2, 6,10, 3, 4, 4,&
                             &   6, 1, 7, 0, 5, 2, 4, 3 /), &
                             & (/8 ,2, 12 /) )
-
+!$omp parallel do private(i,ip,cstate,nstate,b0,b1,b2,sdigit,hdigit,i_bit_mask,x_bit_mask,y_bit_mask,z_bit_mask) &
+!$omp & shared(x,y,z,order,state_diagram,bit_length) default(none)
   do ip=1,npoint
 
      ! convert to binary
@@ -74,11 +74,11 @@ subroutine hilbert3d(x,y,z,order,bit_length,npoint)
         cstate=nstate
      enddo
 
-     ! save Hilbert key as double precision real
+     ! save Hilbert key as quadruple precision real
      order(ip)=0
      do i=0,3*bit_length-1
         b0=0 ; if(i_bit_mask(i))b0=1
-        order(ip)=order(ip)+b0*two**i
+        order(ip)=order(ip)+real(b0,kind=16)*real(2,kind=16)**i
      end do
 
   end do

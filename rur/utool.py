@@ -1541,3 +1541,25 @@ def add_fields(table, dtype, fill_value=None, overwrite=True):
         return table.__copy__(data)
     else:
         return data
+
+
+def box_mask(coo, box, size=None, exclusive=False, nchunk=10000000):
+    # masking coordinates based on the box
+    if size is not None:
+        size = expand_shape(size, [0], 2)
+    else:
+        size = 0
+    if (exclusive):
+        size *= -1
+    box = np.array(box)
+    mask_out = []
+    for i0 in range(0, coo.shape[0], nchunk):
+        i1 = np.minimum(i0 + nchunk, coo.shape[0])
+        if not np.isscalar(size) and size.shape[0] == coo.shape[0]:
+            size_now = size[i0:i1]
+        else:
+            size_now = size
+        mask = np.all((box[:, 0] <= coo[i0:i1] + size_now / 2) & (coo[i0:i1] - size_now / 2 <= box[:, 1]), axis=-1)
+        mask_out.append(mask)
+    mask_out = np.concatenate(mask_out)
+    return mask_out

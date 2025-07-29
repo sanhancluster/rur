@@ -5,11 +5,16 @@ import numpy as np
 import os
 import time, datetime
 from tqdm import tqdm
+from numba import njit, prange
+import argparse
 
 from rur import uri, utool
+from rur import sim as simlist
 from rur.fortranfile import FortranFile
 from rur.scripts.san import simulations as sim
 from rur.hilbert3d import hilbert3d
+import signal
+from multiprocessing import Pool
 
 
 converted_dtypes = {
@@ -85,7 +90,7 @@ class Timestamp:
         self.start(name)
         if verbose <= self.verbose:
             elapsed_time = self.elapsed()
-            time_string = self.get_time_string(elapsed_time)
+            time_string = time.strftime("%H:%M:%S", time.gmtime(elapsed_time))
             print(f"{CYAN}[ {time_string} ]{RESET} {msg}")
 
     def record(self, msg=None, name=None, verbose=1):
@@ -93,45 +98,16 @@ class Timestamp:
             name = 'last'
         if verbose <= self.verbose:
             elapsed_time = self.elapsed()
-            time_string = self.get_time_string(elapsed_time)
+            time_string = time.strftime("%H:%M:%S", time.gmtime(elapsed_time))
             recorded_time = self.elapsed(name)
-            recorded_time_string = self.get_time_string(recorded_time, add_units=True)
             if msg is None:
                 msg = "Done."
-            print(f"{CYAN}[ {time_string} ]{RESET} {msg} -> {GREEN}{recorded_time_string}{RESET}")
+            print(f"{CYAN}[ {time_string} ]{RESET} {msg} -> {GREEN}{recorded_time:.2f} s{RESET}")
         self.stamps.pop(name)
-
-    def get_time_string(self, elapsed_time, add_units=False):
-        """
-        Convert elapsed time in seconds to a formatted string.
-        """
-        time_format = "%H:%M:%S"
-        if elapsed_time < 60:
-            if add_units:
-                return f"{elapsed_time:.2f}s"
-            else:
-                return "%S"
-        elif elapsed_time < 3600:
-            if add_units:
-                time_format = "%Mm %Ss"
-            else:
-                time_format = "%M:%S"
-        elif elapsed_time < 86400:
-            if add_units:
-                time_format = "%Hh %Mm %Ss"
-            else:
-                time_format = "%H:%M:%S"
-        else:
-            elapsed_day = elapsed_time // 86400  # Convert to days
-            if add_units:
-                time_format = f"{elapsed_day}d %Hh %Mm %Ss"
-            else:
-                time_format = f"{elapsed_day} %H:%M:%S"
-        return time.strftime(time_format, time.gmtime(elapsed_time))
 
 timer = Timestamp()
 
-def export_part(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load:int=60, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0'):
+def export_part(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load:int=60, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0', nthread:int=8):
     ts = repo
     if iout_list is None:
         iout_list = ts.read_iout_avail()
@@ -140,12 +116,12 @@ def export_part(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load
         timer.message(f"Starting particle data extraction for iout = {iout}.", name='part_hdf')
         snap = ts[iout]
 
-        create_hdf5_part(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite, sim_description=sim_description, version=version)
+        create_hdf5_part(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite, sim_description=sim_description, version=version, nthread=nthread)
         
         snap.clear()
         timer.record(f"Particle data extraction completed for iout = {snap.iout}.", name='part_hdf')
 
-def create_hdf5_part(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0'):
+def create_hdf5_part(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0', nthread:int=8):
     if cpu_list is None:
         cpu_list = np.arange(1, snap.ncpu + 1, dtype='i4')
     else:
@@ -167,39 +143,32 @@ def create_hdf5_part(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output
             print(f"File {output_file} exists but is not a valid HDF5 file. Overwriting.")
     
     timer.message(f"Generating new part dictionary for iout = {snap.iout} with {len(cpu_list)} CPUs...")
-    new_part_dict, pointer_dict = get_new_part_dict(snap, cpu_list=cpu_list, size_load=size_load)
+    new_part_dict, pointer_dict = get_new_part_dict(snap, cpu_list=cpu_list, size_load=size_load, nthread=nthread)
     names = new_part_dict.keys()
     
     timer.message(f"Creating HDF5 file {output_file} with {len(new_part_dict)} particle types...")
     with h5py.File(output_file, 'w') as fl:
         fl.attrs['description'] = 'Ramses particle data' \
-        "\n============================================================================" \
-        "\nThis file contains particle data extracted from Ramses snapshots in HDF5 format. "\
-        "It includes particle coordinates, velocities, masses, and other properties. "\
-        "The data is organized in chunks based on Hilbert keys for efficient access. "\
-        "The data within each chunk is sorted by level. "\
-        "\nThis file is generated by rur.rur.scripts.ramses_to_hdf_nc.py script."\
-        "\nThis file contains following particle types:"\
-        "\n'star': stellar particles"\
-        "\n'dm': dark matter particles"\
-        "\n'cloud': cloud particles, temporal particles generated for sink particles."\
-        "\n'tracer': tracer particles, includes gas, star, sink tracers."\
-        "\n'sink': sink particles, represent MBH population."\
-        "\nEach particle type has the following datasets:"\
-        "\n'data': Particle data."\
-        "\n'hilbert_boundary': Hilbert key boundaries for each chunk based on the Peano-Hilbery curve with levelmax resolution." \
-        "\n'chunk_boundary': Chunk boundary indices for each chunk." \
-        "\n'level_boundary': Level boundary indices for each level within chunks." \
+        '\nThis file contains particle data extracted from Ramses snapshots in HDF5 format.'\
+        '\nIt includes particle coordinates, velocities, masses, and other properties.' \
+        '\nThe data is organized in chunks based on Hilbert keys for efficient access.'\
+        '\nThe data within each chunk is sorted by level.' \
+        '\nThis file is generated by rur.rur.scripts.ramses_to_hdf_nc.py script.' \
+        '\nThis file contains following particle types:' \
+        '\n- star: stellar particles' \
+        '\n- dm: dark matter particles' \
+        '\n- cloud: cloud particles, temporal particles generated for sink particles.' \
+        '\n- tracer: tracer particles, includes gas, star, sink tracers.' \
+        '\n- sink: sink particles, represent MBH population.' \
         '\n' + sim_description
         fl.attrs['created'] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        fl.attrs['attributes'] = "This file include following attributes:"
         add_basic_attrs(fl, snap)
-        add_attr_with_descr(fl, 'cpulist', cpu_list, 'List of CPU indices used for this snapshot.')
+        fl.attrs['cpulist'] = cpu_list
 
         n_level = snap.levelmax
-        add_attr_with_descr(fl, 'n_level', n_level, 'Number of levels in the snapshot.')
-        add_attr_with_descr(fl, 'n_chunk', n_chunk, 'Number of chunks in the snapshot.')
-
+        fl.attrs['n_level'] = n_level
+        fl.attrs['n_chunk'] = n_chunk
+        
         n_part_tot = 0
         for name in names:
             new_part = new_part_dict[name][:pointer_dict[name]]
@@ -249,11 +218,11 @@ def create_hdf5_part(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output
                 grp.create_dataset('level_boundary', data=level_boundary, **dataset_kw)
             timer.message(f"Exporting {name} data with {new_part.size} particles...")
             grp.create_dataset('data', data=new_part, **dataset_kw)
-        
-        add_attr_with_descr(fl, 'size', n_part_tot, 'Total number of particles in the snapshot.')
-        add_attr_with_descr(fl, 'version', version, 'Version of the file.')
 
-def get_new_part_dict(snap:uri.RamsesSnapshot, cpu_list, size_load) -> dict:
+        fl.attrs['size'] = n_part_tot
+        fl.attrs['version'] = version
+
+def get_new_part_dict(snap:uri.RamsesSnapshot, cpu_list, size_load, nthread=8) -> dict:
     """
     Get a new dictionary to store particle data for each type.
     """
@@ -282,7 +251,7 @@ def get_new_part_dict(snap:uri.RamsesSnapshot, cpu_list, size_load) -> dict:
         cpu_list_sub = cpu_list[idx:np.minimum(idx + size_load, len(cpu_list))]
         if len(cpu_list_sub) == 0:
             continue
-        snap.get_part(cpulist=cpu_list_sub, hdf=False)
+        snap.get_part(cpulist=cpu_list_sub, hdf=False, nthread=nthread)
         part_data = snap.part_data
         for icpu in cpu_list_sub:
             # sort the particle within each CPU by Hilbert key, this is to reduce the sorting time later
@@ -333,7 +302,7 @@ def compute_key_boundaries(key_array: np.ndarray, n_key: int) -> np.ndarray:
     return key_boundaries
 
 
-def export_cell(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load:int=60, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0'):
+def export_cell(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load:int=60, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0', nthread:int=8):
     ts = repo
     if iout_list is None:
         iout_list = ts.read_iout_avail()
@@ -342,13 +311,13 @@ def export_cell(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load
         timer.message(f"Starting cell data extraction for iout = {iout}.", name='cell_hdf')
         snap = ts[iout]
 
-        create_hdf5_cell(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite, sim_description=sim_description, version=version)
+        create_hdf5_cell(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite, sim_description=sim_description, version=version, nthread=nthread)
         
         snap.clear()
         timer.record(f"Cell data extraction completed for iout = {snap.iout}.", name='cell_hdf')
 
 
-def create_hdf5_cell(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0'):
+def create_hdf5_cell(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0', nthread:int=8):
     """
     Export cell data from the snapshot to HDF5 format.
     """
@@ -374,30 +343,21 @@ def create_hdf5_cell(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output
     timer.message(f"Creating HDF5 file {output_file} for cells...")
     with h5py.File(output_file, 'w') as fl:
         fl.attrs['description'] = 'Ramses cell/AMR data' \
-        "\n============================================================================" \
-        "\nThis file contains cell data extracted from Ramses snapshots in HDF5 format. " \
-        "It includes cell coordinates, velocities, densities, and other properties. " \
-        "The data is organized in chunks based on Hilbert keys for efficient access. " \
-        "The data within each chunk is sorted by level. Please check 'attributes' for more information." \
-        "\nThis file is generated by rur.rur.scripts.ramses_to_hdf_nc.py script." \
-        "\nThis file contains following cell types:" \
-        "\n'leaf': leaf cells with no children, can be used for general purpose." \
-        "\n'branch': branch cells with children, can be used for quick access to the averaged quantities." \
-        "\nEach cell type has following datasets:" \
-        "\n'data': Cell data." \
-        "\n'hilbert_boundary': Hilbert key boundaries for each chunk based on the Peano-Hilbery curve with levelmax resolution." \
-        "\n'chunk_boundary': Chunk boundary indices for each chunk." \
-        "\n'level_boundary': Level boundary indices for each level within chunks." \
-        "\n" + sim_description
+        '\nThis file contains cell data extracted from Ramses snapshots in HDF5 format.'\
+        '\nIt includes cell coordinates, velocities, densities, and other properties.' \
+        '\nThe data is organized in chunks based on Hilbert keys for efficient access.'\
+        '\nThe data within each chunk is sorted by level.' \
+        '\nThis file is generated by rur.rur.scripts.ramses_to_hdf_nc.py script.' \
+        '\n- leaf: leaf cells with no children, can be used for general purpose.' \
+        '\n- branch: branch cells with children, can be used for quick access to the averaged quantities.' \
+        '\n' + sim_description
         fl.attrs['created'] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        fl.attrs['attributes'] = "This file include following attributes:"
         add_basic_attrs(fl, snap)
-        add_attr_with_descr(fl, 'cpulist', cpu_list, 'List of CPU indices used for this snapshot.')
+        fl.attrs['cpulist'] = cpu_list
 
         n_level = snap.levelmax
-        add_attr_with_descr(fl, 'n_level', n_level, 'Number of levels in the snapshot.')
-        add_attr_with_descr(fl, 'n_chunk', n_chunk, 'Number of chunks in the snapshot.')
-
+        fl.attrs['n_level'] = n_level
+        fl.attrs['n_chunk'] = n_chunk
         n_cell_tot = 0
 
         read_branch = None
@@ -453,19 +413,36 @@ def create_hdf5_cell(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output
             timer.message(f"Exporting cell data with {new_cell.size} cells...")
             grp.create_dataset('data', data=new_cell, **dataset_kw)
 
-        add_attr_with_descr(fl, 'size', n_cell_tot, 'Total number of cells in the snapshot.')
-        add_attr_with_descr(fl, 'version', version, 'Version of the file.')
+        fl.attrs['size'] = n_cell_tot
+        fl.attrs['version'] = version
 
 
-def get_new_cell(snap:uri.RamsesSnapshot, cpu_list, size_load, read_branch=False) -> np.ndarray:
+def get_new_cell(snap:uri.RamsesSnapshot, cpu_list, size_load, read_branch=False, nthread=8) -> np.ndarray:
     """
     Get a new array to store cell data.
     """
     new_cell = None
     pointer = 0
+    nthread = min(nthread, len(cpu_list))
 
     timer.message(f"Calculating total number of cells for iout = {snap.iout} with {len(cpu_list)} CPUs...")
-    n_cell = get_ncell(snap, python=True, read_branch=read_branch)
+    if nthread==1:
+        n_cell = get_ncell(snap, python=True, read_branch=read_branch)
+    else:
+        ncpu, ndim, nx, ny, nz, nlevelmax, nboundary, boxlen, icoarse_min, jcoarse_min, kcoarse_min = snap._get_amr_info()
+        amr_kwargs = {
+            'nboundary': nboundary, 'nlevelmax': nlevelmax, 'ndim': ndim,
+            'ncpu': ncpu, 'twotondim': 2 ** ndim, 'skip_amr': 3 * (2 ** ndim + ndim) + 1,
+            'nx': nx, 'ny': ny, 'nz': nz, 'boxlen': boxlen,
+            'icoarse_min': icoarse_min, 'jcoarse_min': jcoarse_min, 'kcoarse_min': kcoarse_min,}
+        files = [f"{snap.snap_path}/output_{snap.iout:05d}/amr_{snap.iout:05d}.out{icpu:05d}" for icpu in cpu_list]
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        with Pool(processes=nthread) as pool:
+            sizes = pool.starmap(uri._calc_ncell, [(fname, amr_kwargs, read_branch) for fname in files])
+        signal.signal(signal.SIGTERM, snap.terminate)
+        sizes = np.asarray(sizes, dtype=np.int32)
+        n_cell = np.sum(sizes)
+    print(n_cell)
     new_cell = np.empty(n_cell, dtype=converted_dtype_cell)
     new_dtypes = converted_dtype_cell
 
@@ -474,7 +451,7 @@ def get_new_cell(snap:uri.RamsesSnapshot, cpu_list, size_load, read_branch=False
         cpu_list_sub = cpu_list[idx:np.minimum(idx + size_load, len(cpu_list))]
         if len(cpu_list_sub) == 0:
             continue
-        snap.get_cell(cpulist=cpu_list_sub, read_grav=True, read_branch=read_branch, hdf=False)
+        snap.get_cell(cpulist=cpu_list_sub, read_grav=True, read_branch=read_branch, hdf=False, nthread=nthread)
         cell_data = snap.cell_data
         for icpu in cpu_list_sub:
             # sort the cell within each CPU by Hilbert key, this is to reduce the sorting time later
@@ -483,7 +460,7 @@ def get_new_cell(snap:uri.RamsesSnapshot, cpu_list, size_load, read_branch=False
             if bound[0] == bound[1]:
                 continue
             sl = slice(*bound)
-            cell_sl = cell_data[sl]
+            cell_sl = snap.cell_data[sl]
             sl_coo = np.array([cell_sl['x'], cell_sl['y'], cell_sl['z']]).T
             hilbert_key = get_hilbert_key(sl_coo, snap.levelmax)
             sort_key = np.argsort(hilbert_key)
@@ -548,29 +525,6 @@ def get_ncell(snap:uri.RamsesSnapshot, python=False, read_branch=False) -> int:
     return ncell
 
 
-def export_snapshots(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load:int=60, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0'):
-    """
-    Export snapshots from the repository to HDF5 format.
-    This function will export both particle and cell data.
-    """
-    ts = repo
-    if iout_list is None:
-        iout_list = ts.read_iout_avail()
-
-    for iout in tqdm(iout_list, desc=f"Exporting snapshot data", disable=True):
-        # Start exporting cell and particle data for each snapshot
-        timer.message(f"Starting cell data extraction for iout = {iout}.", name='cell_hdf')
-        snap = ts[iout]
-        create_hdf5_cell(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite, sim_description=sim_description, version=version)
-        snap.clear()
-        timer.record(f"Cell data extraction completed for iout = {snap.iout}.", name='cell_hdf')
-
-        timer.message(f"Starting particle data extraction for iout = {iout}.", name='part_hdf')
-        snap = ts[iout]
-        create_hdf5_part(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite, sim_description=sim_description, version=version)
-        snap.clear()
-        timer.record(f"Particle data extraction completed for iout = {snap.iout}.", name='part_hdf')
-
 def get_hilbert_key(coordinates:np.ndarray, levelmax:int) -> np.ndarray:
     subdivisions = 2 ** levelmax
     if levelmax > 21:
@@ -611,39 +565,31 @@ def add_basic_attrs(fl: h5py.File, snap: uri.RamsesSnapshot):
     """
     Add basic attributes to the HDF5 file.
     """
-    add_attr_with_descr(fl, 'iout', snap.iout, 'Output index of the snapshot.')
-    add_attr_with_descr(fl, 'icoarse', snap.icoarse, 'Number of coarse time steps of the snapshot.')
-    add_attr_with_descr(fl, 'ncpu', snap.ncpu, 'Number of CPUs used in the simulation.')
-    add_attr_with_descr(fl, 'ndim', snap.ndim, 'Number of dimensions of the simulation.')
+    fl.attrs['iout'] = snap.iout
+    fl.attrs['icoarse'] = snap.icoarse
+    fl.attrs['ncpu'] = snap.ncpu
 
-    add_attr_with_descr(fl, 'levelmin', snap.levelmin, 'Minimum level of the simulation.')
-    add_attr_with_descr(fl, 'levelmax', snap.levelmax, 'Maximum level of the simulation.')
-    add_attr_with_descr(fl, 'boxlen', snap.boxlen, 'Length of the simulation box.')
+    fl.attrs['levelmin'] = snap.levelmin
+    fl.attrs['levelmax'] = snap.levelmax
+    fl.attrs['boxlen'] = snap.boxlen
 
-    add_attr_with_descr(fl, 'time', snap.time, 'Time of the snapshot.')
-    add_attr_with_descr(fl, 'aexp', snap.aexp, 'Scale factor of the snapshot.')
-    add_attr_with_descr(fl, 'age', snap.age, 'Age of the snapshot in Gyr.')
-    add_attr_with_descr(fl, 'z', snap.z, 'Redshift of the snapshot.')
+    fl.attrs['time'] = snap.time
+    fl.attrs['aexp'] = snap.aexp
+    fl.attrs['age'] = snap.age
+    fl.attrs['z'] = snap.z
 
-    add_attr_with_descr(fl, 'omega_m', snap.omega_m, 'Matter density parameter.')
-    add_attr_with_descr(fl, 'omega_l', snap.omega_l, 'Dark energy density parameter.')
-    add_attr_with_descr(fl, 'omega_k', snap.omega_k, 'Curvature density parameter.')
-    add_attr_with_descr(fl, 'omega_b', snap.omega_b, 'Baryon density parameter.')
-    add_attr_with_descr(fl, 'H0', snap.H0, 'Hubble constant at z=0.')
+    fl.attrs['omega_m'] = snap.omega_m
+    fl.attrs['omega_l'] = snap.omega_l
+    fl.attrs['omega_k'] = snap.omega_k
+    fl.attrs['omega_b'] = snap.omega_b
+    fl.attrs['H0'] = snap.H0
 
-    add_attr_with_descr(fl, 'unit_l', snap.unit_l, 'Unit of length in cm.')
-    add_attr_with_descr(fl, 'unit_d', snap.unit_d, 'Unit of density in g/cm^3.')
-    add_attr_with_descr(fl, 'unit_t', snap.unit_t, 'Unit of time in s.')
-    add_attr_with_descr(fl, 'unit_m', snap.unit_d * snap.unit_l**3, 'Unit of mass in g.')
-    add_attr_with_descr(fl, 'unit_v', snap.unit_l / snap.unit_t, 'Unit of velocity in cm/s.')
-    add_attr_with_descr(fl, 'unit_p', snap.unit_m / snap.unit_l / snap.unit_t**2, 'Unit of pressure in g/(cm*s^2).')
-
-def add_attr_with_descr(fl: h5py.File, key: str, value, description: str):
-    """
-    Add an attribute to the HDF5 file with a description.
-    """
-    fl.attrs[key] = value
-    fl.attrs['attributes'] += f"\n'{key}': {description}"
+    fl.attrs['unit_l'] = snap.unit_l
+    fl.attrs['unit_t'] = snap.unit_t
+    fl.attrs['unit_d'] = snap.unit_d
+    fl.attrs['unit_m'] = snap.unit_d * snap.unit_l**3
+    fl.attrs['unit_v'] = snap.unit_l / snap.unit_t
+    fl.attrs['unit_p'] = snap.unit_m / snap.unit_l / snap.unit_t**2
 
 
 def set_level_boundaries(new_data: np.ndarray, chunk_boundary: np.ndarray, n_chunk: int, n_level: int):
@@ -666,41 +612,71 @@ def set_level_boundaries(new_data: np.ndarray, chunk_boundary: np.ndarray, n_chu
 
 
 
-def main():
+def main(args):
     """
     Main function to extract data from the snapshot and save it to HDF5.
     """
+    
+    mode = (args.mode).lower()
+    if mode is not None:
+        if mode in simlist.GEM_SIMULATIONS:
+            simdict = simlist.GEM_SIMULATIONS[mode]
+        else:
+            simdict = simlist.add_custom_snapshot(mode)
+    else:
+        UserWarning(f"Mode {mode} not recognized. Assume mode is `nc`")
+        simdict = simlist.GEM_SIMULATIONS['nc']
+
+    verbose = args.verbose
+    debug = args.debug
+
+
     dataset_kw = {
-        'compression': 'lzf',
+        'compression': args.compression, # lzf
         'shuffle': True,
     }
 
+    #repo_name = 'nc'  # or 'hagn', 'nh', 'nh2', 'yzics', etc.
+    #repo = sim.get_repo(repo_name)
+
     # receive the snapshot from the simulation repository
-    repo_path = '/storage7/NewCluster/'
-    snap = uri.RamsesSnapshot(repo_path, iout=-1, mode='nc')
+    repo_path = simdict['repo']
+    snap = uri.RamsesSnapshot(repo_path, iout=-1, mode=simdict['rur_mode'])
     repo = uri.RamsesRepo(snap)
 
-    sim_publication = "https://doi.org/10.48550/arXiv.2507.06301"
+    sim_publication = simdict['sim_publication'] #"https://doi.org/10.48550/arXiv.2507.06301"
     rur_repo = "https://github.com/sanhancluster/rur"
-    sim_description = f"This file contains snapshot data of NewCluster simulation." \
+    sim_description = f"This file contains snapshot data of {simdict['name']} simulation." \
         f"\nFor any use of this data, please cite the original publication (Han et al.):" \
         f"\n{sim_publication}" \
         f"\nUse RUR library to efficiently handle and analyze the data:" \
         f"\n{rur_repo}"
     version = '1.1'
 
-    n_chunk = 8000
+    n_chunk = args.n_chunk # 8000
     size_load = 160
 
-    #iout_list = np.arange(0, snap.iout, 10)[::-1]
-    iout_list = [repo.get_snap(z=z).iout for z in [1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0, 8.0]][::-1]
+    #iout_list = [10]
+    #cpu_list = [1, 2]
+    #export_cell(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load, cpu_list=cpu_list, dataset_kw=dataset_kw, sim_description=sim_description, version=version)
+    #export_part(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load, cpu_list=cpu_list, dataset_kw=dataset_kw, sim_description=sim_description, version=version)
+    iout_list = None #[30]#[10, 30, 620, 670]
     cpu_list = None
     overwrite = False
-    export_snapshots(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load,
-                     output_path='hdf', cpu_list=cpu_list, dataset_kw=dataset_kw,
-                     sim_description=sim_description, version=version, overwrite=overwrite)
+    export_cell(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load, cpu_list=cpu_list, dataset_kw=dataset_kw, sim_description=sim_description, version=version, overwrite=overwrite, nthread=args.nthread)
+    export_part(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load, cpu_list=cpu_list, dataset_kw=dataset_kw, sim_description=sim_description, version=version, overwrite=overwrite, nthread=args.nthread)
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Convert Ramses snapshot data to HDF5 format.')
+    # print(f"Usage: {parser.prog} [options] <repo_path>")
+    parser.add_argument("--mode", "-m", help='Simulation mode (nc, nh,... or `custom`)', type=str, required=False, default='nc')
+    parser.add_argument("--compression", "-c", help='Compression type for HDF5 datasets', type=str, default='lzf')
+    parser.add_argument("--n_chunk", "-N", help='Number of chunks to divide the data into', type=int, default=8000)
+    parser.add_argument("--nthread", "-n", help='Number of threads to use for processing', type=int, default=8)
+    parser.add_argument("--verbose", action='store_true')
+    parser.add_argument("--debug", action='store_true')
+    args = parser.parse_args()
+
     timer.message("Starting data export...", name='main')
-    main()
+    main(args)
     timer.record("Script completed successfully.", name='main')
