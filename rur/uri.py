@@ -1517,11 +1517,7 @@ class RamsesSnapshot(object):
             if (timer.verbose >= 1):
                 print('CPU list already satisfied.')
 
-    def read_cell_py(self, cpulist: Iterable, target_fields: Iterable = None, nthread: int = 8, read_grav: bool = False, use_cache=True, read_branch=False):
-        if read_branch:
-            use_cache = False
-        # 1) Read AMR params
-        sequential = nthread == 1   
+    def _get_amr_info(self):
         fname = self.get_path('amr', 1)
         with FortranFile(fname, mode='r') as f:
             ncpu, = f.read_ints()
@@ -1553,6 +1549,45 @@ class RamsesSnapshot(object):
                         if np.any(((bound_min * bound_max) == 1) & bound_min == -1):
                             coarse_min += 1
         icoarse_min, jcoarse_min, kcoarse_min = tuple(coarse_min)
+        return ncpu, ndim, nx, ny, nz, nlevelmax, nboundary, boxlen, icoarse_min, jcoarse_min, kcoarse_min
+
+    def read_cell_py(self, cpulist: Iterable, target_fields: Iterable = None, nthread: int = 8, read_grav: bool = False, use_cache=True, read_branch=False):
+        if read_branch:
+            use_cache = False
+        # 1) Read AMR params
+        sequential = nthread == 1   
+        # fname = self.get_path('amr', 1)
+        # with FortranFile(fname, mode='r') as f:
+        #     ncpu, = f.read_ints()
+        #     ndim, = f.read_ints()
+        #     nx, ny, nz, = f.read_ints()
+        #     nlevelmax, = f.read_ints()
+        #     f.skip_records(1)
+        #     nboundary, = f.read_ints()
+        #     f.skip_records(1)
+        #     boxlen, = f.read_reals()
+
+        # # measures x, y, z offset based on the boundary condition
+        # # does not work if boundaries are asymmetric, which can only be determined in namelist
+        # coarse_min = [0, 0, 0]
+        # key = ['i', 'j', 'k']
+        # nxyz = [nx, ny, nz]
+        # if nboundary > 0:
+        #     for i in range(ndim):
+        #         if nxyz[i] == 3:
+        #             coarse_min[i] += 1
+        #         if nxyz[i] == 2:
+        #             nml = self.read_namelist()
+        #             if len(nml) == 0:
+        #                 warnings.warn("Assymetric boundaries detected, which cannot be determined without namelist file. \
+        #                               Move namelist.txt file to the output directory or manually apply offset to the cell position.")
+        #             else:
+        #                 bound_min = np.array(str_to_tuple(nml['BOUNDARY_PARAMS']['%sbound_min' % key[i]]))
+        #                 bound_max = np.array(str_to_tuple(nml['BOUNDARY_PARAMS']['%sbound_max' % key[i]]))
+        #                 if np.any(((bound_min * bound_max) == 1) & bound_min == -1):
+        #                     coarse_min += 1
+        # icoarse_min, jcoarse_min, kcoarse_min = tuple(coarse_min)
+        ncpu, ndim, nx, ny, nz, nlevelmax, nboundary, boxlen, icoarse_min, jcoarse_min, kcoarse_min = self._get_amr_info()
 
         amr_kwargs = {
             'nboundary': nboundary, 'nlevelmax': nlevelmax, 'ndim': ndim,
