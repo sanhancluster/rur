@@ -109,6 +109,92 @@ class Timer:
         self.record(tab=tab)
         return result
 
+CYAN = "\033[36m"
+GREEN = "\033[33m"
+RESET = "\033[0m"
+class Timestamp:
+    """
+    A class to export time that took to execute the script.
+    """
+
+    def __init__(self):
+        self.t0 = time.time()
+        self.stamps = {}
+        self.stamps['start'] = self.t0
+        self.stamps['last'] = self.t0
+        self.verbose = 1
+
+    def elapsed(self, name=None):
+        if name is None:
+            name = 'start'
+        t = self.stamps[name]
+        return time.time() - t
+    
+    def time(self):
+        """
+        Returns the elapsed time since the start or a specific name.
+        """
+        return self.elapsed(name='start')
+
+    def start(self, message=None, name=None):
+        if name is None:
+            name = 'last'
+        self.stamps[name] = time.time()
+        if message is not None:
+            self.message(message)
+
+    def message(self, message, verbose_lim=1):
+        if verbose_lim <= self.verbose:
+            time = self.elapsed()
+            time_string = self.get_time_string(time)
+            print(f"{CYAN}[ {time_string} ]{RESET} {message}")
+
+    def record(self, message=None, name=None, verbose_lim=1):
+        if name is None:
+            name = 'last'
+        if verbose_lim <= self.verbose:
+            time = self.elapsed()
+            time_string = self.get_time_string(time)
+            recorded_time = self.elapsed(name)
+            recorded_time_string = self.get_time_string(recorded_time, add_units=True)
+            if message is None:
+                message = "Done."
+            print(f"{CYAN}[ {time_string} ]{RESET} {message} -> {GREEN}{recorded_time_string}{RESET}")
+        #self.stamps.pop(name)
+
+    def get_time_string(self, elapsed_time, add_units=False):
+        """
+        Convert elapsed time in seconds to a formatted string.
+        """
+        time_format = "%H:%M:%S"
+        if elapsed_time < 60:
+            if add_units:
+                return f"{elapsed_time:05.2f}s"
+            else:
+                return f"{elapsed_time:05.2f}"
+        elif elapsed_time < 3600:
+            if add_units:
+                time_format = "%Mm %Ss"
+            else:
+                time_format = "%M:%S"
+        elif elapsed_time < 86400:
+            if add_units:
+                time_format = "%Hh %Mm %Ss"
+            else:
+                time_format = "%H:%M:%S"
+        else:
+            elapsed_day = elapsed_time // 86400  # Convert to days
+            if add_units:
+                time_format = f"{elapsed_day}d %Hh %Mm %Ss"
+            else:
+                time_format = f"{elapsed_day} %H:%M:%S"
+        return time.strftime(time_format, time.gmtime(elapsed_time))
+
+    def measure(self, func, message=None, **kwargs):
+        self.start(message)
+        result = func(**kwargs)
+        self.record()
+        return result
 
 def get_vector(table, prefix='', ndim=3):
     return np.stack([table[prefix + key] for key in dim_keys[:ndim]], axis=-1)
@@ -292,6 +378,7 @@ def set_custom_units(snap):
     m = params['unit_m']
     t = params['unit_t']
     d = params['unit_d']
+    boxsize_comoving = params['boxsize'] / snap.h
 
     snap.unit = {
         # Length
@@ -304,14 +391,14 @@ def set_custom_units(snap):
         'Gpc': Gpc / l,
         'ly': ly / l,
 
-        'cpc':  1E-6 / snap.boxsize_comoving,
-        'ckpc': 1E-3 / snap.boxsize_comoving,
-        'cMpc': 1E0 / snap.boxsize_comoving,
-        'cGpc': 1E3 / snap.boxsize_comoving,
+        'cpc':  1E-6 / boxsize_comoving,
+        'ckpc': 1E-3 / boxsize_comoving,
+        'cMpc': 1E0 / boxsize_comoving,
+        'cGpc': 1E3 / boxsize_comoving,
 
-        'cpc/h':  1E-6 / snap.boxsize_comoving / snap.h,
-        'ckpc/h': 1E-3 / snap.boxsize_comoving / snap.h,
-        'cMpc/h': 1E0 / snap.boxsize_comoving / snap.h,
+        'cpc/h':  1E-6 / boxsize_comoving / snap.h,
+        'ckpc/h': 1E-3 / boxsize_comoving / snap.h,
+        'cMpc/h': 1E0 / boxsize_comoving / snap.h,
 
         'pc/h':  pc / l / snap.h,
         'kpc/h': kpc / l / snap.h,
