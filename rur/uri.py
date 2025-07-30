@@ -2324,7 +2324,7 @@ class RamsesSnapshot(object):
         self.cell['z'] *= boxlen/(l2-l1)
 
     def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None,
-                 python=True, nthread=8, use_cache=False, hdf=False, dev=False, htype='lzf'):
+                 python=True, nthread=8, use_cache=False, hdf=None, dev=False, htype='lzf'):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
