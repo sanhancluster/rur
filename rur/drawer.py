@@ -155,7 +155,7 @@ def hist_imshow(x, y, lims=None, reso=100, weights=None, filter_sigma=None, norm
 
 def kde_contour(x, y, lims, reso=100, bw_method='silverman', weights=None, sig_arr=[1, 2], filled=False, **kwargs):
 
-    pdi = kde_img(x, y, lims, reso, weights=weights, bw_method=bw_method)
+    pdi = kde_img(x, y, lims, reso, weights=weights, bw_method=bw_method, density=True)
     area_per_px = (lims[0][1]-lims[0][0])*(lims[1][1]-lims[1][0])/reso**2
     levels = np.append([sig_level(pdi, sig_arr, area_per_px)[::-1]], np.max(pdi))
 
@@ -278,17 +278,65 @@ def gaussian_filter_border(image, sigma, **kwargs):
     fraction = sigma - sigma_int
     return gaussian_filter(image, sigma_int, **kwargs) * fraction + gaussian_filter(image, sigma_int+1, **kwargs) * (1-fraction)
 
-def gauss_img(x, y, lims, reso=100, weights=None, subdivide=3, kernel_size=1):
+def estimate_density_2d(x, y, lims, shape=100, weights=None, density=False, method='hist', **kwargs):
+    """
+    Estimate the density of points in 2D space and return a 2D image.
+    """
     # apply kde-like image convolution using gaussian filter
     x, y = np.array(x), np.array(y)
     mask = np.isfinite(x) & np.isfinite(y)
     x, y = x[mask], y[mask]
+
+    # set up shapes and ranges
+    if np.isscalar(shape):
+        shape = np.repeat(shape, 2)
+    shape_array = np.asarray(shape)
+    range_array = np.asarray(lims)
+
     if(weights is not None):
         weights = weights[mask]
+    else:
+        weights = np.ones_like(x)
 
-    kern_size = int(kernel_size*subdivide*6) - 1
+    if method == 'hist':
+        im = np.histogram2d(x, y, range=range_array, bins=shape_array, weights=weights, **kwargs)[0]
+        if density:
+            area_per_px = (range_array[0, 1] - range_array[0, 0]) * (range_array[1, 1] - range_array[1, 0]) / im.size
+            im /= area_per_px
+        return im
+    elif method == 'kde':
+        return kde_img(x, y, range_array, shape_array, weights=weights, density=density, **kwargs)
+    elif method == 'cic':
+        return cic_img(x, y, range_array, shape_array, weights=weights, density=density, **kwargs)
+    elif method == 'gaussian':
+        return gaussian_img(x, y, range_array, shape_array, weights=weights, density=density, **kwargs)
+    elif method == 'dtfe':
+        return dtfe_img(x, y, range_array, shape_array, weights=weights, density=density, **kwargs)
+    else:
+        raise ValueError("Unknown mode: %s. Use 'hist', 'kde', 'cic', 'gaussian', or 'dtfe'." % method)
 
-    arr = bin_centers(-kern_size/2, kern_size/2, kern_size)
+
+def gaussian_img(x, y, lims, reso=100, weights=None, density=False, subdivide=4, kernel_size=1, sampling_sigma=2.5):
+    # apply kde-like image convolution using gaussian filter
+    x, y = np.array(x), np.array(y)
+    mask = np.isfinite(x) & np.isfinite(y)
+    x, y = x[mask], y[mask]
+
+    # set up shapes and ranges
+    if np.isscalar(reso):
+        reso = np.repeat(reso, 2)
+    lims = np.asarray(lims)
+    shape_array = np.asarray(reso)
+    range_array = np.asarray(lims)
+
+    if(weights is not None):
+        weights = weights[mask]
+    else:
+        weights = np.ones_like(x)
+
+    kern_array_width = int(kernel_size*subdivide*sampling_sigma*2)
+
+    arr = bin_centers(-kern_array_width/2, kern_array_width/2, kern_array_width)
     xm, ym = np.meshgrid(arr, arr)
     mesh = np.stack([xm, ym], axis=-1)
     dist = rss(mesh)
@@ -296,27 +344,46 @@ def gauss_img(x, y, lims, reso=100, weights=None, subdivide=3, kernel_size=1):
     kern = norm.pdf(dist, scale=kernel_size*subdivide)
     kern /= np.sum(kern)
 
-    hist = np.histogram2d(x, y, bins=reso*subdivide, range=lims, weights=weights)[0]
-    hist = convolve2d(hist, kern, mode='same')
-    hist = resize(hist, reso)*subdivide**2
+    hist = np.histogram2d(x, y, bins=shape_array*subdivide, range=range_array, weights=weights)[0]
+    hist = convolve2d(hist, kern, mode='same', boundary='symm')
+    hist = resize(hist, shape_array, anti_aliasing=True) * subdivide**2
+    if density:
+        area_per_px = (range_array[0, 1] - range_array[0, 0]) * (range_array[1, 1] - range_array[1, 0]) / hist.size
+        hist /= area_per_px
 
     return hist
 
-def kde_img(x, y, lims, reso=100, weights=None, tree=True, bw_method='siverman', nsearch=100, smooth_factor=3):
+def kde_img(x, y, lims, reso=100, weights=None, density=False, tree=True, bw_method='silverman', nsearch=30, smooth_factor=1):
     x, y = np.array(x), np.array(y)
+
     mask = np.isfinite(x) & np.isfinite(y)
     x, y = x[mask], y[mask]
+
+    # set up shapes and ranges
+    if np.isscalar(reso):
+        reso = np.repeat(reso, 2)
+    lims = np.asarray(lims)
+    shape_array = np.asarray(reso)
+    range_array = np.asarray(lims)
+
     if(weights is not None):
         weights = weights[mask]
+    else:
+        weights = np.ones_like(x)
 
     if(tree):
         kde = gaussian_kde_tree(np.stack([x, y], axis=-1), weights=weights, nsearch=nsearch, smooth_factor=smooth_factor)
-        return fun_img(kde, lims, reso, axis=-1)
+        grid = fun_img(kde, lims, shape_array, axis=-1)
     else:
         kde = gaussian_kde(np.stack([x, y], axis=0), weights=weights, bw_method=bw_method)
-        return fun_img(kde, lims, reso, axis=0)
+        grid = fun_img(kde, lims, shape_array, axis=0)
 
-def cic_img(x, y, lims, reso=100, weights=None, full_vectorize=False):
+    if not density:
+        area_per_px = (range_array[0, 1] - range_array[0, 0]) * (range_array[1, 1] - range_array[1, 0]) / grid.size
+        grid *= area_per_px
+    return grid
+
+def cic_img(x, y, lims, reso=100, weights=None, density=False, full_vectorize=False):
     """
     Create a 2D image using Cloud-in-Cell (CIC) method.
     This method is useful for creating density maps from point data.
@@ -387,6 +454,10 @@ def cic_img(x, y, lims, reso=100, weights=None, full_vectorize=False):
         flat_indices = (indices_int[..., 0] * shape_pad[1] + indices_int[..., 1]).reshape(-1)
         accum = np.bincount(flat_indices, weights=values, minlength=shape_pad[0] * shape_pad[1])
         pool += accum.reshape(shape_pad)[1:-1, 1:-1]
+    
+    if density:
+        area_per_px = (range_array[0, 1] - range_array[0, 0]) * (range_array[1, 1] - range_array[1, 0]) / pool.size
+        pool /= area_per_px
 
     return pool
 
@@ -447,7 +518,7 @@ def voronoi_img(centers, lims, reso=500):
     f = lambda x: find_closest(centers, x)
     return fun_img(f, lims, reso, axis=-1)
 
-def dtfe_img_tri(x, y, lims, reso=100, weights=None, density=False, smooth=0, interpolator='linear'):
+def dtfe_img(x, y, lims, reso=100, weights=None, density=False, smooth=0, interpolator='linear'):
     """
     Create a 2D image using Delaunay triangulation and area-based density estimation.
     This method computes the density of points in a 2D space by triangulating the points
@@ -512,10 +583,11 @@ def dtfe_img_tri(x, y, lims, reso=100, weights=None, density=False, smooth=0, in
     elif interpolator == 'linear':
         ip = LinearNDInterpolator(points, densities)
     grid = ip(xm, ym).T
+    grid = np.nan_to_num(grid, nan=0.0)
 
     if not density:
-        range_area = (range_array[0, 0] - range_array[0, 1]) * (range_array[1, 0] - range_array[1, 1])
-        grid *= range_area / grid.size
+        area_per_px = (range_array[0, 1] - range_array[0, 0]) * (range_array[1, 1] - range_array[1, 0]) / grid.size
+        grid *= area_per_px
 
     return grid
 
@@ -977,7 +1049,7 @@ def dark_cmap(color):
     color_bright[color_bright>1] = 1
     return make_cmap([[0, 0, 0], color, color_bright], position=[0, 0.5, 1])        
 
-def grid_projection(centers, levels=None, quantities=None, weights=None, shape=None, lims=None, mode='sum', plot_method='hist', projection=['x', 'y'], interp_order=0, crop_mode='subpixel', type='particle'):
+def grid_projection(centers, levels=None, quantities=None, weights=None, shape=None, lims=None, mode='sum', plot_method='hist', projector_kwargs={}, projection=['x', 'y'], interp_order=0, crop_mode='subpixel', type='particle'):
     """
     Generate a 2D projection plot of a quantity using particle or AMR data.
 
@@ -1132,10 +1204,7 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
     zz = cc[:, proj_z]
 
     # set the projector lambda based on the plot method
-    if plot_method == 'cic':
-        projector = lambda x, y, w, lims, shape: cic_img(x, y, weights=w, lims=lims, reso=shape)
-    elif plot_method == 'hist':
-        projector = lambda x, y, w, lims, shape: np.histogram2d(x, y, weights=w, range=lims, bins=shape)[0]
+    projector = lambda x, y, w, lims, shape: estimate_density_2d(x, y, lims=lims, weights=w, shape=shape, density=False, method=plot_method, **projector_kwargs)
 
     # do projection
     if type == 'part':
