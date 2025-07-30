@@ -146,7 +146,7 @@ class Timestamp:
     def message(self, message, verbose_lim=1):
         if verbose_lim <= self.verbose:
             time = self.elapsed()
-            time_string = self.get_time_string(time)
+            time_string = self.get_time_string(time, add_units=True)
             print(f"{CYAN}[ {time_string} ]{RESET} {message}")
 
     def record(self, message=None, name=None, verbose_lim=1):
@@ -154,7 +154,7 @@ class Timestamp:
             name = 'last'
         if verbose_lim <= self.verbose:
             time = self.elapsed()
-            time_string = self.get_time_string(time)
+            time_string = self.get_time_string(time, add_units=True)
             recorded_time = self.elapsed(name)
             recorded_time_string = self.get_time_string(recorded_time, add_units=True)
             if message is None:

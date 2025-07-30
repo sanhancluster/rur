@@ -4,11 +4,12 @@ from scipy.optimize import curve_fit
 from scipy.ndimage.filters import gaussian_filter
 from rur.utool import *
 from scipy.spatial import Delaunay, cKDTree as KDTree
-from scipy.interpolate import LinearNDInterpolator
+from scipy.interpolate import NearestNDInterpolator, LinearNDInterpolator
 from scipy.stats import norm
 from scipy.signal import convolve2d
 from numpy.linalg import det
 from skimage.transform import resize, rescale, warp, EuclideanTransform, AffineTransform
+from scipy.sparse import csr_matrix
 
 import string
 import matplotlib.collections as mcoll
@@ -315,56 +316,90 @@ def kde_img(x, y, lims, reso=100, weights=None, tree=True, bw_method='siverman',
         kde = gaussian_kde(np.stack([x, y], axis=0), weights=weights, bw_method=bw_method)
         return fun_img(kde, lims, reso, axis=0)
 
-def cic_img(x, y, lims, reso=100, weights=None):
-    # apply cloud-in-cell particle mesh algorithm
-    if (np.isscalar(reso)):
-        reso = np.repeat(reso, 2)
-
-    # get only finite values
-    mask = np.isfinite(x) & np.isfinite(y)
-
-    # set up coordinate array with shape (n, 2)
-    points = np.stack([x, y], axis=-1)[mask]
-
-    # set up weights
-    if weights is None:
-        weights = 1.
-    elif isinstance(weights, Iterable):
-        weights = np.array(weights)[mask]
+def cic_img(x, y, lims, reso=100, weights=None, full_vectorize=False):
+    """
+    Create a 2D image using Cloud-in-Cell (CIC) method.
+    This method is useful for creating density maps from point data.
+    Parameters:
+    - x, y: 1D arrays of coordinates
+    - lims: 2D array defining the limits of the image, shape (2, 2)
+    - reso: resolution of the image, can be a scalar or a tuple/list of two values
+    - weights: optional 1D array of weights for each point
+    - full_vectorize: if True, uses a fully vectorized approach (memory-intensive)
+    Returns:
+    - pool: 2D numpy array representing the image, shape (reso[0], reso[1])
+    Note: The function assumes that the input coordinates are finite and within the specified limits.
+    If the coordinates are outside the limits, they will be ignored.
+    """
 
     # set up shapes and ranges
-    range_array = np.array(lims)
-    shape_array = np.array(reso)
+    if np.isscalar(reso):
+        reso = np.repeat(reso, 2)
+    lims = np.asarray(lims)
+    shape_array = np.asarray(reso)
+    shape_pad = shape_array + 2
+    range_array = np.asarray(lims)
 
-    # set up dx array with shape (4, 2)
-    dxs = np.concatenate(np.stack(np.mgrid[0:2, 0:2], axis=-1))
+    # mask calculation
+    x = np.asarray(x)
+    y = np.asarray(y)
+    mask = np.isfinite(x) & np.isfinite(y)
+    mask &= (x >= lims[0, 0]) & (x < lims[0, 1])
+    mask &= (y >= lims[1, 0]) & (y < lims[1, 1])
 
-    # convert position onto float coordinate
+    x = x[mask]
+    y = y[mask]
+
+    points = np.stack([x, y], axis=-1)
+
+    if weights is None:
+        weights = np.ones_like(x)
+    else:
+        weights = np.asarray(weights)[mask]
+
+    # Normalize coordinates to [0, 1] range
     indices_float = (points - range_array[:, 0]) / (range_array[:, 1] - range_array[:, 0]) * shape_array + 0.5
+    indices_float = indices_float.reshape(-1, 2)
 
-    # create zero array
+    # Create zero array for accumulation
     pool = np.zeros(shape_array, dtype='f8')
+    dxs = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])
 
-    # apply cic  on 4-side (loop to save memory)
-    for dx in dxs:
-        indices_int = np.floor(indices_float - dx).astype(int)
+    if not full_vectorize:
+        for dx in dxs:
+            indices_int = np.floor(indices_float - dx).astype(np.int32)
+            offsets = indices_float - indices_int
+            areas = (1 - np.abs(offsets[:, 0] - 1)) * (1 - np.abs(offsets[:, 1] - 1))
+            values = areas * weights
 
-        offsets = indices_float - indices_int
-        if(np.__version__ >= '1.25.0'):
-            areas = np.prod(1-np.abs(offsets - 1), axis=-1)
-        else:
-            areas = np.product(1-np.abs(offsets - 1), axis=-1)
+            indices_int += 1  # padding offset
+            flat_indices = indices_int[:, 0] * shape_pad[1] + indices_int[:, 1]
+            accum = np.bincount(flat_indices, weights=values, minlength=shape_pad[0] * shape_pad[1])
+            pool += accum.reshape(shape_pad)[1:-1, 1:-1]
+    else:
+        # full vectorization: memory-intensive
+        indices_int = np.floor(indices_float[None, :, :] - dxs[:, None, :]).astype(np.int32)
+        offsets = indices_float[None, :, :] - indices_int
+        areas = (1 - np.abs(offsets[..., 0] - 1)) * (1 - np.abs(offsets[..., 1] - 1))
+        values = (areas * weights[None, :]).reshape(-1)
 
-        mask = np.all((indices_int >= 0) & (indices_int < shape_array), axis=-1)
-        np.add.at(pool, (indices_int[mask, 0], indices_int[mask, 1]), (areas * weights)[mask])
+        indices_int += 1
+        flat_indices = (indices_int[..., 0] * shape_pad[1] + indices_int[..., 1]).reshape(-1)
+        accum = np.bincount(flat_indices, weights=values, minlength=shape_pad[0] * shape_pad[1])
+        pool += accum.reshape(shape_pad)[1:-1, 1:-1]
+
     return pool
 
 def coo_img(lims, reso=100, axis=-1, ravel=False):
-    if (np.isscalar(reso)):
+    # set up shapes and ranges
+    if np.isscalar(reso):
         reso = np.repeat(reso, 2)
+    lims = np.asarray(lims)
+    shape_array = np.asarray(reso)
+    range_array = np.asarray(lims)
 
-    xarr = bin_centers(lims[0][0], lims[0][1], reso[0])
-    yarr = bin_centers(lims[1][0], lims[1][1], reso[1])
+    xarr = bin_centers(range_array[0][0], range_array[0][1], shape_array[0])
+    yarr = bin_centers(range_array[1][0], range_array[1][1], shape_array[1])
 
     xm, ym = np.meshgrid(xarr, yarr)
     if(ravel):
@@ -376,18 +411,15 @@ def coo_img(lims, reso=100, axis=-1, ravel=False):
 def fun_img(f, lims, reso=100, axis=-1):
     # returns 2d numpy array image with function
     # axis: the axis that function accepts to separate each dimensions.
-    if(np.isscalar(reso)):
+    # set up shapes and ranges
+    if np.isscalar(reso):
         reso = np.repeat(reso, 2)
+    shape_array = np.asarray(reso)
 
-    xarr = bin_centers(lims[0][0], lims[0][1], reso[0])
-    yarr = bin_centers(lims[1][0], lims[1][1], reso[1])
-
-    xm, ym = np.meshgrid(xarr, yarr)
-
-    mesh = np.stack([xm.ravel(), ym.ravel()], axis=axis)
+    mesh = coo_img(lims, shape_array, axis=axis, ravel=True)
 
     pdi = f(mesh)
-    pdi = np.reshape(pdi, xm.shape)
+    pdi = np.reshape(pdi, shape_array)
 
     return pdi.T
 
@@ -415,10 +447,20 @@ def voronoi_img(centers, lims, reso=500):
     f = lambda x: find_closest(centers, x)
     return fun_img(f, lims, reso, axis=-1)
 
-def dtfe_img(x, y, lims, reso=100, weights=None, smooth=0):
+def dtfe_img_tri(x, y, lims, reso=100, weights=None, density=False, smooth=0, interpolator='linear'):
+    """
+    Create a 2D image using Delaunay triangulation and area-based density estimation.
+    This method computes the density of points in a 2D space by triangulating the points
+    and calculating the area of the triangles formed. The density is then interpolated
+    onto a grid defined by the specified limits and resolution.
+    """
     if (np.isscalar(reso)):
         reso = np.repeat(reso, 2)
 
+    # set up shapes and ranges
+    range_array = np.array(lims)
+    shape_array = np.array(reso)
+    
     points = np.stack([x, y], axis=-1)
     center = np.median(points, axis=0)
     n_points = points.shape[0]
@@ -428,45 +470,52 @@ def dtfe_img(x, y, lims, reso=100, weights=None, smooth=0):
 
     # For some "Complex Geometrical Reasons", Qhull does not work properly without options???
     # Even with blank option, the result is different.
-    tri = Delaunay(points-center, qhull_options='')
-
+    tri = Delaunay(points-center, qhull_options='Qbb Qc Qx')
+    
     simplices = tri.simplices
     vertices = points[simplices]
+        
+    v1 = vertices[:, 1] - vertices[:, 0]
+    v2 = vertices[:, 2] - vertices[:, 0]
+    tri_areas = 0.5 * np.abs(v1[:, 0] * v2[:, 1] - v1[:, 1] * v2[:, 0])
 
-    matrices = np.insert(vertices, 2, 1., axis=-1)
-    matrices = np.swapaxes(matrices, -1, -2)
-    tri_areas = np.abs(det(matrices)) / 2
-
-    hull_areas = np.zeros(n_points, dtype='f8')
-
-    np.add.at(hull_areas, simplices, np.expand_dims(tri_areas, -1))
-    hull_areas /= 3
+    flat_simplices = simplices.reshape(-1)
+    area_repeat = np.repeat(tri_areas, 3)
+    hull_areas = np.bincount(flat_simplices, weights=area_repeat, minlength=n_points) / 3
 
     if(smooth>0):
         indptr, neighbor_indices = tri.vertex_neighbor_vertices
-        neighbor_nums = np.full(n_points, 0, dtype='i8')
-        center_indices = np.repeat(np.arange(neighbor_nums.size), np.diff(indptr))
-        np.add.at(neighbor_nums, center_indices, 1)
+        rows = np.repeat(np.arange(n_points), np.diff(indptr))
+        cols = neighbor_indices
+        data = np.ones_like(cols, dtype=np.float64)
 
-        for _ in np.arange(smooth):
-            hull_areas_add = np.zeros(hull_areas.shape, dtype='f8')
-            np.add.at(hull_areas_add, center_indices, hull_areas[neighbor_indices])
-            hull_areas_add /= neighbor_nums
-            hull_areas += hull_areas_add
-            hull_areas /= 2
+        neighbor_nums = np.bincount(rows, minlength=n_points)
+        data = data / neighbor_nums[rows]
+
+        W = csr_matrix((data, (rows, cols)), shape=(n_points, n_points))
+
+        for _ in range(smooth):
+            hull_areas = (hull_areas + W @ hull_areas) / 2
 
     densities = 1 / hull_areas
 
     if(weights is not None):
         densities *= weights
 
-    xarr = bin_centers(lims[0][0], lims[0][1], reso[0]) - center[0]
-    yarr = bin_centers(lims[1][0], lims[1][1], reso[1]) - center[1]
+    xarr = bin_centers(range_array[0][0], range_array[0][1], shape_array[0])
+    yarr = bin_centers(range_array[1][0], range_array[1][1], shape_array[1])
 
     xm, ym = np.meshgrid(xarr, yarr)
 
-    ip = LinearNDInterpolator(tri, densities, fill_value=0)
+    if interpolator == 'nearest':
+        ip = NearestNDInterpolator(points, densities)
+    elif interpolator == 'linear':
+        ip = LinearNDInterpolator(points, densities)
     grid = ip(xm, ym).T
+
+    if not density:
+        range_area = (range_array[0, 0] - range_array[0, 1]) * (range_array[1, 0] - range_array[1, 1])
+        grid *= range_area / grid.size
 
     return grid
 
