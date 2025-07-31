@@ -1542,24 +1542,34 @@ def add_fields(table, dtype, fill_value=None, overwrite=True):
     else:
         return data
 
+def uniform_digitize(values, lim, nbins):
+    """
+    A faster version of np.digitize that works with uniform bins.
+    The result may vary from np.digitize near the bin edges.
+    :param values: array-like, values to digitize
+    :param nbins: int or array-like, number of bins
+    :param lim: array-like, limits for the bins
+    :return: array of indices of bins for each value
+    """
+    values_idx = (values - lim[0]) / (lim[1] - lim[0]) * nbins + 1
+    values_idx = values_idx.astype(int)
+    values_idx = np.clip(values_idx, 0, nbins+1)
+    return values_idx
 
-def box_mask(coo, box, size=None, exclusive=False, nchunk=10000000):
+def box_mask(coo, box, size=0, exclusive=False, nchunk=10000000):
     # masking coordinates based on the box
-    if size is not None:
-        size = expand_shape(size, [0], 2)
-    else:
-        size = 0
+    size = np.atleast_2d(size)
     if (exclusive):
         size *= -1
     box = np.array(box)
     mask_out = []
     for i0 in range(0, coo.shape[0], nchunk):
-        i1 = np.minimum(i0 + nchunk, coo.shape[0])
-        if not np.isscalar(size) and size.shape[0] == coo.shape[0]:
+        i1 = np.minimum(i0 + nchunk, coo.shape[-2])
+        if size.shape[-2] == coo.shape[-2]:
             size_now = size[i0:i1]
         else:
             size_now = size
-        mask = np.all((box[:, 0] <= coo[i0:i1] + size_now / 2) & (coo[i0:i1] - size_now / 2 <= box[:, 1]), axis=-1)
+        mask = np.all((box[..., 0] <= coo[i0:i1] + size_now / 2) & (coo[i0:i1] - size_now / 2 <= box[..., 1]), axis=-1)
         mask_out.append(mask)
     mask_out = np.concatenate(mask_out)
     return mask_out
