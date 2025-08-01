@@ -4,5 +4,7 @@
     "repo": "/storage8/NewCluster_sEdd",
     "sim_publication": "None",
     "ramses_ver": 4,
-    "rur_mode": "nc"
+    "rur_mode": "nc",
+    "minout": 70,
+    "maxout": 10000
 }

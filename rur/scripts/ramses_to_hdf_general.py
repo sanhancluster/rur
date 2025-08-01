@@ -675,6 +675,9 @@ def main(args):
     iout_list = None #[30]#[10, 30, 620, 670]
     if iout_list is None:
         iout_list = repo.read_iout_avail(allow_write=True)['iout']
+    imin = simdict.get("minout", 0)
+    imax = simdict.get("maxout", 10000)
+    iout_list = iout_list[(iout_list >= imin) & (iout_list <= imax)]
     print(f"Do for {len(iout_list)} iouts ({iout_list[0]}-{iout_list[-1]})")
     if args.sep >= 0:
         print(f"Changed using {args.sep}/{args.dsep} separation for iouts.")
