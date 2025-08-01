@@ -442,7 +442,6 @@ def get_new_cell(snap:uri.RamsesSnapshot, cpu_list, size_load, read_branch=False
         signal.signal(signal.SIGTERM, snap.terminate)
         sizes = np.asarray(sizes, dtype=np.int32)
         n_cell = np.sum(sizes)
-    print(n_cell)
     new_cell = np.empty(n_cell, dtype=converted_dtype_cell)
     new_dtypes = converted_dtype_cell
 
@@ -661,6 +660,14 @@ def main(args):
     #export_cell(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load, cpu_list=cpu_list, dataset_kw=dataset_kw, sim_description=sim_description, version=version)
     #export_part(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load, cpu_list=cpu_list, dataset_kw=dataset_kw, sim_description=sim_description, version=version)
     iout_list = None #[30]#[10, 30, 620, 670]
+    if iout_list is None:
+        iout_list = repo.read_iout_avail()
+    print(f"Do for {len(iout_list)} iouts ({iout_list[0]}-{iout_list[-1]})")
+    if args.sep >= 0:
+        print(f"Changed using {args.sep}/{args.dsep} separation for iouts.")
+        iouts_list = iout_list[iouts_list%args.dsep == args.sep]
+        print(f"--> Do for {len(iout_list)} iouts ({iout_list[0]}-{iout_list[-1]})")
+
     cpu_list = None
     overwrite = False
     export_cell(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load, cpu_list=cpu_list, dataset_kw=dataset_kw, sim_description=sim_description, version=version, overwrite=overwrite, nthread=args.nthread)
@@ -673,6 +680,8 @@ if __name__ == '__main__':
     parser.add_argument("--compression", "-c", help='Compression type for HDF5 datasets', type=str, default='lzf')
     parser.add_argument("--n_chunk", "-N", help='Number of chunks to divide the data into', type=int, default=8000)
     parser.add_argument("--nthread", "-n", help='Number of threads to use for processing', type=int, default=8)
+    parser.add_argument("--sep", "-s", help='Separation for iouts', type=int, default=-1, required=False)
+    parser.add_argument("--dsep", "-d", help='Denominator of separations', type=int, default=2, required=False)
     parser.add_argument("--verbose", action='store_true')
     parser.add_argument("--debug", action='store_true')
     args = parser.parse_args()
