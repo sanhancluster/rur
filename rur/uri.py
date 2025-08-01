@@ -3588,9 +3588,14 @@ def domain_slice(array, cpulist, bound, cpulist_all=None, target_fields=None,
         cpulist_all = np.arange(bound.size-1)
     # array should already been aligned with bound
     idxs = np.where(np.isin(cpulist_all, cpulist, assume_unique=True))[0]
-    
-    merged_starts, merged_ends = merge_segments(idxs, idxs + 1)
-    doms = np.stack([bound[merged_starts], bound[merged_ends]], axis=-1)
+
+    if dev and nthread > 1:
+        # don't merge segments for load balancing
+        starts, ends = idxs, idxs+1
+    else:
+        starts, ends = merge_segments(idxs, idxs + 1)
+        doms = np.stack([bound[merged_starts], bound[merged_ends]], axis=-1)
+    doms = np.stack([bound[starts], bound[ends]], axis=-1)
     segs = doms[:, 1] - doms[:, 0]
 
     if not dev:
