@@ -621,7 +621,8 @@ def main(args):
         if mode in simlist.GEM_SIMULATIONS:
             simdict = simlist.GEM_SIMULATIONS[mode]
         else:
-            cwd = os.getcwd()
+            cwd = os.path.dirname(os.path.abspath(__file__))
+            print(cwd)
             fname = f"{cwd}/ramses_to_hdf_custom.json"
             if os.path.exists(fname):
                 print(f"Read `{fname}` for custom simulation data")
