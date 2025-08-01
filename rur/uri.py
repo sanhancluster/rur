@@ -171,11 +171,17 @@ class TimeSeries(object):
         path = join(self.repo, 'list_iout_avail.txt')
         if exists(path):
             self.iout_avail = np.loadtxt(path, dtype=iout_avail_dtype)
+            if len(self.iout_avail) == 0:
+                if allow_write:
+                    self.write_iout_avail()
+                else:
+                    self.iout_avail = np.empty((0,), dtype=iout_avail_dtype)
         else:
             if allow_write:
                 self.write_iout_avail()
             else:
                 self.iout_avail = np.empty((0,), dtype=iout_avail_dtype)
+        return self.iout_avail
 
     def clear(self):
         # Later: need to load all **opened** snaps and clear them manually
