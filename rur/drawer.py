@@ -1096,7 +1096,9 @@ def dark_cmap(color):
     return make_cmap([[0, 0, 0], color, color_bright], position=[0, 0.5, 1])        
 
 def grid_projection(centers, levels=None, quantities=None, weights=None, shape=None, lims=None,
-                    mode='sum', plot_method='hist', projector_kwargs={}, projection=['x', 'y'], interp_order=0, crop_mode='subpixel', output_dtype=np.float64, type='particle'):
+                    mode='sum', plot_method='hist', projector_kwargs={}, projection=['x', 'y'],
+                    interp_order=0, crop_mode='subpixel', output_dtype=np.float64, padding=0,
+                    type='particle'):
     """
     Generate a 2D projection plot of a quantity using particle or AMR data.
 
@@ -1127,6 +1129,10 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
         'grid': crop the image based on the current minimum resolution of the grid.
         'pixel': crop the image based on the pixel size of the drawing image.
         'subpixel': crop the image with allowing subpixel cropping.
+    output_dtype : dtype, optional
+        Data type of the output grid. Default is np.float64.
+    padding : int, optional
+        Number of padding pixels for drawing the data. Default is 0.
     type : str, optional
         Type of data. Options are 'particle' or 'amr'. Default is 'particle'.
 
@@ -1195,11 +1201,17 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
     elif mode in ['max']:
         fill_value = -np.inf
 
+    pixel_size = (lims_2d[:, 1] - lims_2d[:, 0]) / np.array(shape)
+    if padding != 0:
+        padding_size = np.concatenate([pixel_size * padding, [0]])
+    else:
+        padding_size = 0
+
     if type == 'part':
         if shape is None:
             shape = (100, 100)
         # get mask that indicates particles to draw
-        mask_draw = box_mask(centers, lims)
+        mask_draw = box_mask(centers, lims, size=padding_size)
         shape_grid = shape
 
     elif type == 'amr':
@@ -1232,7 +1244,7 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
         lims_2d_draw = i_lims_levelmin / 2**levelmin_draw
 
         # get mask that indicates cells to draw
-        mask_draw = box_mask(centers, lims, size=0.5**levels)
+        mask_draw = box_mask(centers, lims, size=(0.5**levels)[..., np.newaxis]+padding_size)
         ll = levels[mask_draw]
     else:
         raise ValueError("Unknown type: %s. Supported types are 'part' and 'amr'." % type)
@@ -1306,7 +1318,7 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
     return grid
 
 def part_projection(centers, quantities=None, weights=None, shape=100, lims=None,
-                    mode='sum', plot_method='hist', projection=['x', 'y'], output_dtype=np.float64):
+                    mode='sum', plot_method='hist', projection=['x', 'y'], output_dtype=np.float64, padding=0):
     """
     Generate a 2D projection plot of a quantity using particle data.
 
@@ -1336,10 +1348,10 @@ def part_projection(centers, quantities=None, weights=None, shape=100, lims=None
     grid : np.ndarray
         2D array representing the projected quantity.
     """
-    return grid_projection(centers=centers, levels=None, quantities=quantities, weights=weights, shape=shape, lims=lims, mode=mode, plot_method=plot_method, projection=projection, output_dtype=output_dtype, type='particle')
+    return grid_projection(centers=centers, levels=None, quantities=quantities, weights=weights, shape=shape, lims=lims, mode=mode, plot_method=plot_method, projection=projection, output_dtype=output_dtype, padding=padding, type='particle')
 
 def amr_projection(centers, levels, quantities=None, weights=None, shape=None, lims=None,
-                   mode='sum', plot_method='hist', projection=['x', 'y'], interp_order=0, output_dtype=np.float64, crop_mode='subpixel'):
+                   mode='sum', plot_method='hist', projection=['x', 'y'], interp_order=0, output_dtype=np.float64, padding=0, crop_mode='subpixel'):
     """
     Generate a 2D projection plot of a quantity using Adaptive Mesh Refinement (AMR) data.
 
@@ -1371,7 +1383,7 @@ def amr_projection(centers, levels, quantities=None, weights=None, shape=None, l
     grid : np.ndarray
         2D array representing the projected quantity.
     """
-    return grid_projection(centers=centers, levels=levels, quantities=quantities, weights=weights, shape=shape, lims=lims, mode=mode, plot_method=plot_method, projection=projection, interp_order=interp_order, crop_mode=crop_mode, output_dtype=output_dtype, type='amr')
+    return grid_projection(centers=centers, levels=levels, quantities=quantities, weights=weights, shape=shape, lims=lims, mode=mode, plot_method=plot_method, projection=projection, interp_order=interp_order, crop_mode=crop_mode, output_dtype=output_dtype, padding=padding, type='amr')
 
 
 def crop(img, range, output_shape=None, subpixel=True, **kwargs):
