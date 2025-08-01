@@ -1,0 +1,8 @@
+{
+    "input_name": "ncsedd",
+    "name": "NewCluster_sEdd",
+    "repo": "/storage8/NewCluster_sEdd",
+    "sim_publication": "None",
+    "ramses_ver": 4,
+    "rur_mode": "nc"
+}

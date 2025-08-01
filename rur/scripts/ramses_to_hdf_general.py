@@ -110,7 +110,7 @@ timer = Timestamp()
 def export_part(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load:int=60, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0', nthread:int=8):
     ts = repo
     if iout_list is None:
-        iout_list = ts.read_iout_avail()
+        iout_list = ts.read_iout_avail()['iout']
     
     for iout in tqdm(iout_list, desc=f"Exporting particle data", disable=True):
         timer.message(f"Starting particle data extraction for iout = {iout}.", name='part_hdf')
@@ -305,7 +305,7 @@ def compute_key_boundaries(key_array: np.ndarray, n_key: int) -> np.ndarray:
 def export_cell(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load:int=60, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0', nthread:int=8):
     ts = repo
     if iout_list is None:
-        iout_list = ts.read_iout_avail()
+        iout_list = ts.read_iout_avail()['iout']
     
     for iout in tqdm(iout_list, desc=f"Exporting cell data", disable=True):
         timer.message(f"Starting cell data extraction for iout = {iout}.", name='cell_hdf')
@@ -621,12 +621,24 @@ def main(args):
         if mode in simlist.GEM_SIMULATIONS:
             simdict = simlist.GEM_SIMULATIONS[mode]
         else:
-            simdict = simlist.add_custom_snapshot(mode)
+            cwd = os.getcwd()
+            fname = f"{cwd}/ramses_to_hdf_custom.json"
+            if os.path.exists(fname):
+                print(f"Read `{fname}` for custom simulation data")
+                import json
+                with open(fname) as f:
+                    simdict = json.load(f)
+            else:
+                simdict = simlist.add_custom_snapshot(mode)
     else:
         UserWarning(f"Mode {mode} not recognized. Assume mode is `nc`")
         simdict = simlist.GEM_SIMULATIONS['nc']
 
     verbose = args.verbose
+    if verbose:
+        print("Simulation dictionary:")
+        for key, value in simdict.items():
+            print(f" > {key}: {value}")
     debug = args.debug
 
 
@@ -661,11 +673,11 @@ def main(args):
     #export_part(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load, cpu_list=cpu_list, dataset_kw=dataset_kw, sim_description=sim_description, version=version)
     iout_list = None #[30]#[10, 30, 620, 670]
     if iout_list is None:
-        iout_list = repo.read_iout_avail()
+        iout_list = repo.read_iout_avail(allow_write=True)['iout']
     print(f"Do for {len(iout_list)} iouts ({iout_list[0]}-{iout_list[-1]})")
     if args.sep >= 0:
         print(f"Changed using {args.sep}/{args.dsep} separation for iouts.")
-        iouts_list = iout_list[iouts_list%args.dsep == args.sep]
+        iout_list = iout_list[iout_list%args.dsep == args.sep]
         print(f"--> Do for {len(iout_list)} iouts ({iout_list[0]}-{iout_list[-1]})")
 
     cpu_list = None
