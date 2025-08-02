@@ -243,6 +243,9 @@ def get_new_part_dict(snap:uri.RamsesSnapshot, cpu_list, size_load, nthread=8) -
         if header[name] == 0:
             continue
         new_dtypes = converted_dtypes[name]
+        if name != 'sink':
+            _part_dtype = [p[0] for p in snap.part_dtype]
+            new_dtypes = [field for field in new_dtypes if field[0] in _part_dtype]
         new_part_dict[name] = np.empty(header[name], dtype=new_dtypes)
         pointer_dict[name] = 0
 
@@ -442,8 +445,10 @@ def get_new_cell(snap:uri.RamsesSnapshot, cpu_list, size_load, read_branch=False
         signal.signal(signal.SIGTERM, snap.terminate)
         sizes = np.asarray(sizes, dtype=np.int32)
         n_cell = np.sum(sizes)
-    new_cell = np.empty(n_cell, dtype=converted_dtype_cell)
-    new_dtypes = converted_dtype_cell
+    names = list(['x','y','z'][:snap.params['ndim']]) + snap.hydro_names + ['level', 'cpu']
+    _converted_dtype_cell = [(name, dtype) for name, dtype in converted_dtype_cell if (name in names)or(name == 'pot')]
+    new_cell = np.empty(n_cell, dtype=_converted_dtype_cell)
+    new_dtypes = _converted_dtype_cell
 
     # sub-load cell data
     for idx in np.arange(len(cpu_list))[::size_load]:
