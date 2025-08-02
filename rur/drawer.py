@@ -413,8 +413,11 @@ def cic_img(x, y, lims, reso=100, weights=None, density=False, full_vectorize=Fa
     x = np.asarray(x)
     y = np.asarray(y)
     mask = np.isfinite(x) & np.isfinite(y)
-    mask &= (x >= lims[0, 0]) & (x < lims[0, 1])
-    mask &= (y >= lims[1, 0]) & (y < lims[1, 1])
+
+    range_size = range_array[:, 1] - range_array[:, 0]
+    range_pad = range_array + np.asarray([-0.5, 0.5]) * range_size / shape_array
+    mask &= (x >= range_pad[0, 0]) & (x < range_pad[0, 1])
+    mask &= (y >= range_pad[1, 0]) & (y < range_pad[1, 1])
 
     x = x[mask]
     y = y[mask]
@@ -423,11 +426,11 @@ def cic_img(x, y, lims, reso=100, weights=None, density=False, full_vectorize=Fa
 
     if weights is None:
         weights = np.ones_like(x)
-    else:
+    elif isinstance(weights, Iterable):
         weights = np.asarray(weights)[mask]
 
     # Normalize coordinates to [0, 1] range
-    indices_float = (points - range_array[:, 0]) / (range_array[:, 1] - range_array[:, 0]) * shape_array + 0.5
+    indices_float = (points - range_array[:, 0]) / range_size * shape_array + 0.5
     indices_float = indices_float.reshape(-1, 2)
 
     # Create zero array for accumulation
@@ -1132,7 +1135,7 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
     output_dtype : dtype, optional
         Data type of the output grid. Default is np.float64.
     padding : int, optional
-        Number of padding pixels for drawing the data. Default is 0.
+        Number of padding pixels in the boundary to draw the data. Default is 0.
     type : str, optional
         Type of data. Options are 'particle' or 'amr'. Default is 'particle'.
 
@@ -1149,14 +1152,18 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
             if mode in ['mean']:
                 grid_weight += projector(x, y, weights, lims_2d, shape)
         elif mode in ['min', 'max']:
-            xi = uniform_digitize(x, lims_2d[0], shape[0]) - 1
-            yi = uniform_digitize(y, lims_2d[1], shape[1]) - 1
+            xi = uniform_digitize(x, lims_2d[0], shape[0])
+            yi = uniform_digitize(y, lims_2d[1], shape[1])
+
+            grid_padding = np.full(np.asarray(shape)+2, fill_value=np.inf if mode == 'min' else -np.inf, dtype=output_dtype)
             if mode in ['min']:
                 # do a minimum over projection
-                np.minimum.at(grid, (xi, yi), quantity)
+                np.minimum.at(grid_padding, (xi, yi), quantity)
+                np.minimum(grid, grid_padding[1:-1, 1:-1], out=grid)
             elif mode in ['max']:
                 # do a maximum over projection
-                np.maximum.at(grid, (xi, yi), quantity)
+                np.maximum.at(grid_padding, (xi, yi), quantity)
+                np.maximum(grid, grid_padding[1:-1, 1:-1], out=grid)
 
     ndim = 3
     levelmin, levelmax = None, None
@@ -1203,9 +1210,10 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
 
     pixel_size = (lims_2d[:, 1] - lims_2d[:, 0]) / np.array(shape)
     if padding != 0:
-        padding_size = np.concatenate([pixel_size * padding, [0]])
+        padding_size = np.asarray([0., 0., 0.])
+        padding_size[proj] = pixel_size * padding
     else:
-        padding_size = 0
+        padding_size = 0.
 
     if type == 'part':
         if shape is None:
@@ -1274,6 +1282,7 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
 
         # do projection onto current grid
         apply_projection(grid=grid, grid_weight=grid_weight, x=xx, y=yy, quantity=qq, weights=ww, lims_2d=lims_2d, projector=projector, mode=mode)
+        
         grid /= pixel_area
 
         if mode == 'mean' and grid_weight is not None:
@@ -1313,9 +1322,9 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
             elif crop_mode in ['pixel', 'subpixel']:
                 subpixel = crop_mode == 'subpixel'
                 lims_crop = (lims_2d - lims_2d_draw[:, 0, np.newaxis]) / (lims_2d_draw[:, 1] - lims_2d_draw[:, 0])[:, np.newaxis]
-                grid = crop(grid, range=lims_crop, output_shape=shape, subpixel=subpixel, order=interp_order)
+                grid = crop(grid, range=lims_crop, output_shape=shape, subpixel=subpixel, order=interp_order, padding=padding)
 
-    return grid
+    return grid.T
 
 def part_projection(centers, quantities=None, weights=None, shape=100, lims=None,
                     mode='sum', plot_method='hist', projection=['x', 'y'], output_dtype=np.float64, padding=0):
@@ -1386,13 +1395,14 @@ def amr_projection(centers, levels, quantities=None, weights=None, shape=None, l
     return grid_projection(centers=centers, levels=levels, quantities=quantities, weights=weights, shape=shape, lims=lims, mode=mode, plot_method=plot_method, projection=projection, interp_order=interp_order, crop_mode=crop_mode, output_dtype=output_dtype, padding=padding, type='amr')
 
 
-def crop(img, range, output_shape=None, subpixel=True, **kwargs):
+def crop(img, range, output_shape=None, subpixel=True, padding=0, **kwargs):
     """
     Crop an image to a specified range.    
     """
     range = np.array(range)
     shape = np.array(img.shape)
     idx_true = shape[:, np.newaxis] * range
+    idx_true += np.asarray([-padding, padding])
     if not subpixel:
         idx_int = np.array(np.round(idx_true), dtype=int)
         #idxs = np.array([np.round(shape[0] * range[0] - 0.5), np.round(shape[1] * range[1] - 0.5)], dtype=int)
@@ -1408,6 +1418,7 @@ def crop(img, range, output_shape=None, subpixel=True, **kwargs):
             output_shape = np.round(true_shape).astype(int)
         else:
             output_shape = np.array(output_shape)
+        output_shape = output_shape + 2 * padding
 
         scale = true_shape / output_shape
 
@@ -1415,6 +1426,7 @@ def crop(img, range, output_shape=None, subpixel=True, **kwargs):
         tform2 = AffineTransform(scale=scale)
         # need to trnspose the image to apply the transformation correctly
         img = warp(img.T, tform2+tform1, output_shape=output_shape[::-1], **kwargs).T
+        img = img[padding:-padding, padding:-padding]
 
     return img
 

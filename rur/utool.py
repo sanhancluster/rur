@@ -1556,8 +1556,10 @@ def uniform_digitize(values, lim, nbins):
     values_idx = np.clip(values_idx, 0, nbins+1)
     return values_idx
 
-def box_mask(coo, box, size=0, exclusive=False, nchunk=10000000):
+def box_mask(coo, box, size=None, exclusive=False, nchunk=10000000):
     # masking coordinates based on the box
+    if size is None:
+        size = 0
     size = np.atleast_2d(size)
     if (exclusive):
         size *= -1
