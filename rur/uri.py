@@ -2241,7 +2241,7 @@ class RamsesSnapshot(object):
         self.cpu = np.concatenate(amr_cpus)
 
     def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False,
-                 ripses=False, python=True, nthread=8, use_cache=False, hdf=None, read_branch=False, dev=False, htype='lzf'):
+                 ripses=False, python=True, nthread=8, use_cache=False, hdf=None, read_branch=False, dev=False, htype='lzf', levelmax=None):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -2249,7 +2249,7 @@ class RamsesSnapshot(object):
             hdf = self.hdf
 
         if hdf:
-            return self.get_cell_hdf(box=box, target_fields=target_fields, exact_box=exact_box, read_branch=read_branch, nthread=nthread, dev=dev, htype=htype)
+            return self.get_cell_hdf(box=box, target_fields=target_fields, exact_box=exact_box, read_branch=read_branch, nthread=nthread, dev=dev, htype=htype, levelmax=levelmax)
 
         if (cpulist is None):
             if (self.box is None or np.array_equal(self.box, self.default_box)):
@@ -2499,7 +2499,7 @@ class RamsesSnapshot(object):
         # -------------------------------------------
 
 
-    def get_cell_hdf(self, box=None, target_fields=None, exact_box=True, read_branch=False, nthread=8, dev=False, htype='lzf'):
+    def get_cell_hdf(self, box=None, target_fields=None, exact_box=True, read_branch=False, nthread=8, dev=False, htype='lzf', levelmax=None):
         hdf_path = self.get_path('hdf_cell')
         if htype == 'gzip':
             hdf_path = f"{hdf_path.split('.')[0]}_gzip4.h5"
@@ -2520,9 +2520,9 @@ class RamsesSnapshot(object):
                     grp = hdf['branch']
                 hilbert_bound = grp['hilbert_boundary'][:]
                 chunk_bound = grp['chunk_boundary']
-                levelmax = grp.attrs.get('levelmax', self.levelmax)
-                
-                involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax)
+                levelmax_all = grp.attrs.get('levelmax', self.levelmax)
+
+                involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax_all)
                 # -------------------------------------------
                 # SY Bug fix: when wrong `target_fields` are specified
                 if target_fields is not None:
@@ -2558,9 +2558,22 @@ class RamsesSnapshot(object):
                 grp = hdf[hdf_group]
                 hilbert_bound = grp['hilbert_boundary'][:]
                 chunk_bound = grp['chunk_boundary'][:]
-                levelmax = grp.attrs.get('levelmax', self.levelmax)
+                levelmax_all = grp.attrs.get('levelmax', self.levelmax)
                 
-                involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax)
+                involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax_all)
+                involved_idx_levelmax = None
+                grp_branch = None
+                if levelmax is not None:
+                    if read_branch:
+                        raise ValueError("'levelmax' cannot be specified for branch group in HDF5.")
+                    n_level = grp.attrs.get('n_level', None)
+                    chunk_idx = involved_idx
+                    involved_idx = chunk_idx * n_level
+                    involved_idx_levelmax = involved_idx + levelmax
+                    grp_branch = hdf['branch']
+                    chunk_bound = grp['level_boundary'][:]
+                    chunk_bound_branch = grp_branch['level_boundary'][:]
+
                 if target_fields is not None:
                     wrong_fields = [f for f in target_fields if f not in grp['data'].dtype.names]
                     if len(wrong_fields) > 0:
@@ -2569,14 +2582,28 @@ class RamsesSnapshot(object):
                     if len(target_fields) == 0: target_fields = None
                 if nthread==1:
                     timer.start('Domain Slicing...')
-                    data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields, 
-                                        dev=dev, nthread=nthread)
+                    if grp_branch is not None:
+                        data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, cpulist_end=involved_idx_levelmax, target_fields=target_fields, 
+                                            dev=dev, nthread=nthread)
+                        data_branch = domain_slice(grp_branch['data'], involved_idx_levelmax-1, bound=chunk_bound_branch, target_fields=target_fields, dev=dev, nthread=nthread)
+                        data = np.concatenate([data, data_branch], axis=0)
+                    else:
+                        data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields, 
+                                            dev=dev, nthread=nthread)
+
                     timer.record()
-            
+
             if nthread>1:
                 timer.start('Domain Slicing with multiprocessing...')
-                data = domain_slice(None, involved_idx, bound=chunk_bound, target_fields=target_fields, 
-                                    dev=dev, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=hdf_group)
+                if grp_branch is not None:
+                    data = domain_slice(None, involved_idx, bound=chunk_bound, cpulist_end=involved_idx_levelmax, target_fields=target_fields,
+                                        dev=dev, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=hdf_group)
+                    data_branch = domain_slice(None, involved_idx_levelmax-1, bound=chunk_bound_branch, target_fields=target_fields,
+                                               dev=dev, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group='branch')
+                    data = np.concatenate([data, data_branch], axis=0)
+                else:
+                    data = domain_slice(None, involved_idx, bound=chunk_bound, target_fields=target_fields,
+                                        dev=dev, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=hdf_group)
                 timer.record()
 
             if (self.box is not None and exact_box):
@@ -2594,7 +2621,6 @@ class RamsesSnapshot(object):
                     timer.record()
             cell = Cell(data, self)
             return cell
-
 
     def get_sink(self, box=None, all=False):
         if (all):
@@ -3582,15 +3608,18 @@ def ckey2idx(amr_keys, nocts, levelmin, ndim=3):
     return poss, lvls
 
 
-def domain_slice(array, cpulist, bound, cpulist_all=None, target_fields=None, 
+def domain_slice(array, cpulist, bound, cpulist_all=None, cpulist_end=None, target_fields=None, 
                  dev=False, nthread=1, snap=None, hdf_path=None, hdf_group=None):
     if cpulist_all is None:
         cpulist_all = np.arange(bound.size-1)
     # array should already been aligned with bound
     idxs = np.where(np.isin(cpulist_all, cpulist, assume_unique=True))[0]
-    
-    merged_starts, merged_ends = merge_segments(idxs, idxs + 1)
-    doms = np.stack([bound[merged_starts], bound[merged_ends]], axis=-1)
+    starts = idxs
+    ends = idxs + 1 if cpulist_end is None else np.where(np.isin(cpulist_all, cpulist_end, assume_unique=True))[0]
+
+    if not (dev and nthread > 1):
+        starts, ends = merge_segments(starts, ends)
+    doms = np.stack([bound[starts], bound[ends]], axis=-1)
     segs = doms[:, 1] - doms[:, 0]
 
     if not dev:
