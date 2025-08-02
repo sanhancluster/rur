@@ -1,10 +1,22 @@
 {
-    "input_name": "ncsedd",
-    "name": "NewCluster_sEdd",
-    "repo": "/storage8/NewCluster_sEdd",
-    "sim_publication": "None",
-    "ramses_ver": 4,
-    "rur_mode": "nc",
-    "minout": 70,
-    "maxout": 10000
+    "ncsedd":{
+        "input_name": "ncsedd",
+        "name": "NewCluster_sEdd",
+        "repo": "/storage8/NewCluster_sEdd",
+        "sim_publication": "None",
+        "ramses_ver": 4,
+        "rur_mode": "nc",
+        "minout": 0,
+        "maxout": 69
+    },
+    "nh3":{
+        "input_name": "nh3",
+        "name": "NH3",
+        "repo": "/storage8/NH3",
+        "sim_publication": "None",
+        "ramses_ver": 4,
+        "rur_mode": "nc",
+        "minout": 0,
+        "maxout": 10000
+    }
 }

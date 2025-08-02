@@ -622,13 +622,16 @@ def main(args):
             simdict = simlist.GEM_SIMULATIONS[mode]
         else:
             cwd = os.path.dirname(os.path.abspath(__file__))
-            print(cwd)
             fname = f"{cwd}/ramses_to_hdf_custom.json"
             if os.path.exists(fname):
                 print(f"Read `{fname}` for custom simulation data")
                 import json
                 with open(fname) as f:
-                    simdict = json.load(f)
+                    simdicts = json.load(f)
+                if mode in simdicts:
+                    simdict = simdicts[mode]
+                else:
+                    simdict = simlist.add_custom_snapshot(mode)
             else:
                 simdict = simlist.add_custom_snapshot(mode)
     else:
