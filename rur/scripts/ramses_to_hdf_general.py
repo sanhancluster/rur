@@ -691,6 +691,9 @@ def main(args):
         print(f"Changed using {args.sep}/{args.dsep} separation for iouts.")
         iout_list = iout_list[iout_list%args.dsep == args.sep]
         print(f"--> Do for {len(iout_list)} iouts ({iout_list[0]}-{iout_list[-1]})")
+    skipout = simdict.get("skipout", [])
+    if len(skipout) > 0:
+        iout_list = iout_list[~np.isin(iout_list, skipout)]
 
     cpu_list = None
     overwrite = False

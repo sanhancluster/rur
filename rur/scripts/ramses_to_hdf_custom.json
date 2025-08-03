@@ -7,7 +7,8 @@
         "ramses_ver": 4,
         "rur_mode": "nc",
         "minout": 0,
-        "maxout": 69
+        "maxout": 69,
+        "skipout": [109]
     },
     "nh3":{
         "input_name": "nh3",
@@ -17,6 +18,7 @@
         "ramses_ver": 4,
         "rur_mode": "nc",
         "minout": 0,
-        "maxout": 10000
+        "maxout": 10000,
+        "skipout": [36]
     }
 }
