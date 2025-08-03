@@ -271,7 +271,7 @@ def get_new_part_dict(snap:uri.RamsesSnapshot, cpu_list, size_load, nthread=8) -
 
         for name in names:
             new_part = new_part_dict[name]
-            new_dtypes = converted_dtypes[name]
+            new_dtypes = new_part.dtype.descr#converted_dtypes[name]
             if name == 'sink':
                 if pointer_dict[name] == 0: # we load sink data only once
                     part = snap.get_sink(all=True)
