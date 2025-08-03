@@ -697,8 +697,11 @@ def main(args):
 
     cpu_list = None
     overwrite = False
-    export_cell(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load, cpu_list=cpu_list, dataset_kw=dataset_kw, sim_description=sim_description, version=version, overwrite=overwrite, nthread=args.nthread)
-    export_part(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load, cpu_list=cpu_list, dataset_kw=dataset_kw, sim_description=sim_description, version=version, overwrite=overwrite, nthread=args.nthread)
+    export = args.export.lower()
+    if 'c' in export:
+        export_cell(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load, cpu_list=cpu_list, dataset_kw=dataset_kw, sim_description=sim_description, version=version, overwrite=overwrite, nthread=args.nthread)
+    if 'p' in export:
+        export_part(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load, cpu_list=cpu_list, dataset_kw=dataset_kw, sim_description=sim_description, version=version, overwrite=overwrite, nthread=args.nthread)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Convert Ramses snapshot data to HDF5 format.')
@@ -709,6 +712,7 @@ if __name__ == '__main__':
     parser.add_argument("--nthread", "-n", help='Number of threads to use for processing', type=int, default=8)
     parser.add_argument("--sep", "-s", help='Separation for iouts', type=int, default=-1, required=False)
     parser.add_argument("--dsep", "-d", help='Denominator of separations', type=int, default=2, required=False)
+    parser.add_argument("--export", "-e", help='Which for export (c and/or p)', type=str, required=False, default='cp')
     parser.add_argument("--verbose", action='store_true')
     parser.add_argument("--debug", action='store_true')
     args = parser.parse_args()
