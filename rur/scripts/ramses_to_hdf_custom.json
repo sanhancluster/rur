@@ -8,7 +8,7 @@
         "rur_mode": "nc",
         "minout": 0,
         "maxout": 69,
-        "skipout": [109]
+        "skipout": []
     },
     "nh3":{
         "input_name": "nh3",
@@ -19,6 +19,6 @@
         "rur_mode": "nc",
         "minout": 0,
         "maxout": 10000,
-        "skipout": [36]
+        "skipout": [36, 109]
     }
 }
