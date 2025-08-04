@@ -718,7 +718,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print()
     print()
-    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     print(args)
     print()
     print()
