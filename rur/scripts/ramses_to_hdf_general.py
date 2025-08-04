@@ -716,6 +716,12 @@ if __name__ == '__main__':
     parser.add_argument("--verbose", action='store_true')
     parser.add_argument("--debug", action='store_true')
     args = parser.parse_args()
+    print()
+    print()
+    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    print(args)
+    print()
+    print()
 
     timer.message("Starting data export...", name='main')
     main(args)
