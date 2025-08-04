@@ -23,8 +23,8 @@
     },
     "ncdustfix":{
         "input_name": "ncdustfix",
-        "name": "NCdustFix",
-        "repo": "/storage8/NCdustFix",
+        "name": "NCdustfix",
+        "repo": "/storage8/NCdustfix",
         "sim_publication": "None",
         "ramses_ver": 4,
         "rur_mode": "nc",
@@ -34,8 +34,8 @@
     },
     "ncdustfix2":{
         "input_name": "ncdustfix2",
-        "name": "NCdustFix2",
-        "repo": "/storage8/NCdustFix/NCdustfix2",
+        "name": "NCdustfix2",
+        "repo": "/storage8/NCdustfix/NCdustfix2",
         "sim_publication": "None",
         "ramses_ver": 4,
         "rur_mode": "nc",
