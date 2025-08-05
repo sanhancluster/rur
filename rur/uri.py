@@ -2501,7 +2501,7 @@ class RamsesSnapshot(object):
         # -------------------------------------------
 
 
-    def get_cell_hdf(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, read_branch=False, nthread=8, dev=False, legacy=False, htype='lzf'):
+    def get_cell_hdf(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, read_branch=False, nthread=8, dev=False, legacy=False, htype='lzf', levelmax=None):
         hdf_path = self.get_path('hdf_cell')
         if htype == 'gzip':
             hdf_path = f"{hdf_path.split('.')[0]}_gzip4.h5"
