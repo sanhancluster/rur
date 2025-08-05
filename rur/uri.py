@@ -3005,6 +3005,8 @@ def box_mask_table(table, box, snap=None, size=0, exclusive=False, chunksize=500
         size *= -1
     rad = size/2
     box = np.array(box)
+    Nchunk = int(np.ceil(len(table)/chunksize))
+    nthread = min(nthread, Nchunk)
     if(len(table) < (20*chunksize*nthread))or(nthread==1):
         box_mask = (table['x'] >= box[0,0]-rad) & (table['x'] <= box[0,1]+rad) & (table['y'] >= box[1,0]-rad) & (table['y'] <= box[1,1]+rad) & (table['z'] >= box[2,0]-rad) & (table['z'] <= box[2,1]+rad)
     else:
@@ -3013,9 +3015,7 @@ def box_mask_table(table, box, snap=None, size=0, exclusive=False, chunksize=500
         name = snap.make_shm_name(shmname) if(snap is not None) else "boxmask"
         memory = shared_memory.SharedMemory(name=name, create=True, size=box_mask.nbytes)
         data = np.ndarray(box_mask.shape, dtype=bool, buffer=memory.buf)
-        Nchunk = int(np.ceil(len(table)/chunksize))
         indicies = np.append(np.arange(0, len(table), chunksize), len(table))
-        nthread = min(nthread, Nchunk)
 
         if(timer.verbose>=2):
             pbar = tqdm(total=len(indicies-1), desc=f"Mask with Chunk")
@@ -3580,6 +3580,7 @@ def domain_slice(array, cpulist, bound, cpulist_all=None, target_fields=None,
     merged_starts, merged_ends = merge_segments(idxs, idxs + 1)
     doms = np.stack([bound[merged_starts], bound[merged_ends]], axis=-1)
     segs = doms[:, 1] - doms[:, 0]
+    nthread = min(nthread, len(segs))  # avoid too many threads for small segments
 
     if legacy:
         # if target_fields is not None, filter the fields
@@ -3672,7 +3673,6 @@ def domain_slice(array, cpulist, bound, cpulist_all=None, target_fields=None,
                 snap.part_mem = shared_memory.SharedMemory(name=shmname,create=True, size=out.nbytes)
                 snap.memory.append(snap.part_mem)
                 out = np.ndarray(out.shape, dtype=np.dtype(new_dtype), buffer=snap.part_mem.buf)
-            nthread = min(nthread, len(segs))  # avoid too many threads for small segments
 
             pbar = tqdm(total=len(segs), desc=f"Domain slicing [{nthread} threads]")
             cursors = np.cumsum(segs)
