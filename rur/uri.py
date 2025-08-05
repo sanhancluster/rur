@@ -3726,11 +3726,12 @@ def domain_slice(array, cpulist, bound, cpulist_all=None, cpulist_end=None, targ
                 snap.part_mem = shared_memory.SharedMemory(name=shmname,create=True, size=out.nbytes)
                 snap.memory.append(snap.part_mem)
                 out = np.ndarray(out.shape, dtype=np.dtype(new_dtype), buffer=snap.part_mem.buf)
-
-            pbar = tqdm(total=len(segs), desc=f"Domain slicing [{nthread} threads]")
+            def update(*a): pass
+            if (timer.verbose >= 1) and (len(segs) > 4):
+                pbar = tqdm(total=len(segs), desc=f"Domain slicing [{nthread} threads]")
+                def update(*a): pbar.update(1)
             cursors = np.cumsum(segs)
             cursors = np.insert(cursors, 0, 0)
-            def update(*a): pbar.update(1)
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(
