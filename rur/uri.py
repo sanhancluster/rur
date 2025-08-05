@@ -711,11 +711,12 @@ class RamsesSnapshot(object):
     """
 
     def __init__(self, repo, iout, mode='none', box=None, path_in_repo=default_path_in_repo['snapshots'], snap=None,
-                 longint=False, verbose=None, z=None):
+                 longint=False, verbose=None, z=None, hdf=False):
         self.repo = repo
         self.path_in_repo = path_in_repo
         self.snap_path = join(repo, path_in_repo)
         self.verbose = timer.verbose if verbose is None else verbose
+        self.hdf = hdf
 
         if z is not None:
             path = join(self.repo, 'list_iout_avail.txt')
@@ -1121,97 +1122,108 @@ class RamsesSnapshot(object):
         return fname
 
     def read_params(self, snap, verbose=timer.verbose):
+        if not self.hdf:
 
-        opened = open(self.info_path, mode='r')
+            opened = open(self.info_path, mode='r')
 
-        int_regex = re.compile(r'(?P<name>\w+)\s*=\s*(?P<data>\d+)')
-        float_regex = re.compile(r'(?P<name>\w+)\s*=\s*(?P<data>.+)')
-        str_regex = re.compile(r'(?P<name>\w+)\s*=\s*(?P<data>.+)')
-        domain_regex = re.compile(r'(?P<domain>.+)\s+(?P<ind_min>.+)\s+(?P<ind_max>.+)')
+            int_regex = re.compile(r'(?P<name>\w+)\s*=\s*(?P<data>\d+)')
+            float_regex = re.compile(r'(?P<name>\w+)\s*=\s*(?P<data>.+)')
+            str_regex = re.compile(r'(?P<name>\w+)\s*=\s*(?P<data>.+)')
+            domain_regex = re.compile(r'(?P<domain>.+)\s+(?P<ind_min>.+)\s+(?P<ind_max>.+)')
 
-        params = {}
-        # read integer data
-        line = opened.readline().strip()
-        while len(line) > 0:
-            matched = int_regex.search(line)
-            if (not matched):
-                raise ValueError("A line in the info file is not recognized: %s" % line)
-            params[matched.group('name')] = int(matched.group('data'))
+            params = {}
+            # read integer data
             line = opened.readline().strip()
+            while len(line) > 0:
+                matched = int_regex.search(line)
+                if (not matched):
+                    raise ValueError("A line in the info file is not recognized: %s" % line)
+                params[matched.group('name')] = int(matched.group('data'))
+                line = opened.readline().strip()
 
-        # read float data
-        line = opened.readline().strip()
-        while len(line) > 0:
-            matched = float_regex.search(line)
-            if (not matched):
-                raise ValueError("A line in the info file is not recognized: %s" % line)
-            params[matched.group('name')] = float(matched.group('data'))
+            # read float data
             line = opened.readline().strip()
+            while len(line) > 0:
+                matched = float_regex.search(line)
+                if (not matched):
+                    raise ValueError("A line in the info file is not recognized: %s" % line)
+                params[matched.group('name')] = float(matched.group('data'))
+                line = opened.readline().strip()
 
-        # some cosmological calculations
-        params['unit_m'] = params['unit_d'] * params['unit_l'] ** 3
-        params['h'] = params['H0'] / 100
-        params['z'] = 1 / params['aexp'] - 1
-        params['boxsize'] = params['unit_l'] * params['h'] / Mpc / params['aexp']
-        params['boxsize_physical'] = params['boxsize'] / (params['h']) * params['aexp']
-        params['boxsize_comoving'] = params['boxsize'] / (params['h'])
+            # some cosmological calculations
+            params['unit_m'] = params['unit_d'] * params['unit_l'] ** 3
+            params['h'] = params['H0'] / 100
+            params['z'] = 1 / params['aexp'] - 1
+            params['boxsize'] = params['unit_l'] * params['h'] / Mpc / params['aexp']
+            params['boxsize_physical'] = params['boxsize'] / (params['h']) * params['aexp']
+            params['boxsize_comoving'] = params['boxsize'] / (params['h'])
 
-        params['icoarse'] = params['nstep_coarse']
+            params['icoarse'] = params['nstep_coarse']
 
-        if (self.classic_format):
-            # read hilbert key boundaries
-            line = opened.readline().strip()
-            params['ordering'] = str_regex.search(line).group('data')
-            opened.readline()
-            if (params['ordering'] == 'hilbert'):
-                # reads more precise boundary key by reading amr 1
-                amr_filename = self.get_path('amr', 1)
-                with FortranFile(amr_filename) as file:
-                    for _ in range(25):
-                        file.read_record('b')
-                    bounds = file.read_record(dtype='b')
-                if (bounds.size == 16 * (params['ncpu'] + 1)):
-                    # quad case
-                    self.bound_key = quad_to_f16(bounds)[1:-1]
+            if (self.classic_format):
+                # read hilbert key boundaries
+                line = opened.readline().strip()
+                params['ordering'] = str_regex.search(line).group('data')
+                opened.readline()
+                if (params['ordering'] == 'hilbert'):
+                    # reads more precise boundary key by reading amr 1
+                    amr_filename = self.get_path('amr', 1)
+                    with FortranFile(amr_filename) as file:
+                        for _ in range(25):
+                            file.read_record('b')
+                        bounds = file.read_record(dtype='b')
+                    if (bounds.size == 16 * (params['ncpu'] + 1)):
+                        # quad case
+                        self.bound_key = quad_to_f16(bounds)[1:-1]
+                    else:
+                        # double case
+                        self.bound_key = bounds.view('f8')[1:-1]
+
+                if (exists(self.get_path('part', 1))):
+                    self.params['nstar'] = self._read_nstar()
+                    self.params['star'] = self.params['nstar'] > 0
                 else:
-                    # double case
-                    self.bound_key = bounds.view('f8')[1:-1]
-
-            if (exists(self.get_path('part', 1))):
-                self.params['nstar'] = self._read_nstar()
-                self.params['star'] = self.params['nstar'] > 0
+                    self.params['nstar'] = 0
+                    self.params['star'] = False
             else:
-                self.params['nstar'] = 0
-                self.params['star'] = False
+                self.params['star'] = True
+            
+            part_dtype, chem = self.part_desc()
+            hydro_names, hchem = self.hydro_desc()
+            if(not np.array_equal(chem, hchem)):
+                scalars = [it for it in hydro_names if(it[:6]=='scalar')]
+                warnings.warn(f"\nChemical elements are not in agreement!\n\t`{chem}` from part\n\t`{hchem}` from hydro", UserWarning, stacklevel=2)
+                if(len(scalars) == len(chem)):
+                    hydro_names = [it if(it not in scalars) else chem[int(it[-2:])-1] for it in hydro_names]
+                    warnings.warn(f"\n`{scalars}`\nis found in hydro descriptor\nThese will be considered to\n`{chem}`", UserWarning, stacklevel=2)
+                else:
+                    warnings.warn(f"\n`{scalars}`\nis found in hydro descriptor\nThese will be ignored", UserWarning, stacklevel=2)
+            self.part_dtype = part_dtype
+            self.hydro_names = hydro_names
+            self.chem = chem
+
+            # initialize cpu list and boundaries
+            self.cpulist_cell = np.array([], dtype='i4')
+            self.cpulist_part = np.array([], dtype='i4')
+            self.bound_cell = np.array([0], dtype='i4')
+            self.bound_part = np.array([0], dtype='i4')
+            self.params.update(params)
+
         else:
-            self.params['star'] = True
-        
-        part_dtype, chem = self.part_desc()
-        hydro_names, hchem = self.hydro_desc()
-        if(not np.array_equal(chem, hchem)):
-            scalars = [it for it in hydro_names if(it[:6]=='scalar')]
-            warnings.warn(f"\nChemical elements are not in agreement!\n\t`{chem}` from part\n\t`{hchem}` from hydro", UserWarning, stacklevel=2)
-            if(len(scalars) == len(chem)):
-                hydro_names = [it if(it not in scalars) else chem[int(it[-2:])-1] for it in hydro_names]
-                warnings.warn(f"\n`{scalars}`\nis found in hydro descriptor\nThese will be considered to\n`{chem}`", UserWarning, stacklevel=2)
-            else:
-                warnings.warn(f"\n`{scalars}`\nis found in hydro descriptor\nThese will be ignored", UserWarning, stacklevel=2)
-        self.part_dtype = part_dtype
-        self.hydro_names = hydro_names
-        self.chem = chem
-
-        # initialize cpu list and boundaries
-        self.cpulist_cell = np.array([], dtype='i4')
-        self.cpulist_part = np.array([], dtype='i4')
-        self.bound_cell = np.array([0], dtype='i4')
-        self.bound_part = np.array([0], dtype='i4')
-        self.params.update(params)
+            with h5py.File(self.get_path('hdf_cell'), 'r') as f:
+                self.params = {k: f.attrs[k] for k in f.attrs.keys()}
+            self.params['h'] = self.params['H0'] / 100
+            self.params['boxsize'] = self.params['unit_l'] * self.params['h'] / Mpc / self.params['aexp']
+            self.params['boxsize_physical'] = self.params['boxsize'] / (self.params['h']) * self.params['aexp']
+            self.params['boxsize_comoving'] = self.params['boxsize'] / (self.params['h'])
 
         self.cell_extra = custom_extra_fields(self, 'cell')
         self.part_extra = custom_extra_fields(self, 'particle')
 
+
         self.set_cosmology(snap=snap, verbose=verbose)
         self.set_unit()
+
 
     def get_involved_cpu(self, box=None, binlvl=None, n_divide=5):
         """Get the list of involved cpu domain for specific region.
@@ -1231,7 +1243,7 @@ class RamsesSnapshot(object):
         else:
             involved_cpu = np.arange(self.params['ncpu']) + 1
         return involved_cpu
-    
+
     def extract_header(self):
         fname = f"header_{self.iout:05d}.txt"
         header = {'total':0,
@@ -2004,7 +2016,7 @@ class RamsesSnapshot(object):
             return sink
 
     def read_sinkprops(self, path_in_repo='SINKPROPS', drag_part=True, use_cache=False, cache_name='sinkprops.pkl',
-                       reset_cache=False, cache_format='pkl', progress=False):
+                       reset_cache=False, cache_format='pkl', progress=False) -> np.ndarray:
         """Searches and reads all files in the sinkprops directory and returns as single table.
         if use_cache=True, it saves pickle file to save reading time
         """
@@ -3624,7 +3636,7 @@ def domain_slice(array, cpulist, bound, cpulist_all=None, cpulist_end=None, targ
     starts = idxs
     ends = idxs + 1 if cpulist_end is None else np.where(np.isin(cpulist_all, cpulist_end, assume_unique=True))[0]
 
-    merged_starts, merged_ends = merge_segments(idxs, idxs + 1)
+    # merged_starts, merged_ends = merge_segments(idxs, idxs + 1)
     if legacy or (nthread == 1):
         starts, ends = merge_segments(starts, ends)
     doms = np.stack([bound[starts], bound[ends]], axis=-1)

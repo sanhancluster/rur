@@ -481,7 +481,7 @@ def partmap(part, box=None, proj=[0, 1], shape=1000, weights=None, unit=None, me
         image = np.histogram2d(x[:, proj[0]], x[:, proj[1]], bins=shape, range=box_proj, weights=weights, **kwargs)[0]
         image /= px_area
     elif method == 'gaussian':
-        image = dr.gauss_img(x[:, proj[0]], x[:, proj[1]], reso=shape, lims=box_proj, weights=weights, **kwargs)
+        image = dr.gaussian_img(x[:, proj[0]], x[:, proj[1]], reso=shape, lims=box_proj, weights=weights, **kwargs)
         image /= px_area
     elif method == 'kde':
         image = dr.kde_img(x[:, proj[0]], x[:, proj[1]], reso=shape, lims=box_proj, weights=weights, tree=True,

@@ -4,11 +4,12 @@ from scipy.optimize import curve_fit
 from scipy.ndimage.filters import gaussian_filter
 from rur.utool import *
 from scipy.spatial import Delaunay, cKDTree as KDTree
-from scipy.interpolate import LinearNDInterpolator
+from scipy.interpolate import NearestNDInterpolator, LinearNDInterpolator
 from scipy.stats import norm
 from scipy.signal import convolve2d
 from numpy.linalg import det
 from skimage.transform import resize, rescale, warp, EuclideanTransform, AffineTransform
+from scipy.sparse import csr_matrix
 
 import string
 import matplotlib.collections as mcoll
@@ -154,7 +155,7 @@ def hist_imshow(x, y, lims=None, reso=100, weights=None, filter_sigma=None, norm
 
 def kde_contour(x, y, lims, reso=100, bw_method='silverman', weights=None, sig_arr=[1, 2], filled=False, **kwargs):
 
-    pdi = kde_img(x, y, lims, reso, weights=weights, bw_method=bw_method)
+    pdi = kde_img(x, y, lims, reso, weights=weights, bw_method=bw_method, density=True)
     area_per_px = (lims[0][1]-lims[0][0])*(lims[1][1]-lims[1][0])/reso**2
     levels = np.append([sig_level(pdi, sig_arr, area_per_px)[::-1]], np.max(pdi))
 
@@ -277,17 +278,67 @@ def gaussian_filter_border(image, sigma, **kwargs):
     fraction = sigma - sigma_int
     return gaussian_filter(image, sigma_int, **kwargs) * fraction + gaussian_filter(image, sigma_int+1, **kwargs) * (1-fraction)
 
-def gauss_img(x, y, lims, reso=100, weights=None, subdivide=3, kernel_size=1):
+def estimate_density_2d(x, y, lims, shape=100, weights=None, density=False, method='hist', **kwargs):
+    """
+    Estimate the density of points in 2D space and return a 2D image.
+    """
     # apply kde-like image convolution using gaussian filter
     x, y = np.array(x), np.array(y)
     mask = np.isfinite(x) & np.isfinite(y)
     x, y = x[mask], y[mask]
+
+    # set up shapes and ranges
+    if np.isscalar(shape):
+        shape = np.repeat(shape, 2)
+    shape_array = np.asarray(shape)
+    range_array = np.asarray(lims)
+
     if(weights is not None):
         weights = weights[mask]
+    else:
+        weights = np.ones_like(x)
 
-    kern_size = int(kernel_size*subdivide*6) - 1
+    if method == 'hist':
+        return hist_img(x, y, range_array, shape_array, weights=weights, density=density, **kwargs)
+    elif method == 'kde':
+        return kde_img(x, y, range_array, shape_array, weights=weights, density=density, **kwargs)
+    elif method == 'cic':
+        return cic_img(x, y, range_array, shape_array, weights=weights, density=density, **kwargs)
+    elif method == 'gaussian':
+        return gaussian_img(x, y, range_array, shape_array, weights=weights, density=density, **kwargs)
+    elif method == 'dtfe':
+        return dtfe_img(x, y, range_array, shape_array, weights=weights, density=density, **kwargs)
+    elif method == 'hist_numpy':
+        im = np.histogram2d(x, y, range=range_array, bins=shape_array, weights=weights, **kwargs)[0]
+        if density:
+            area_per_px = (range_array[0, 1] - range_array[0, 0]) * (range_array[1, 1] - range_array[1, 0]) / im.size
+            im /= area_per_px
+        return im
+    else:
+        raise ValueError("Unknown mode: %s. Use 'hist', 'kde', 'cic', 'gaussian', or 'dtfe'." % method)
 
-    arr = bin_centers(-kern_size/2, kern_size/2, kern_size)
+
+def gaussian_img(x, y, lims, reso=100, weights=None, density=False, subdivide=4, kernel_size=1, sampling_sigma=2.5):
+    # apply kde-like image convolution using gaussian filter
+    x, y = np.array(x), np.array(y)
+    mask = np.isfinite(x) & np.isfinite(y)
+    x, y = x[mask], y[mask]
+
+    # set up shapes and ranges
+    if np.isscalar(reso):
+        reso = np.repeat(reso, 2)
+    lims = np.asarray(lims)
+    shape_array = np.asarray(reso)
+    range_array = np.asarray(lims)
+
+    if(weights is not None):
+        weights = weights[mask]
+    else:
+        weights = np.ones_like(x)
+
+    kern_array_width = int(kernel_size*subdivide*sampling_sigma*2)
+
+    arr = bin_centers(-kern_array_width/2, kern_array_width/2, kern_array_width)
     xm, ym = np.meshgrid(arr, arr)
     mesh = np.stack([xm, ym], axis=-1)
     dist = rss(mesh)
@@ -295,76 +346,180 @@ def gauss_img(x, y, lims, reso=100, weights=None, subdivide=3, kernel_size=1):
     kern = norm.pdf(dist, scale=kernel_size*subdivide)
     kern /= np.sum(kern)
 
-    hist = np.histogram2d(x, y, bins=reso*subdivide, range=lims, weights=weights)[0]
-    hist = convolve2d(hist, kern, mode='same')
-    hist = resize(hist, reso)*subdivide**2
+    hist = np.histogram2d(x, y, bins=shape_array*subdivide, range=range_array, weights=weights)[0]
+    hist = convolve2d(hist, kern, mode='same', boundary='symm')
+    hist = resize(hist, shape_array, anti_aliasing=True) * subdivide**2
+    if density:
+        area_per_px = (range_array[0, 1] - range_array[0, 0]) * (range_array[1, 1] - range_array[1, 0]) / hist.size
+        hist /= area_per_px
 
     return hist
 
-def kde_img(x, y, lims, reso=100, weights=None, tree=True, bw_method='siverman', nsearch=100, smooth_factor=3):
+def kde_img(x, y, lims, reso=100, weights=None, density=False, tree=True, bw_method='silverman', nsearch=30, smooth_factor=1):
     x, y = np.array(x), np.array(y)
+
     mask = np.isfinite(x) & np.isfinite(y)
     x, y = x[mask], y[mask]
+
+    # set up shapes and ranges
+    if np.isscalar(reso):
+        reso = np.repeat(reso, 2)
+    lims = np.asarray(lims)
+    shape_array = np.asarray(reso)
+    range_array = np.asarray(lims)
+
     if(weights is not None):
         weights = weights[mask]
+    else:
+        weights = np.ones_like(x)
 
     if(tree):
         kde = gaussian_kde_tree(np.stack([x, y], axis=-1), weights=weights, nsearch=nsearch, smooth_factor=smooth_factor)
-        return fun_img(kde, lims, reso, axis=-1)
+        grid = fun_img(kde, lims, shape_array, axis=-1)
     else:
         kde = gaussian_kde(np.stack([x, y], axis=0), weights=weights, bw_method=bw_method)
-        return fun_img(kde, lims, reso, axis=0)
+        grid = fun_img(kde, lims, shape_array, axis=0)
 
-def cic_img(x, y, lims, reso=100, weights=None):
-    # apply cloud-in-cell particle mesh algorithm
-    if (np.isscalar(reso)):
-        reso = np.repeat(reso, 2)
+    if not density:
+        area_per_px = (range_array[0, 1] - range_array[0, 0]) * (range_array[1, 1] - range_array[1, 0]) / grid.size
+        grid *= area_per_px
+    return grid
 
-    # get only finite values
-    mask = np.isfinite(x) & np.isfinite(y)
-
-    # set up coordinate array with shape (n, 2)
-    points = np.stack([x, y], axis=-1)[mask]
-
-    # set up weights
-    if weights is None:
-        weights = 1.
-    elif isinstance(weights, Iterable):
-        weights = np.array(weights)[mask]
+def cic_img(x, y, lims, reso=100, weights=None, density=False, full_vectorize=False):
+    """
+    Create a 2D image using Cloud-in-Cell (CIC) method.
+    This method is useful for creating density maps from point data.
+    Parameters:
+    - x, y: 1D arrays of coordinates
+    - lims: 2D array defining the limits of the image, shape (2, 2)
+    - reso: resolution of the image, can be a scalar or a tuple/list of two values
+    - weights: optional 1D array of weights for each point
+    - full_vectorize: if True, uses a fully vectorized approach (memory-intensive)
+    Returns:
+    - pool: 2D numpy array representing the image, shape (reso[0], reso[1])
+    Note: The function assumes that the input coordinates are finite and within the specified limits.
+    If the coordinates are outside the limits, they will be ignored.
+    """
 
     # set up shapes and ranges
-    range_array = np.array(lims)
-    shape_array = np.array(reso)
+    if np.isscalar(reso):
+        reso = np.repeat(reso, 2)
+    lims = np.asarray(lims)
+    shape_array = np.asarray(reso)
+    shape_pad = shape_array + 2
+    range_array = np.asarray(lims)
 
-    # set up dx array with shape (4, 2)
-    dxs = np.concatenate(np.stack(np.mgrid[0:2, 0:2], axis=-1))
+    # mask calculation
+    x = np.asarray(x)
+    y = np.asarray(y)
+    mask = np.isfinite(x) & np.isfinite(y)
 
-    # convert position onto float coordinate
-    indices_float = (points - range_array[:, 0]) / (range_array[:, 1] - range_array[:, 0]) * shape_array + 0.5
+    range_size = range_array[:, 1] - range_array[:, 0]
+    range_pad = range_array + np.asarray([-0.5, 0.5]) * range_size / shape_array
+    mask &= (x >= range_pad[0, 0]) & (x < range_pad[0, 1])
+    mask &= (y >= range_pad[1, 0]) & (y < range_pad[1, 1])
 
-    # create zero array
-    pool = np.zeros(shape_array, dtype='f8')
+    x = x[mask]
+    y = y[mask]
 
-    # apply cic  on 4-side (loop to save memory)
-    for dx in dxs:
-        indices_int = np.floor(indices_float - dx).astype(int)
+    points = np.stack([x, y], axis=-1)
 
-        offsets = indices_float - indices_int
-        if(np.__version__ >= '1.25.0'):
-            areas = np.prod(1-np.abs(offsets - 1), axis=-1)
-        else:
-            areas = np.product(1-np.abs(offsets - 1), axis=-1)
+    if weights is None:
+        weights = np.ones_like(x)
+    elif isinstance(weights, Iterable):
+        weights = np.asarray(weights)[mask]
 
-        mask = np.all((indices_int >= 0) & (indices_int < shape_array), axis=-1)
-        np.add.at(pool, (indices_int[mask, 0], indices_int[mask, 1]), (areas * weights)[mask])
+    # Normalize coordinates to [0, 1] range
+    indices_float = (points - range_array[:, 0]) / range_size * shape_array + 0.5
+    indices_float = indices_float.reshape(-1, 2)
+
+    # Create zero array for accumulation
+    dxs = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])
+
+    if not full_vectorize:
+        pool = np.zeros(shape_array, dtype='f8')
+        for dx in dxs:
+            indices_int = np.floor(indices_float - dx).astype(np.int32)
+            offsets = indices_float - indices_int
+            areas = (1 - np.abs(offsets[:, 0] - 1)) * (1 - np.abs(offsets[:, 1] - 1))
+            values = areas * weights
+
+            indices_int += 1  # padding offset
+            flat_indices = indices_int[:, 0] * shape_pad[1] + indices_int[:, 1]
+            accum = np.bincount(flat_indices, weights=values, minlength=shape_pad[0] * shape_pad[1])
+            pool += accum.reshape(shape_pad)[1:-1, 1:-1]
+    else:
+        # full vectorization: memory-intensive
+        indices_int = np.floor(indices_float[None, :, :] - dxs[:, None, :]).astype(np.int32)
+        offsets = indices_float[None, :, :] - indices_int
+        areas = (1 - np.abs(offsets[..., 0] - 1)) * (1 - np.abs(offsets[..., 1] - 1))
+        values = (areas * weights[None, :]).reshape(-1)
+
+        indices_int += 1
+        flat_indices = (indices_int[..., 0] * shape_pad[1] + indices_int[..., 1]).reshape(-1)
+        accum = np.bincount(flat_indices, weights=values, minlength=shape_pad[0] * shape_pad[1])
+        pool = accum.reshape(shape_pad)[1:-1, 1:-1]
+    
+    if density:
+        area_per_px = (range_array[0, 1] - range_array[0, 0]) * (range_array[1, 1] - range_array[1, 0]) / pool.size
+        pool /= area_per_px
+
+    return pool
+
+def hist_img(x, y, lims, reso=100, weights=None, density=False):
+    """
+    Create a 2D histogram image from x and y coordinates.
+    Only works for the uniform grid and faster than np.histogram2d, but the result may slightly vary near the bin edges.
+    Parameters:
+    - x, y: 1D arrays of coordinates
+    - lims: 2D array defining the limits of the image, shape (2, 2)
+    - reso: resolution of the image, can be a scalar or a tuple/list of two values
+    - weights: optional 1D array of weights for each point
+    - density: if True, normalize the histogram to represent a probability density function
+    - filter_sigma: if provided, apply Gaussian smoothing with this sigma value
+    Returns:
+    - pool: 2D numpy array representing the histogram image, shape (reso[0], reso[1])
+    """
+    
+    # set up shapes and ranges
+    if np.isscalar(reso):
+        reso = np.repeat(reso, 2)
+    lims = np.asarray(lims)
+    shape_array = np.asarray(reso)
+    shape_pad = shape_array + 2
+
+    # mask calculation
+    x = np.asarray(x)
+    y = np.asarray(y)
+
+    if weights is None:
+        weights = np.ones_like(x)
+    else:
+        weights = np.asarray(weights)
+
+    xi = uniform_digitize(x, lims[0], shape_array[0])
+    yi = uniform_digitize(y, lims[1], shape_array[1])
+
+    flat_indices = xi * shape_pad[1] + yi
+    accum = np.bincount(flat_indices, weights=weights, minlength=shape_pad[0] * shape_pad[1])
+    pool = accum.reshape(shape_pad)[1:-1, 1:-1]
+    
+    if density:
+        area_per_px = (lims[0][1] - lims[0][0]) * (lims[1][1] - lims[1][0]) / pool.size
+        pool /= area_per_px
+
     return pool
 
 def coo_img(lims, reso=100, axis=-1, ravel=False):
-    if (np.isscalar(reso)):
+    # set up shapes and ranges
+    if np.isscalar(reso):
         reso = np.repeat(reso, 2)
+    lims = np.asarray(lims)
+    shape_array = np.asarray(reso)
+    range_array = np.asarray(lims)
 
-    xarr = bin_centers(lims[0][0], lims[0][1], reso[0])
-    yarr = bin_centers(lims[1][0], lims[1][1], reso[1])
+    xarr = bin_centers(range_array[0][0], range_array[0][1], shape_array[0])
+    yarr = bin_centers(range_array[1][0], range_array[1][1], shape_array[1])
 
     xm, ym = np.meshgrid(xarr, yarr)
     if(ravel):
@@ -376,18 +531,15 @@ def coo_img(lims, reso=100, axis=-1, ravel=False):
 def fun_img(f, lims, reso=100, axis=-1):
     # returns 2d numpy array image with function
     # axis: the axis that function accepts to separate each dimensions.
-    if(np.isscalar(reso)):
+    # set up shapes and ranges
+    if np.isscalar(reso):
         reso = np.repeat(reso, 2)
+    shape_array = np.asarray(reso)
 
-    xarr = bin_centers(lims[0][0], lims[0][1], reso[0])
-    yarr = bin_centers(lims[1][0], lims[1][1], reso[1])
-
-    xm, ym = np.meshgrid(xarr, yarr)
-
-    mesh = np.stack([xm.ravel(), ym.ravel()], axis=axis)
+    mesh = coo_img(lims, shape_array, axis=axis, ravel=True)
 
     pdi = f(mesh)
-    pdi = np.reshape(pdi, xm.shape)
+    pdi = np.reshape(pdi, shape_array)
 
     return pdi.T
 
@@ -415,10 +567,20 @@ def voronoi_img(centers, lims, reso=500):
     f = lambda x: find_closest(centers, x)
     return fun_img(f, lims, reso, axis=-1)
 
-def dtfe_img(x, y, lims, reso=100, weights=None, smooth=0):
+def dtfe_img(x, y, lims, reso=100, weights=None, density=False, smooth=0, interpolator='linear'):
+    """
+    Create a 2D image using Delaunay triangulation and area-based density estimation.
+    This method computes the density of points in a 2D space by triangulating the points
+    and calculating the area of the triangles formed. The density is then interpolated
+    onto a grid defined by the specified limits and resolution.
+    """
     if (np.isscalar(reso)):
         reso = np.repeat(reso, 2)
 
+    # set up shapes and ranges
+    range_array = np.array(lims)
+    shape_array = np.array(reso)
+    
     points = np.stack([x, y], axis=-1)
     center = np.median(points, axis=0)
     n_points = points.shape[0]
@@ -428,45 +590,53 @@ def dtfe_img(x, y, lims, reso=100, weights=None, smooth=0):
 
     # For some "Complex Geometrical Reasons", Qhull does not work properly without options???
     # Even with blank option, the result is different.
-    tri = Delaunay(points-center, qhull_options='')
-
+    tri = Delaunay(points-center, qhull_options='Qbb Qc Qx')
+    
     simplices = tri.simplices
     vertices = points[simplices]
+        
+    v1 = vertices[:, 1] - vertices[:, 0]
+    v2 = vertices[:, 2] - vertices[:, 0]
+    tri_areas = 0.5 * np.abs(v1[:, 0] * v2[:, 1] - v1[:, 1] * v2[:, 0])
 
-    matrices = np.insert(vertices, 2, 1., axis=-1)
-    matrices = np.swapaxes(matrices, -1, -2)
-    tri_areas = np.abs(det(matrices)) / 2
-
-    hull_areas = np.zeros(n_points, dtype='f8')
-
-    np.add.at(hull_areas, simplices, np.expand_dims(tri_areas, -1))
-    hull_areas /= 3
+    flat_simplices = simplices.reshape(-1)
+    area_repeat = np.repeat(tri_areas, 3)
+    hull_areas = np.bincount(flat_simplices, weights=area_repeat, minlength=n_points) / 3
 
     if(smooth>0):
         indptr, neighbor_indices = tri.vertex_neighbor_vertices
-        neighbor_nums = np.full(n_points, 0, dtype='i8')
-        center_indices = np.repeat(np.arange(neighbor_nums.size), np.diff(indptr))
-        np.add.at(neighbor_nums, center_indices, 1)
+        rows = np.repeat(np.arange(n_points), np.diff(indptr))
+        cols = neighbor_indices
+        data = np.ones_like(cols, dtype=np.float64)
 
-        for _ in np.arange(smooth):
-            hull_areas_add = np.zeros(hull_areas.shape, dtype='f8')
-            np.add.at(hull_areas_add, center_indices, hull_areas[neighbor_indices])
-            hull_areas_add /= neighbor_nums
-            hull_areas += hull_areas_add
-            hull_areas /= 2
+        neighbor_nums = np.bincount(rows, minlength=n_points)
+        data = data / neighbor_nums[rows]
+
+        W = csr_matrix((data, (rows, cols)), shape=(n_points, n_points))
+
+        for _ in range(smooth):
+            hull_areas = (hull_areas + W @ hull_areas) / 2
 
     densities = 1 / hull_areas
 
     if(weights is not None):
         densities *= weights
 
-    xarr = bin_centers(lims[0][0], lims[0][1], reso[0]) - center[0]
-    yarr = bin_centers(lims[1][0], lims[1][1], reso[1]) - center[1]
+    xarr = bin_centers(range_array[0][0], range_array[0][1], shape_array[0])
+    yarr = bin_centers(range_array[1][0], range_array[1][1], shape_array[1])
 
     xm, ym = np.meshgrid(xarr, yarr)
 
-    ip = LinearNDInterpolator(tri, densities, fill_value=0)
+    if interpolator == 'nearest':
+        ip = NearestNDInterpolator(points, densities)
+    elif interpolator == 'linear':
+        ip = LinearNDInterpolator(points, densities)
     grid = ip(xm, ym).T
+    grid = np.nan_to_num(grid, nan=0.0)
+
+    if not density:
+        area_per_px = (range_array[0, 1] - range_array[0, 0]) * (range_array[1, 1] - range_array[1, 0]) / grid.size
+        grid *= area_per_px
 
     return grid
 
@@ -928,7 +1098,10 @@ def dark_cmap(color):
     color_bright[color_bright>1] = 1
     return make_cmap([[0, 0, 0], color, color_bright], position=[0, 0.5, 1])        
 
-def grid_projection(centers, levels=None, quantities=None, weights=None, shape=None, lims=None, mode='sum', plot_method='hist', projection=['x', 'y'], interp_order=0, crop_mode='subpixel', type='particle'):
+def grid_projection(centers, levels=None, quantities=None, weights=None, shape=None, lims=None,
+                    mode='sum', plot_method='hist', projector_kwargs={}, projection=['x', 'y'],
+                    interp_order=0, crop_mode='subpixel', output_dtype=np.float64, padding=0,
+                    type='particle'):
     """
     Generate a 2D projection plot of a quantity using particle or AMR data.
 
@@ -959,6 +1132,10 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
         'grid': crop the image based on the current minimum resolution of the grid.
         'pixel': crop the image based on the pixel size of the drawing image.
         'subpixel': crop the image with allowing subpixel cropping.
+    output_dtype : dtype, optional
+        Data type of the output grid. Default is np.float64.
+    padding : int, optional
+        Number of padding pixels in the boundary to draw the data. Default is 0.
     type : str, optional
         Type of data. Options are 'particle' or 'amr'. Default is 'particle'.
 
@@ -975,13 +1152,18 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
             if mode in ['mean']:
                 grid_weight += projector(x, y, weights, lims_2d, shape)
         elif mode in ['min', 'max']:
-            xi, yi = np.digitize(x, np.linspace(*lims_2d[0], shape[0]+1)) - 1, np.digitize(y, np.linspace(*lims_2d[1], shape[1]+1)) - 1
+            xi = uniform_digitize(x, lims_2d[0], shape[0])
+            yi = uniform_digitize(y, lims_2d[1], shape[1])
+
+            grid_padding = np.full(np.asarray(shape)+2, fill_value=np.inf if mode == 'min' else -np.inf, dtype=output_dtype)
             if mode in ['min']:
                 # do a minimum over projection
-                np.minimum.at(grid, (xi, yi), quantity)
+                np.minimum.at(grid_padding, (xi, yi), quantity)
+                np.minimum(grid, grid_padding[1:-1, 1:-1], out=grid)
             elif mode in ['max']:
                 # do a maximum over projection
-                np.maximum.at(grid, (xi, yi), quantity)
+                np.maximum.at(grid_padding, (xi, yi), quantity)
+                np.maximum(grid, grid_padding[1:-1, 1:-1], out=grid)
 
     ndim = 3
     levelmin, levelmax = None, None
@@ -1026,14 +1208,23 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
     elif mode in ['max']:
         fill_value = -np.inf
 
+    pixel_size = (lims_2d[:, 1] - lims_2d[:, 0]) / np.array(shape)
+    if padding != 0:
+        padding_size = np.asarray([0., 0., 0.])
+        padding_size[proj] = pixel_size * padding
+    else:
+        padding_size = 0.
+
     if type == 'part':
         if shape is None:
             shape = (100, 100)
         # get mask that indicates particles to draw
-        mask_draw = box_mask(centers, lims)
+        mask_draw = box_mask(centers, lims, size=padding_size)
         shape_grid = shape
 
     elif type == 'amr':
+        if levels is None:
+            raise ValueError("Levels must be provided for AMR data.")
         if centers.shape[0] != len(levels):
             raise ValueError("The number of centers and levels do not match.")
         levelmin, levelmax = np.min(levels), np.max(levels)
@@ -1061,15 +1252,15 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
         lims_2d_draw = i_lims_levelmin / 2**levelmin_draw
 
         # get mask that indicates cells to draw
-        #mask_draw = np.all((centers + 2**(levels-1)[:, np.newaxis] >= lims[:, 0])
-        #                   & (centers - 2**(levels-1)[:, np.newaxis] <= lims[:, 1]), axis=1)
-        mask_draw = box_mask(centers, lims, 0.5**levels)
+        mask_draw = box_mask(centers, lims, size=(0.5**levels)[..., np.newaxis]+padding_size)
         ll = levels[mask_draw]
+    else:
+        raise ValueError("Unknown type: %s. Supported types are 'part' and 'amr'." % type)
 
     # initialize grid and grid_weight
-    grid = np.full(shape_grid, fill_value, dtype='f8')
+    grid = np.full(shape_grid, fill_value, dtype=output_dtype)
     if mode in ['mean']:
-        grid_weight = np.zeros(shape_grid, dtype='f8')
+        grid_weight = np.zeros(shape_grid, dtype=output_dtype)
     else:
         grid_weight = None
 
@@ -1083,10 +1274,7 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
     zz = cc[:, proj_z]
 
     # set the projector lambda based on the plot method
-    if plot_method == 'cic':
-        projector = lambda x, y, w, lims, shape: cic_img(x, y, weights=w, lims=lims, reso=shape)
-    elif plot_method == 'hist':
-        projector = lambda x, y, w, lims, shape: np.histogram2d(x, y, weights=w, range=lims, bins=shape)[0]
+    projector = lambda x, y, w, lims, shape: estimate_density_2d(x, y, lims=lims, weights=w, shape=shape, density=False, method=plot_method, **projector_kwargs)
 
     # do projection
     if type == 'part':
@@ -1094,12 +1282,13 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
 
         # do projection onto current grid
         apply_projection(grid=grid, grid_weight=grid_weight, x=xx, y=yy, quantity=qq, weights=ww, lims_2d=lims_2d, projector=projector, mode=mode)
+        
         grid /= pixel_area
 
-        if mode == 'mean':
+        if mode == 'mean' and grid_weight is not None:
             grid /= grid_weight
 
-    elif type == 'amr':
+    elif type == 'amr' and levelmin is not None and levelmax is not None:
         for grid_level in range(levelmin, levelmax+1):
             mask_level = ll == grid_level
             shape_now = grid.shape
@@ -1124,7 +1313,7 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
                 if mode in ['mean']:
                     grid_weight = rescale(grid_weight, 2, order=interp_order)
 
-        if mode == 'mean':
+        if mode == 'mean' and grid_weight is not None:
             grid /= grid_weight
         # resize and crop image to the desired shape
         if shape is not None:
@@ -1133,11 +1322,12 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
             elif crop_mode in ['pixel', 'subpixel']:
                 subpixel = crop_mode == 'subpixel'
                 lims_crop = (lims_2d - lims_2d_draw[:, 0, np.newaxis]) / (lims_2d_draw[:, 1] - lims_2d_draw[:, 0])[:, np.newaxis]
-                grid = crop(grid, range=lims_crop, output_shape=shape, subpixel=subpixel, order=interp_order)
+                grid = crop(grid, range=lims_crop, output_shape=shape, subpixel=subpixel, order=interp_order, padding=padding)
 
-    return grid
+    return grid.T
 
-def part_projection(centers, quantities=None, weights=None, shape=100, lims=None, mode='sum', plot_method='hist', projection=['x', 'y']):
+def part_projection(centers, quantities=None, weights=None, shape=100, lims=None,
+                    mode='sum', plot_method='hist', projection=['x', 'y'], output_dtype=np.float64, padding=0):
     """
     Generate a 2D projection plot of a quantity using particle data.
 
@@ -1167,9 +1357,10 @@ def part_projection(centers, quantities=None, weights=None, shape=100, lims=None
     grid : np.ndarray
         2D array representing the projected quantity.
     """
-    return grid_projection(centers=centers, levels=None, quantities=quantities, weights=weights, shape=shape, lims=lims, mode=mode, plot_method=plot_method, projection=projection, type='particle')
+    return grid_projection(centers=centers, levels=None, quantities=quantities, weights=weights, shape=shape, lims=lims, mode=mode, plot_method=plot_method, projection=projection, output_dtype=output_dtype, padding=padding, type='particle')
 
-def amr_projection(centers, levels, quantities=None, weights=None, shape=None, lims=None, mode='sum', plot_method='hist', projection=['x', 'y'], interp_order=0, crop_mode='subpixel'):
+def amr_projection(centers, levels, quantities=None, weights=None, shape=None, lims=None,
+                   mode='sum', plot_method='hist', projection=['x', 'y'], interp_order=0, output_dtype=np.float64, padding=0, crop_mode='subpixel'):
     """
     Generate a 2D projection plot of a quantity using Adaptive Mesh Refinement (AMR) data.
 
@@ -1201,16 +1392,17 @@ def amr_projection(centers, levels, quantities=None, weights=None, shape=None, l
     grid : np.ndarray
         2D array representing the projected quantity.
     """
-    return grid_projection(centers=centers, levels=levels, quantities=quantities, weights=weights, shape=shape, lims=lims, mode=mode, plot_method=plot_method, projection=projection, interp_order=interp_order, crop_mode=crop_mode, type='amr')
+    return grid_projection(centers=centers, levels=levels, quantities=quantities, weights=weights, shape=shape, lims=lims, mode=mode, plot_method=plot_method, projection=projection, interp_order=interp_order, crop_mode=crop_mode, output_dtype=output_dtype, padding=padding, type='amr')
 
 
-def crop(img, range, output_shape=None, subpixel=True, **kwargs):
+def crop(img, range, output_shape=None, subpixel=True, padding=0, **kwargs):
     """
     Crop an image to a specified range.    
     """
     range = np.array(range)
     shape = np.array(img.shape)
     idx_true = shape[:, np.newaxis] * range
+    idx_true += np.asarray([-padding, padding])
     if not subpixel:
         idx_int = np.array(np.round(idx_true), dtype=int)
         #idxs = np.array([np.round(shape[0] * range[0] - 0.5), np.round(shape[1] * range[1] - 0.5)], dtype=int)
@@ -1226,6 +1418,7 @@ def crop(img, range, output_shape=None, subpixel=True, **kwargs):
             output_shape = np.round(true_shape).astype(int)
         else:
             output_shape = np.array(output_shape)
+        output_shape = output_shape + 2 * padding
 
         scale = true_shape / output_shape
 
@@ -1233,6 +1426,7 @@ def crop(img, range, output_shape=None, subpixel=True, **kwargs):
         tform2 = AffineTransform(scale=scale)
         # need to trnspose the image to apply the transformation correctly
         img = warp(img.T, tform2+tform1, output_shape=output_shape[::-1], **kwargs).T
+        img = img[padding:-padding, padding:-padding]
 
     return img
 
