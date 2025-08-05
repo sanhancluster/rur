@@ -2240,8 +2240,6 @@ class RamsesSnapshot(object):
             # if box is not specified, use self.box by default
             self.box = box
 
-        if hdf:
-            return self.get_cell_hdf(box=box, target_fields=target_fields, exact_box=exact_box, read_branch=read_branch, nthread=nthread, legacy=legacy, htype=htype)
 
         if (cpulist is None):
             if (self.box is None or np.array_equal(self.box, self.default_box)):
@@ -2258,6 +2256,9 @@ class RamsesSnapshot(object):
         if(target_fields=='basic'):
             target_fields = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'rho','P','level', 'cpu']
 
+        if hdf:
+            return self.get_cell_hdf(box=box, target_fields=target_fields, domain_slicing=domain_slicing, exact_box=exact_box, read_branch=read_branch, nthread=nthread, legacy=legacy, htype=htype)
+        
         if (self.box is None or not np.array_equal(self.box, self.box_cell) or cpulist is not None):
             if (cpulist is None):
                 cpulist = self.get_involved_cpu()
@@ -2320,11 +2321,6 @@ class RamsesSnapshot(object):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
-        
-        if hdf:
-            if pname is None:
-                raise ValueError("Particle type (pname) must be specified when using HDF5 mode.")
-            return self.get_part_hdf(pname, box=box, target_fields=target_fields, exact_box=exact_box, nthread=nthread, legacy=legacy, htype=htype)
 
         if (cpulist is None):
             if (self.box is None or np.array_equal(self.box, self.default_box)):
@@ -2339,6 +2335,12 @@ class RamsesSnapshot(object):
                 warnings.warn("cpulist cannot be set without domain_slicing!", UserWarning)
                 domain_slicing = True
             exact_box = False
+        
+        if hdf:
+            if pname is None:
+                raise ValueError("Particle type (pname) must be specified when using HDF5 mode.")
+            return self.get_part_hdf(pname, box=box, target_fields=target_fields, domain_slicing=domain_slicing, exact_box=exact_box, nthread=nthread, legacy=legacy, htype=htype)
+        
         do = False
         if self.part is not None:
             if not isinstance(self.part, tuple):
@@ -2387,7 +2389,7 @@ class RamsesSnapshot(object):
         return self.part
 
 
-    def get_part_hdf(self, pname, box=None, target_fields=None, exact_box=True, nthread=1, legacy=False, htype='lzf'):
+    def get_part_hdf(self, pname, box=None, target_fields=None, domain_slicing=True, exact_box=True, nthread=1, legacy=False, htype='lzf'):
         hdf_path = self.get_path('hdf_part')
         if htype == 'gzip':
             hdf_path = f"{hdf_path.split('.')[0]}_gzip4.h5"
@@ -2397,7 +2399,7 @@ class RamsesSnapshot(object):
         if not exists(hdf_path):
             raise FileNotFoundError(f"HDF5 part file not found: {hdf_path}")
         else:
-            print(f"Reading HDF5: `{hdf_path}`")
+            if timer.verbose>0: print(f"Reading HDF5: `{hdf_path}`")
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -2442,33 +2444,39 @@ class RamsesSnapshot(object):
         
         # -------------------------------------------
         else:
-            with h5py.File(hdf_path, 'r') as hdf:
-                if pname not in hdf:
-                    raise KeyError(f"Particle type '{pname}' not found in HDF5 file.")
-                grp = hdf[pname]
+            if(domain_slicing)or(target_fields is not None):
+                with h5py.File(hdf_path, 'r') as hdf:
+                    if pname not in hdf:
+                        raise KeyError(f"Particle type '{pname}' not found in HDF5 file.")
+                    grp = hdf[pname]
+                    hilbert_bound = grp['hilbert_boundary'][:]
+                    chunk_bound = grp['chunk_boundary'][:]
+                    levelmax = grp.attrs.get('levelmax', self.levelmax)
+                    
+                    involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax)
+                    if target_fields is not None:
+                        wrong_fields = [f for f in target_fields if f not in grp['data'].dtype.names]
+                        if len(wrong_fields) > 0:
+                            warnings.warn(f"`{wrong_fields}` not found in HDF5 data, they will be ignored.", UserWarning)
+                        target_fields = [f for f in target_fields if f in grp['data'].dtype.names]
+                        if len(target_fields) == 0: target_fields = None
+                    if nthread==1:
+                        timer.start('Domain Slicing...')
+                        data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields, 
+                                            legacy=legacy, nthread=nthread)
+                        timer.record()
                 
-                hilbert_bound = grp['hilbert_boundary'][:]
-                chunk_bound = grp['chunk_boundary'][:]
-                levelmax = grp.attrs.get('levelmax', self.levelmax)
-                
-                involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax)
-                if target_fields is not None:
-                    wrong_fields = [f for f in target_fields if f not in grp['data'].dtype.names]
-                    if len(wrong_fields) > 0:
-                        warnings.warn(f"`{wrong_fields}` not found in HDF5 data, they will be ignored.", UserWarning)
-                    target_fields = [f for f in target_fields if f in grp['data'].dtype.names]
-                    if len(target_fields) == 0: target_fields = None
-                if nthread==1:
-                    timer.start('Domain Slicing...')
-                    data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields, 
-                                        legacy=legacy, nthread=nthread)
+                if nthread>1:
+                    timer.start('Domain Slicing with multiprocessing...')
+                    data = domain_slice(None, involved_idx, bound=chunk_bound, target_fields=target_fields, 
+                                        legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=pname)
                     timer.record()
-            
-            if nthread>1:
-                timer.start('Domain Slicing with multiprocessing...')
-                data = domain_slice(None, involved_idx, bound=chunk_bound, target_fields=target_fields, 
-                                    legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=pname)
-                timer.record()
+            else:
+                with h5py.File(hdf_path, 'r') as hdf:
+                    if pname not in hdf:
+                        raise KeyError(f"Particle type '{pname}' not found in HDF5 file.")
+                    grp = hdf[pname]
+                    data = grp['data'][:]
 
             if (self.box is not None and exact_box):
                 timer.start("Getting mask...", tab=1)
@@ -2488,7 +2496,7 @@ class RamsesSnapshot(object):
         # -------------------------------------------
 
 
-    def get_cell_hdf(self, box=None, target_fields=None, exact_box=True, read_branch=False, nthread=8, legacy=False, htype='lzf'):
+    def get_cell_hdf(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, read_branch=False, nthread=8, legacy=False, htype='lzf'):
         hdf_path = self.get_path('hdf_cell')
         if htype == 'gzip':
             hdf_path = f"{hdf_path.split('.')[0]}_gzip4.h5"
@@ -2497,7 +2505,7 @@ class RamsesSnapshot(object):
         if not exists(hdf_path):
             raise FileNotFoundError(f"HDF5 cell file not found: {hdf_path}")
         else:
-            print(f"Reading HDF5: `{hdf_path}`")
+            if timer.verbose>0: print(f"Reading HDF5: `{hdf_path}`")
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -2541,31 +2549,37 @@ class RamsesSnapshot(object):
             return cell
         # -------------------------------------------
         else:
-            with h5py.File(hdf_path, 'r') as hdf:
-                hdf_group = 'branch' if read_branch else 'leaf'
-                grp = hdf[hdf_group]
-                hilbert_bound = grp['hilbert_boundary'][:]
-                chunk_bound = grp['chunk_boundary'][:]
-                levelmax = grp.attrs.get('levelmax', self.levelmax)
+            if(domain_slicing)or(target_fields is not None):
+                with h5py.File(hdf_path, 'r') as hdf:
+                    hdf_group = 'branch' if read_branch else 'leaf'
+                    grp = hdf[hdf_group]
+                    hilbert_bound = grp['hilbert_boundary'][:]
+                    chunk_bound = grp['chunk_boundary'][:]
+                    levelmax = grp.attrs.get('levelmax', self.levelmax)
+                    
+                    involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax)
+                    if target_fields is not None:
+                        wrong_fields = [f for f in target_fields if f not in grp['data'].dtype.names]
+                        if len(wrong_fields) > 0:
+                            warnings.warn(f"`{wrong_fields}` not found in HDF5 data, they will be ignored.", UserWarning)
+                        target_fields = [f for f in target_fields if f in grp['data'].dtype.names]
+                        if len(target_fields) == 0: target_fields = None
+                    if nthread==1:
+                        timer.start('Domain Slicing...')
+                        data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields, 
+                                            legacy=legacy, nthread=nthread)
+                        timer.record()
                 
-                involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax)
-                if target_fields is not None:
-                    wrong_fields = [f for f in target_fields if f not in grp['data'].dtype.names]
-                    if len(wrong_fields) > 0:
-                        warnings.warn(f"`{wrong_fields}` not found in HDF5 data, they will be ignored.", UserWarning)
-                    target_fields = [f for f in target_fields if f in grp['data'].dtype.names]
-                    if len(target_fields) == 0: target_fields = None
-                if nthread==1:
-                    timer.start('Domain Slicing...')
-                    data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields, 
-                                        legacy=legacy, nthread=nthread)
+                if nthread>1:
+                    timer.start('Domain Slicing with multiprocessing...')
+                    data = domain_slice(None, involved_idx, bound=chunk_bound, target_fields=target_fields, 
+                                        legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=hdf_group)
                     timer.record()
-            
-            if nthread>1:
-                timer.start('Domain Slicing with multiprocessing...')
-                data = domain_slice(None, involved_idx, bound=chunk_bound, target_fields=target_fields, 
-                                    legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=hdf_group)
-                timer.record()
+            else:
+                with h5py.File(hdf_path, 'r') as hdf:
+                    hdf_group = 'branch' if read_branch else 'leaf'
+                    grp = hdf[hdf_group]
+                    data = grp['data'][:]
 
             if (self.box is not None and exact_box):
                 timer.start("Getting mask...", tab=1)
@@ -3604,6 +3618,10 @@ def domain_slice(array, cpulist, bound, cpulist_all=None, target_fields=None,
         # -----------------------------------
         # SY Update: Single-threaded, but improved domain slicing
         if (nthread==1)or(hdf_path is None):
+            if array is None:
+                with h5py.File(hdf_path, 'r') as hdf:
+                    grp = hdf[hdf_group]
+                    array = grp['data'][:]
             if target_fields is None:
                 # -----------------------------------
                 # SY Update: No need to domain slice if this case
