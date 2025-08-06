@@ -171,11 +171,17 @@ class TimeSeries(object):
         path = join(self.repo, 'list_iout_avail.txt')
         if exists(path):
             self.iout_avail = np.loadtxt(path, dtype=iout_avail_dtype)
+            if len(self.iout_avail) == 0:
+                if allow_write:
+                    self.write_iout_avail()
+                else:
+                    self.iout_avail = np.empty((0,), dtype=iout_avail_dtype)
         else:
             if allow_write:
                 self.write_iout_avail()
             else:
                 self.iout_avail = np.empty((0,), dtype=iout_avail_dtype)
+        return self.iout_avail
 
     def clear(self):
         # Later: need to load all **opened** snaps and clear them manually
@@ -2241,15 +2247,13 @@ class RamsesSnapshot(object):
         self.cpu = np.concatenate(amr_cpus)
 
     def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False,
-                 ripses=False, python=True, nthread=8, use_cache=False, hdf=None, read_branch=False, dev=False, htype='lzf', levelmax=None):
+                 ripses=False, python=True, nthread=8, use_cache=False, hdf=None, read_branch=False, dev=False, legacy=False, htype='lzf', levelmax=None):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
         if hdf is None:
             hdf = self.hdf
 
-        if hdf:
-            return self.get_cell_hdf(box=box, target_fields=target_fields, exact_box=exact_box, read_branch=read_branch, nthread=nthread, dev=dev, htype=htype, levelmax=levelmax)
 
         if (cpulist is None):
             if (self.box is None or np.array_equal(self.box, self.default_box)):
@@ -2266,6 +2270,9 @@ class RamsesSnapshot(object):
         if(target_fields=='basic'):
             target_fields = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'rho','P','level', 'cpu']
 
+        if hdf:
+            return self.get_cell_hdf(box=box, target_fields=target_fields, domain_slicing=domain_slicing, exact_box=exact_box, read_branch=read_branch, nthread=nthread, legacy=legacy, htype=htype, levelmax=levelmax)
+        
         if (self.box is None or not np.array_equal(self.box, self.box_cell) or cpulist is not None):
             if (cpulist is None):
                 cpulist = self.get_involved_cpu()
@@ -2324,17 +2331,12 @@ class RamsesSnapshot(object):
         self.cell['z'] *= boxlen/(l2-l1)
 
     def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None,
-                 python=True, nthread=8, use_cache=False, hdf=None, dev=False, htype='lzf'):
+                 python=True, nthread=8, use_cache=False, hdf=None, dev=False, legacy=False, htype='lzf'):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
         if hdf is None:
             hdf = self.hdf
-
-        if hdf:
-            if pname is None:
-                raise ValueError("Particle type (pname) must be specified when using HDF5 mode.")
-            return self.get_part_hdf(pname, box=box, target_fields=target_fields, exact_box=exact_box, nthread=nthread, dev=dev, htype=htype)
 
         if (cpulist is None):
             if (self.box is None or np.array_equal(self.box, self.default_box)):
@@ -2349,6 +2351,12 @@ class RamsesSnapshot(object):
                 warnings.warn("cpulist cannot be set without domain_slicing!", UserWarning)
                 domain_slicing = True
             exact_box = False
+        
+        if hdf:
+            if pname is None:
+                raise ValueError("Particle type (pname) must be specified when using HDF5 mode.")
+            return self.get_part_hdf(pname, box=box, target_fields=target_fields, domain_slicing=domain_slicing, exact_box=exact_box, nthread=nthread, legacy=legacy, htype=htype)
+        
         do = False
         if self.part is not None:
             if not isinstance(self.part, tuple):
@@ -2397,7 +2405,7 @@ class RamsesSnapshot(object):
         return self.part
 
 
-    def get_part_hdf(self, pname, box=None, target_fields=None, exact_box=True, nthread=1, dev=False, htype='lzf'):
+    def get_part_hdf(self, pname, box=None, target_fields=None, domain_slicing=True, exact_box=True, nthread=1, dev=False, legacy=False, htype='lzf'):
         hdf_path = self.get_path('hdf_part')
         if htype == 'gzip':
             hdf_path = f"{hdf_path.split('.')[0]}_gzip4.h5"
@@ -2407,11 +2415,11 @@ class RamsesSnapshot(object):
         if not exists(hdf_path):
             raise FileNotFoundError(f"HDF5 part file not found: {hdf_path}")
         else:
-            print(f"Reading HDF5: `{hdf_path}`")
+            if timer.verbose>0: print(f"Reading HDF5: `{hdf_path}`")
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
-        if not dev:
+        if legacy:
             with h5py.File(hdf_path, 'r') as hdf:
                 if pname not in hdf:
                     raise KeyError(f"Particle type '{pname}' not found in HDF5 file.")
@@ -2451,7 +2459,6 @@ class RamsesSnapshot(object):
             return part
         
         # -------------------------------------------
-        # SY Update: efficient way (DEV mode)
         else:
             with h5py.File(hdf_path, 'r') as hdf:
                 if pname not in hdf:
@@ -2472,13 +2479,13 @@ class RamsesSnapshot(object):
                 if nthread==1:
                     timer.start('Domain Slicing...')
                     data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields, 
-                                        dev=dev, nthread=nthread)
+                                        legacy=legacy, nthread=nthread, domain_slicing=domain_slicing)
                     timer.record()
             
             if nthread>1:
                 timer.start('Domain Slicing with multiprocessing...')
                 data = domain_slice(None, involved_idx, bound=chunk_bound, target_fields=target_fields, 
-                                    dev=dev, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=pname)
+                                    legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=pname, domain_slicing=domain_slicing)
                 timer.record()
 
             if (self.box is not None and exact_box):
@@ -2499,7 +2506,7 @@ class RamsesSnapshot(object):
         # -------------------------------------------
 
 
-    def get_cell_hdf(self, box=None, target_fields=None, exact_box=True, read_branch=False, nthread=8, dev=False, htype='lzf', levelmax=None):
+    def get_cell_hdf(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, read_branch=False, nthread=8, dev=False, legacy=False, htype='lzf', levelmax=None):
         hdf_path = self.get_path('hdf_cell')
         if htype == 'gzip':
             hdf_path = f"{hdf_path.split('.')[0]}_gzip4.h5"
@@ -2508,11 +2515,11 @@ class RamsesSnapshot(object):
         if not exists(hdf_path):
             raise FileNotFoundError(f"HDF5 cell file not found: {hdf_path}")
         else:
-            print(f"Reading HDF5: `{hdf_path}`")
+            if timer.verbose>0: print(f"Reading HDF5: `{hdf_path}`")
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
-        if not dev:
+        if legacy:
             with h5py.File(hdf_path, 'r') as hdf:
                 if not read_branch:
                     grp = hdf['leaf']
@@ -2551,7 +2558,6 @@ class RamsesSnapshot(object):
                 cell = Cell(data, self)
             return cell
         # -------------------------------------------
-        # SY Update: efficient way (DEV mode)
         else:
             with h5py.File(hdf_path, 'r') as hdf:
                 hdf_group = 'branch' if read_branch else 'leaf'
@@ -2559,7 +2565,7 @@ class RamsesSnapshot(object):
                 hilbert_bound = grp['hilbert_boundary'][:]
                 chunk_bound = grp['chunk_boundary'][:]
                 levelmax_all = grp.attrs.get('levelmax', self.levelmax)
-                
+
                 involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax_all)
                 involved_idx_levelmax = None
                 grp_branch = None
@@ -2584,26 +2590,26 @@ class RamsesSnapshot(object):
                     timer.start('Domain Slicing...')
                     if grp_branch is not None:
                         data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, cpulist_end=involved_idx_levelmax, target_fields=target_fields, 
-                                            dev=dev, nthread=nthread)
-                        data_branch = domain_slice(grp_branch['data'], involved_idx_levelmax-1, bound=chunk_bound_branch, target_fields=target_fields, dev=dev, nthread=nthread)
+                                        legacy=legacy, nthread=nthread)
+                        data_branch = domain_slice(grp_branch['data'], involved_idx_levelmax-1, bound=chunk_bound_branch, target_fields=target_fields, legacy=legacy, nthread=nthread)
                         data = np.concatenate([data, data_branch], axis=0)
                     else:
                         data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields, 
-                                            dev=dev, nthread=nthread)
+                                            legacy=legacy, nthread=nthread, domain_slicing=domain_slicing)
 
                     timer.record()
 
-            if nthread>1:
+            if nthread > 1:
                 timer.start('Domain Slicing with multiprocessing...')
                 if grp_branch is not None:
-                    data = domain_slice(None, involved_idx, bound=chunk_bound, cpulist_end=involved_idx_levelmax, target_fields=target_fields,
-                                        dev=dev, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=hdf_group)
+                    data = domain_slice(None, involved_idx, bound=chunk_bound, cpulist_end=involved_idx_levelmax, target_fields=target_fields, 
+                                    legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=hdf_group)
                     data_branch = domain_slice(None, involved_idx_levelmax-1, bound=chunk_bound_branch, target_fields=target_fields,
-                                               dev=dev, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group='branch')
+                                        legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group='branch')
                     data = np.concatenate([data, data_branch], axis=0)
                 else:
                     data = domain_slice(None, involved_idx, bound=chunk_bound, target_fields=target_fields,
-                                        dev=dev, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=hdf_group)
+                                        legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=hdf_group, domain_slicing=domain_slicing)
                 timer.record()
 
             if (self.box is not None and exact_box):
@@ -3043,6 +3049,8 @@ def box_mask_table(table, box, snap=None, size=0, exclusive=False, chunksize=500
         size *= -1
     rad = size/2
     box = np.array(box)
+    Nchunk = int(np.ceil(len(table)/chunksize))
+    nthread = min(nthread, Nchunk)
     if(len(table) < (20*chunksize*nthread))or(nthread==1):
         box_mask = (table['x'] >= box[0,0]-rad) & (table['x'] <= box[0,1]+rad) & (table['y'] >= box[1,0]-rad) & (table['y'] <= box[1,1]+rad) & (table['z'] >= box[2,0]-rad) & (table['z'] <= box[2,1]+rad)
     else:
@@ -3051,9 +3059,7 @@ def box_mask_table(table, box, snap=None, size=0, exclusive=False, chunksize=500
         name = snap.make_shm_name(shmname) if(snap is not None) else "boxmask"
         memory = shared_memory.SharedMemory(name=name, create=True, size=box_mask.nbytes)
         data = np.ndarray(box_mask.shape, dtype=bool, buffer=memory.buf)
-        Nchunk = int(np.ceil(len(table)/chunksize))
         indicies = np.append(np.arange(0, len(table), chunksize), len(table))
-        nthread = min(nthread, Nchunk)
 
         if(timer.verbose>=2):
             pbar = tqdm(total=len(indicies-1), desc=f"Mask with Chunk")
@@ -3609,7 +3615,7 @@ def ckey2idx(amr_keys, nocts, levelmin, ndim=3):
 
 
 def domain_slice(array, cpulist, bound, cpulist_all=None, cpulist_end=None, target_fields=None, 
-                 dev=False, nthread=1, snap=None, hdf_path=None, hdf_group=None):
+                 legacy=False, nthread=1, snap=None, hdf_path=None, hdf_group=None, Nchunk=500000, domain_slicing=True):
     if cpulist_all is None:
         cpulist_all = np.arange(bound.size-1)
     # array should already been aligned with bound
@@ -3617,12 +3623,14 @@ def domain_slice(array, cpulist, bound, cpulist_all=None, cpulist_end=None, targ
     starts = idxs
     ends = idxs + 1 if cpulist_end is None else np.where(np.isin(cpulist_all, cpulist_end, assume_unique=True))[0]
 
-    if not (dev and nthread > 1):
+    # merged_starts, merged_ends = merge_segments(idxs, idxs + 1)
+    if legacy or (nthread == 1):
         starts, ends = merge_segments(starts, ends)
     doms = np.stack([bound[starts], bound[ends]], axis=-1)
     segs = doms[:, 1] - doms[:, 0]
+    nthread = min(nthread, len(segs))  # avoid too many threads for small segments
 
-    if not dev:
+    if legacy:
         # if target_fields is not None, filter the fields
         if target_fields is None:
             new_dtype = array.dtype
@@ -3641,9 +3649,20 @@ def domain_slice(array, cpulist, bound, cpulist_all=None, cpulist_end=None, targ
 
         return out
     else:
+        if not domain_slicing:
+            nmax = bound[-1]
+            segs = np.arange(0, nmax, Nchunk)
+            segs = np.append(segs, nmax)
+            doms = np.stack([segs[:-1], segs[1:]], axis=-1)
+            segs = doms[:, 1] - doms[:, 0]
+            
         # -----------------------------------
         # SY Update: Single-threaded, but improved domain slicing
         if (nthread==1)or(hdf_path is None):
+            if array is None:
+                with h5py.File(hdf_path, 'r') as hdf:
+                    grp = hdf[hdf_group]
+                    array = grp['data'][:]
             if target_fields is None:
                 # -----------------------------------
                 # SY Update: No need to domain slice if this case
@@ -3713,12 +3732,12 @@ def domain_slice(array, cpulist, bound, cpulist_all=None, cpulist_end=None, targ
                 snap.part_mem = shared_memory.SharedMemory(name=shmname,create=True, size=out.nbytes)
                 snap.memory.append(snap.part_mem)
                 out = np.ndarray(out.shape, dtype=np.dtype(new_dtype), buffer=snap.part_mem.buf)
-            nthread = min(nthread, len(segs))  # avoid too many threads for small segments
-
-            pbar = tqdm(total=len(segs), desc=f"Domain slicing [{nthread} threads]")
+            def update(*a): pass
+            if (timer.verbose >= 1) and (len(segs) > 4):
+                pbar = tqdm(total=len(segs), desc=f"Domain slicing [{nthread} threads]")
+                def update(*a): pbar.update(1)
             cursors = np.cumsum(segs)
             cursors = np.insert(cursors, 0, 0)
-            def update(*a): pbar.update(1)
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             with Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(

@@ -301,7 +301,8 @@ class HaloMaker:
                 array = narray
 
         if(array.size==0):
-            print("No tree_brick file found, or no halo found in %s" % path)
+            if uri.timer.verbose>0:
+                print("No tree_brick file found, or no halo found in %s" % path)
         if(load_parts):
             part_ids = readh.part_ids
             if(copy_part_id):
