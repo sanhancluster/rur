@@ -5,12 +5,13 @@ from rur import uri,uhmi
 uri.timer.verbose=0
 from rur.utool import *
 
-import os, sys, glob
+import os, sys, glob, pwd, grp
 from tqdm import tqdm
 from multiprocessing import shared_memory, Pool
 import argparse, time
 import _guide as guide
 from _pfunc import vprint, yess, bs, be, filemode
+
 
 # ---------------------------------------------
 # Arguments
@@ -38,7 +39,7 @@ gstr = 'Galaxy' if galaxy else 'Halo'
 
 print("\n\n")
 print(f"=================================================")
-print(f" Post-processing HaloMaker (syj3514@yonsei.ac.kr)")
+print(f"{bs} Post-processing HaloMaker (syj3514@yonsei.ac.kr) {be}")
 print(f"=================================================")
 if debug:
     print(f" DEBUG MODE")
@@ -53,7 +54,26 @@ if verbose:
     print(f" 3. Check merger tree")
     print(f" 4. Check extended catalog")
     print(f" 5. Check tracer")
-print("\n")
+print()
+
+print(f"=================================")
+print(f" User Info")
+# Current user's UID and GID
+uid = os.getuid()
+gid = os.getgid()
+# Username and group name
+user_info = pwd.getpwuid(uid)
+group_info = grp.getgrgid(gid)
+print(f" > User: {user_info.pw_name} ({uid})")
+print(f" > Group: {group_info.gr_name} ({gid})")
+all_groups = [grp.getgrgid(g).gr_name for g in os.getgroups()]
+print(f" > Groups: {all_groups}")
+if not 'gem' in all_groups:
+    print(f" !! {bs}You are not in the 'gem' group{be} !!")
+    print(f" !! Please ask your system manager to add you to the 'gem' group. !!")
+print(f"=================================")
+print("")
+
 
 snaprepo = f"{repo}/snapshots"
 print(f"=================================")
