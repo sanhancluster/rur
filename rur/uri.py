@@ -2460,40 +2460,33 @@ class RamsesSnapshot(object):
         
         # -------------------------------------------
         else:
-            if(domain_slicing)or(target_fields is not None):
-                with h5py.File(hdf_path, 'r') as hdf:
-                    if pname not in hdf:
-                        raise KeyError(f"Particle type '{pname}' not found in HDF5 file.")
-                    grp = hdf[pname]
-                    
-                    hilbert_bound = grp['hilbert_boundary'][:]
-                    chunk_bound = grp['chunk_boundary'][:]
-                    levelmax = grp.attrs.get('levelmax', self.levelmax)
-                    
-                    involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax)
-                    if target_fields is not None:
-                        wrong_fields = [f for f in target_fields if f not in grp['data'].dtype.names]
-                        if len(wrong_fields) > 0:
-                            warnings.warn(f"`{wrong_fields}` not found in HDF5 data, they will be ignored.", UserWarning)
-                        target_fields = [f for f in target_fields if f in grp['data'].dtype.names]
-                        if len(target_fields) == 0: target_fields = None
-                    if nthread==1:
-                        timer.start('Domain Slicing...')
-                        data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields, 
-                                            legacy=legacy, nthread=nthread)
-                        timer.record()
+            with h5py.File(hdf_path, 'r') as hdf:
+                if pname not in hdf:
+                    raise KeyError(f"Particle type '{pname}' not found in HDF5 file.")
+                grp = hdf[pname]
                 
-                if nthread>1:
-                    timer.start('Domain Slicing with multiprocessing...')
-                    data = domain_slice(None, involved_idx, bound=chunk_bound, target_fields=target_fields, 
-                                        legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=pname)
+                hilbert_bound = grp['hilbert_boundary'][:]
+                chunk_bound = grp['chunk_boundary'][:]
+                levelmax = grp.attrs.get('levelmax', self.levelmax)
+                
+                involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax)
+                if target_fields is not None:
+                    wrong_fields = [f for f in target_fields if f not in grp['data'].dtype.names]
+                    if len(wrong_fields) > 0:
+                        warnings.warn(f"`{wrong_fields}` not found in HDF5 data, they will be ignored.", UserWarning)
+                    target_fields = [f for f in target_fields if f in grp['data'].dtype.names]
+                    if len(target_fields) == 0: target_fields = None
+                if nthread==1:
+                    timer.start('Domain Slicing...')
+                    data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields, 
+                                        legacy=legacy, nthread=nthread, domain_slicing=domain_slicing)
                     timer.record()
-            else:
-                with h5py.File(hdf_path, 'r') as hdf:
-                    if pname not in hdf:
-                        raise KeyError(f"Particle type '{pname}' not found in HDF5 file.")
-                    grp = hdf[pname]
-                    data = grp['data'][:]
+            
+            if nthread>1:
+                timer.start('Domain Slicing with multiprocessing...')
+                data = domain_slice(None, involved_idx, bound=chunk_bound, target_fields=target_fields, 
+                                    legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=pname, domain_slicing=domain_slicing)
+                timer.record()
 
             if (self.box is not None and exact_box):
                 timer.start("Getting mask...", tab=1)
@@ -2572,7 +2565,7 @@ class RamsesSnapshot(object):
                 hilbert_bound = grp['hilbert_boundary'][:]
                 chunk_bound = grp['chunk_boundary'][:]
                 levelmax_all = grp.attrs.get('levelmax', self.levelmax)
-                
+
                 involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax_all)
                 involved_idx_levelmax = None
                 grp_branch = None
@@ -2587,43 +2580,37 @@ class RamsesSnapshot(object):
                     chunk_bound = grp['level_boundary'][:]
                     chunk_bound_branch = grp_branch['level_boundary'][:]
 
-                if(domain_slicing)or(target_fields is not None):
-                    if target_fields is not None:
-                        wrong_fields = [f for f in target_fields if f not in grp['data'].dtype.names]
-                        if len(wrong_fields) > 0:
-                            warnings.warn(f"`{wrong_fields}` not found in HDF5 data, they will be ignored.", UserWarning)
-                        target_fields = [f for f in target_fields if f in grp['data'].dtype.names]
-                        if len(target_fields) == 0: target_fields = None
-                    if nthread==1:
-                        timer.start('Domain Slicing...')
-                        if grp_branch is not None:
-                            data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, cpulist_end=involved_idx_levelmax, target_fields=target_fields, 
-                                            legacy=legacy, nthread=nthread)
-                            data_branch = domain_slice(grp_branch['data'], involved_idx_levelmax-1, bound=chunk_bound_branch, target_fields=target_fields, legacy=legacy, nthread=nthread)
-                            data = np.concatenate([data, data_branch], axis=0)
-                        else:
-                            data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields, 
-                                                legacy=legacy, nthread=nthread)
-
-                        timer.record()
-
-                if nthread>1:
-                    timer.start('Domain Slicing with multiprocessing...')
+                if target_fields is not None:
+                    wrong_fields = [f for f in target_fields if f not in grp['data'].dtype.names]
+                    if len(wrong_fields) > 0:
+                        warnings.warn(f"`{wrong_fields}` not found in HDF5 data, they will be ignored.", UserWarning)
+                    target_fields = [f for f in target_fields if f in grp['data'].dtype.names]
+                    if len(target_fields) == 0: target_fields = None
+                if nthread==1:
+                    timer.start('Domain Slicing...')
                     if grp_branch is not None:
-                        data = domain_slice(None, involved_idx, bound=chunk_bound, cpulist_end=involved_idx_levelmax, target_fields=target_fields, 
-                                        legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=hdf_group)
-                        data_branch = domain_slice(None, involved_idx_levelmax-1, bound=chunk_bound_branch, target_fields=target_fields,
-                                            legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group='branch')
+                        data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, cpulist_end=involved_idx_levelmax, target_fields=target_fields, 
+                                        legacy=legacy, nthread=nthread)
+                        data_branch = domain_slice(grp_branch['data'], involved_idx_levelmax-1, bound=chunk_bound_branch, target_fields=target_fields, legacy=legacy, nthread=nthread)
                         data = np.concatenate([data, data_branch], axis=0)
                     else:
-                        data = domain_slice(None, involved_idx, bound=chunk_bound, target_fields=target_fields,
-                                            legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=hdf_group)
+                        data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields, 
+                                            legacy=legacy, nthread=nthread, domain_slicing=domain_slicing)
+
                     timer.record()
+
+            if nthread > 1:
+                timer.start('Domain Slicing with multiprocessing...')
+                if grp_branch is not None:
+                    data = domain_slice(None, involved_idx, bound=chunk_bound, cpulist_end=involved_idx_levelmax, target_fields=target_fields, 
+                                    legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=hdf_group)
+                    data_branch = domain_slice(None, involved_idx_levelmax-1, bound=chunk_bound_branch, target_fields=target_fields,
+                                        legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group='branch')
+                    data = np.concatenate([data, data_branch], axis=0)
                 else:
-                    if grp_branch is not None:
-                        data = np.concatenate([grp['data'], grp_branch['data']], axis=0)
-                    else:
-                        data = grp['data'][:]
+                    data = domain_slice(None, involved_idx, bound=chunk_bound, target_fields=target_fields,
+                                        legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=hdf_group, domain_slicing=domain_slicing)
+                timer.record()
 
             if (self.box is not None and exact_box):
                 timer.start("Getting mask...", tab=1)
@@ -3628,7 +3615,7 @@ def ckey2idx(amr_keys, nocts, levelmin, ndim=3):
 
 
 def domain_slice(array, cpulist, bound, cpulist_all=None, cpulist_end=None, target_fields=None, 
-                 legacy=False, nthread=1, snap=None, hdf_path=None, hdf_group=None):
+                 legacy=False, nthread=1, snap=None, hdf_path=None, hdf_group=None, Nchunk=500000, domain_slicing=True):
     if cpulist_all is None:
         cpulist_all = np.arange(bound.size-1)
     # array should already been aligned with bound
@@ -3662,6 +3649,13 @@ def domain_slice(array, cpulist, bound, cpulist_all=None, cpulist_end=None, targ
 
         return out
     else:
+        if not domain_slicing:
+            nmax = bound[-1]
+            segs = np.arange(0, nmax, Nchunk)
+            segs = np.append(segs, nmax)
+            doms = np.stack([segs[:-1], segs[1:]], axis=-1)
+            segs = doms[:, 1] - doms[:, 0]
+            
         # -----------------------------------
         # SY Update: Single-threaded, but improved domain slicing
         if (nthread==1)or(hdf_path is None):

@@ -5,7 +5,6 @@ import numpy as np
 import os
 import time, datetime
 from tqdm import tqdm
-from numba import njit, prange
 import argparse
 
 from rur import uri, utool
@@ -204,7 +203,7 @@ def create_hdf5_part(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output
         n_level = snap.levelmax
         add_attr_with_descr(fl, 'n_level', n_level, 'Number of levels in the snapshot.')
         add_attr_with_descr(fl, 'n_chunk', n_chunk, 'Number of chunks in the snapshot.')
-        
+
         n_part_tot = 0
         for name in names:
             new_part = new_part_dict[name][:pointer_dict[name]]
@@ -247,13 +246,19 @@ def create_hdf5_part(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output
 
             n_part_tot += new_part.size
 
-            grp.create_dataset('hilbert_boundary', data=hilbert_boundary, **dataset_kw)
-            grp.create_dataset('chunk_boundary', data=chunk_boundary, **dataset_kw)
+            # grp.create_dataset('hilbert_boundary', data=hilbert_boundary, **dataset_kw)
+            dset = grp.create_dataset('hilbert_boundary', shape=hilbert_boundary.shape, dtype=hilbert_boundary.dtype, **dataset_kw)
+            dset.write_direct(hilbert_boundary)
+            # grp.create_dataset('chunk_boundary', data=chunk_boundary, **dataset_kw)
+            dset = grp.create_dataset('chunk_boundary', shape=chunk_boundary.shape, dtype=chunk_boundary.dtype, **dataset_kw)
+            dset.write_direct(chunk_boundary)
             if 'level' in new_part.dtype.names:
                 level_boundary = set_level_boundaries(new_part, chunk_boundary, n_chunk, n_level)
                 grp.create_dataset('level_boundary', data=level_boundary, **dataset_kw)
             timer.message(f"Exporting {name} data with {new_part.size} particles...")
-            grp.create_dataset('data', data=new_part, **dataset_kw)
+            # grp.create_dataset('data', data=new_part, **dataset_kw)
+            dset = grp.create_dataset('data', shape=new_part.shape, dtype=new_part.dtype, **dataset_kw)
+            dset.write_direct(new_part)
         
         add_attr_with_descr(fl, 'size', n_part_tot, 'Total number of particles in the snapshot.')
         add_attr_with_descr(fl, 'version', version, 'Version of the file.')
@@ -307,7 +312,7 @@ def get_new_part_dict(snap:uri.RamsesSnapshot, cpu_list, size_load, nthread=8) -
 
         for name in names:
             new_part = new_part_dict[name]
-            new_dtypes = new_part.dtype.descr#converted_dtypes[name]
+            new_dtypes = new_part.dtype.descr
             if name == 'sink':
                 if pointer_dict[name] == 0: # we load sink data only once
                     part = snap.get_sink(all=True)
@@ -451,15 +456,21 @@ def create_hdf5_cell(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output
             grp.attrs['levelmin'] = snap.levelmin
             n_cell_tot += new_cell.size
 
-            grp.create_dataset('hilbert_boundary', data=hilbert_boundary, **dataset_kw)
-            grp.create_dataset('chunk_boundary', data=chunk_boundary, **dataset_kw)
+            # grp.create_dataset('hilbert_boundary', data=hilbert_boundary, **dataset_kw)
+            dset = grp.create_dataset('hilbert_boundary', shape=hilbert_boundary.shape, dtype=hilbert_boundary.dtype, **dataset_kw)
+            dset.write_direct(hilbert_boundary)
+            # grp.create_dataset('chunk_boundary', data=chunk_boundary, **dataset_kw)
+            dset = grp.create_dataset('chunk_boundary', shape=chunk_boundary.shape, dtype=chunk_boundary.dtype, **dataset_kw)
+            dset.write_direct(chunk_boundary)
 
             if 'level' in new_cell.dtype.names:
                 level_boundary = set_level_boundaries(new_cell, chunk_boundary, n_chunk, n_level)
                 grp.create_dataset('level_boundary', data=level_boundary, **dataset_kw)
             
             timer.message(f"Exporting cell data with {new_cell.size} cells...")
-            grp.create_dataset('data', data=new_cell, **dataset_kw)
+            # grp.create_dataset('data', data=new_cell, **dataset_kw)
+            dset = grp.create_dataset('data', shape=new_cell.shape, dtype=new_cell.dtype, **dataset_kw)
+            dset.write_direct(new_cell)
 
         add_attr_with_descr(fl, 'size', n_cell_tot, 'Total number of cells in the snapshot.')
         add_attr_with_descr(fl, 'version', version, 'Version of the file.')
@@ -573,7 +584,8 @@ def get_ncell(snap:uri.RamsesSnapshot, python=False, read_branch=False) -> int:
                         f.skip_records(skip_amr)
     return ncell
 
-def export_snapshots(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load:int=60, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0'):
+
+def export_snapshots(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load:int=60, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0', nthread:int=8, export='cp'):
     """
     Export snapshots from the repository to HDF5 format.
     This function will export both particle and cell data.
@@ -584,17 +596,19 @@ def export_snapshots(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size
 
     for iout in tqdm(iout_list, desc=f"Exporting snapshot data", disable=True):
         # Start exporting cell and particle data for each snapshot
-        timer.message(f"Starting cell data extraction for iout = {iout}.", name='cell_hdf')
-        snap = ts[iout]
-        create_hdf5_cell(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite, sim_description=sim_description, version=version)
-        snap.clear()
-        timer.record(f"Cell data extraction completed for iout = {snap.iout}.", name='cell_hdf')
+        if 'c' in export:
+            timer.message(f"Starting cell data extraction for iout = {iout}.", name='cell_hdf')
+            snap = ts[iout]
+            create_hdf5_cell(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite, sim_description=sim_description, version=version, nthread=nthread)
+            snap.clear()
+            timer.record(f"Cell data extraction completed for iout = {snap.iout}.", name='cell_hdf')
 
-        timer.message(f"Starting particle data extraction for iout = {iout}.", name='part_hdf')
-        snap = ts[iout]
-        create_hdf5_part(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite, sim_description=sim_description, version=version)
-        snap.clear()
-        timer.record(f"Particle data extraction completed for iout = {snap.iout}.", name='part_hdf')
+        if 'p' in export:
+            timer.message(f"Starting particle data extraction for iout = {iout}.", name='part_hdf')
+            snap = ts[iout]
+            create_hdf5_part(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite, sim_description=sim_description, version=version, nthread=nthread)
+            snap.clear()
+            timer.record(f"Particle data extraction completed for iout = {snap.iout}.", name='part_hdf')
 
 def get_hilbert_key(coordinates:np.ndarray, levelmax:int) -> np.ndarray:
     subdivisions = 2 ** levelmax
@@ -727,12 +741,9 @@ def main(args):
 
 
     dataset_kw = {
-        'compression': args.compression, # lzf
+        'compression': args.compression,
         'shuffle': True,
     }
-
-    #repo_name = 'nc'  # or 'hagn', 'nh', 'nh2', 'yzics', etc.
-    #repo = sim.get_repo(repo_name)
 
     # receive the snapshot from the simulation repository
     repo_path = simdict['repo']
@@ -751,10 +762,6 @@ def main(args):
     n_chunk = args.n_chunk # 8000
     size_load = 160
 
-    #iout_list = [10]
-    #cpu_list = [1, 2]
-    #export_cell(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load, cpu_list=cpu_list, dataset_kw=dataset_kw, sim_description=sim_description, version=version)
-    #export_part(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load, cpu_list=cpu_list, dataset_kw=dataset_kw, sim_description=sim_description, version=version)
     iout_list = None #[30]#[10, 30, 620, 670]
     if iout_list is None:
         iout_list = repo.read_iout_avail(allow_write=True)['iout']
@@ -773,10 +780,17 @@ def main(args):
     cpu_list = None
     overwrite = False
     export = args.export.lower()
-    if 'c' in export:
-        export_cell(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load, cpu_list=cpu_list, dataset_kw=dataset_kw, sim_description=sim_description, version=version, overwrite=overwrite, nthread=args.nthread)
-    if 'p' in export:
-        export_part(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load, cpu_list=cpu_list, dataset_kw=dataset_kw, sim_description=sim_description, version=version, overwrite=overwrite, nthread=args.nthread)
+    export_snapshots(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load,
+                output_path='hdf', cpu_list=cpu_list, dataset_kw=dataset_kw,
+                sim_description=sim_description, version=version, overwrite=overwrite, nthread=args.nthread, export=export)
+    # if 'c' in export:
+    #     export_cell(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load,
+    #                 output_path='hdf', cpu_list=cpu_list, dataset_kw=dataset_kw,
+    #                 sim_description=sim_description, version=version, overwrite=overwrite, nthread=args.nthread)
+    # if 'p' in export:
+    #     export_part(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load,
+    #                 output_path='hdf', cpu_list=cpu_list, dataset_kw=dataset_kw,
+    #                 sim_description=sim_description, version=version, overwrite=overwrite, nthread=args.nthread)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Convert Ramses snapshot data to HDF5 format.')
