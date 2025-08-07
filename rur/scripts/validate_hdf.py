@@ -159,7 +159,6 @@ def validation(snap1:uri.RamsesSnapshot, snap2:uri.RamsesSnapshot, nthread=16, v
     same, msg = _identical(leng1, leng2, x1, x2)
     if verbose: print(f"{msg}\n")
     if not same:
-        if verbose: print(f"Length mismatch: {leng1} vs {leng2}\n")
         return False, times1, times2
     if target is not None:
         snap1.set_box_halo(target, radius_name='r'); snap2.set_box_halo(target, radius_name='r')
@@ -168,7 +167,6 @@ def validation(snap1:uri.RamsesSnapshot, snap2:uri.RamsesSnapshot, nthread=16, v
         same, msg = _identical(leng1, leng2, x1, x2)
         if verbose: print(f"{msg}\n")
         if not same:
-            if verbose: print(f"Length mismatch: {leng1} vs {leng2}\n")
             return False, times1, times2
 
     if header['star'] > 0:
@@ -180,7 +178,6 @@ def validation(snap1:uri.RamsesSnapshot, snap2:uri.RamsesSnapshot, nthread=16, v
         same, msg = _identical(leng1, leng2, x1, x2)
         if verbose: print(f"{msg}\n")
         if not same:
-            if verbose: print(f"Length mismatch: {leng1} vs {leng2}\n")
             return False, times1, times2
         if target is not None:
             snap1.set_box_halo(target, radius_name='r'); snap2.set_box_halo(target, radius_name='r')
@@ -189,7 +186,6 @@ def validation(snap1:uri.RamsesSnapshot, snap2:uri.RamsesSnapshot, nthread=16, v
             same, msg = _identical(leng1, leng2, x1, x2)
             if verbose: print(f"{msg}\n")
             if not same:
-                if verbose: print(f"Length mismatch: {leng1} vs {leng2}\n")
                 return False, times1, times2
 
     if header['tracer'] > 0:
@@ -201,7 +197,6 @@ def validation(snap1:uri.RamsesSnapshot, snap2:uri.RamsesSnapshot, nthread=16, v
         same, msg = _identical(leng1, leng2, x1, x2)
         if verbose: print(f"{msg}\n")
         if not same:
-            if verbose: print(f"Length mismatch: {leng1} vs {leng2}\n")
             return False, times1, times2
         if target is not None:
             snap1.set_box_halo(target, radius_name='r'); snap2.set_box_halo(target, radius_name='r')
@@ -210,7 +205,6 @@ def validation(snap1:uri.RamsesSnapshot, snap2:uri.RamsesSnapshot, nthread=16, v
             same, msg = _identical(leng1, leng2, x1, x2)
             if verbose: print(f"{msg}\n")
             if not same:
-                if verbose: print(f"Length mismatch: {leng1} vs {leng2}\n")
                 return False, times1, times2
 
     if header['sink'] > 0:
@@ -222,7 +216,6 @@ def validation(snap1:uri.RamsesSnapshot, snap2:uri.RamsesSnapshot, nthread=16, v
         same, msg = _identical(leng1, leng2, x1, x2)
         if verbose: print(f"{msg}\n")
         if not same:
-            if verbose: print(f"Length mismatch: {leng1} vs {leng2}\n")
             return False, times1, times2
         if target is not None:
             snap1.set_box_halo(target, radius_name='r'); snap2.set_box_halo(target, radius_name='r')
@@ -231,7 +224,6 @@ def validation(snap1:uri.RamsesSnapshot, snap2:uri.RamsesSnapshot, nthread=16, v
             same, msg = _identical(leng1, leng2, x1, x2)
             if verbose: print(f"{msg}\n")
             if not same:
-                if verbose: print(f"Length mismatch: {leng1} vs {leng2}\n")
                 return False, times1, times2
 
     return True, times1, times2
@@ -259,7 +251,7 @@ if __name__ == "__main__":
         times1 = [0,0,0,0,0,0]
         times2 = [0,0,0,0,0,0]
         if iscell and ispart:
-            ivalid, times1, times2 = validation(snap1, snap2, nthread=nthread, verbose=False)
+            ivalid, times1, times2 = validation(snap1, snap2, nthread=nthread, verbose=verbose)
         timestr1 = "\t".join([f"{t:.2f}" for t in times1])
         timestr2 = "\t".join([f"{t:.2f}" for t in times2])
 
