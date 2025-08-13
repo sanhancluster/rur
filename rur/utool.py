@@ -1547,8 +1547,8 @@ def uniform_digitize(values, lim, nbins):
     A faster version of np.digitize that works with uniform bins.
     The result may vary from np.digitize near the bin edges.
     :param values: array-like, values to digitize
-    :param nbins: int or array-like, number of bins
     :param lim: array-like, limits for the bins
+    :param nbins: int or array-like, number of bins
     :return: array of indices of bins for each value
     """
     values_idx = (values - lim[0]) / (lim[1] - lim[0]) * nbins + 1
