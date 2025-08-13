@@ -3630,14 +3630,7 @@ def domain_slice(array, cpulist, bound, cpulist_all=None, cpulist_end=None, targ
             new_dtype = [(name, array.dtype[name]) for name in target_fields]
 
         out = np.empty(np.sum(segs), dtype=new_dtype)  # same performance with np.concatenate
-        now = 0
-        for dom, seg in zip(doms, segs):
-            if target_fields is not None:
-                for name in target_fields:
-                    out[now:now + seg][name] = array[dom[0]:dom[1]][name]
-            else:
-                out[now:now + seg] = array[dom[0]:dom[1]]
-            now += seg
+        copy_fields(array, out, target_fields, doms, segs)
 
         return out
     else:
@@ -3663,19 +3656,8 @@ def domain_slice(array, cpulist, bound, cpulist_all=None, cpulist_end=None, targ
                 pbar = tqdm(total=len(segs), desc=f"Domain slicing")
                 def update(*a): pbar.update(1)
             # -----------------------------------
-            now = 0
-            for dom, seg in zip(doms, segs):
-                # -----------------------------------
-                # SY Update: Convert h5py.Dataset to ndarray (more efficient)
-                iarr = array[dom[0]:dom[1]]
-                if target_fields is not None:
-                    for name in target_fields:
-                        out[now:now + seg][name] = iarr[name]
-                else:
-                    out[now:now + seg] = iarr
-                # -----------------------------------
-                now += seg
-                update()
+            copy_fields(array, out, target_fields, doms, segs, update=update)
+
         # -----------------------------------
         # SY Update: Multi-threaded domain slicing
         else:
@@ -3743,12 +3725,40 @@ def _domain_slice_worker(shape, dtype, address, cursor, hdf_path, hdf_group, dom
         array = grp['data']
         iarr = array[dom[0]:dom[1]]
         if target_fields is not None:
-            for name in target_fields:
-                pointer[name] = iarr[name]
+            copy_fields(iarr, pointer, target_fields)
+            #for name in target_fields:
+            #    pointer[name] = iarr[name]
         else:
             pointer[:] = iarr
     exist.close()
 # -----------------------------------
+
+def copy_fields(array, out, target_fields, domains=None, segments=None, update=None):
+    offsets = np.asarray([array.dtype.fields[name][1] for name in target_fields])
+    sizes = np.asarray([array.dtype.fields[name][0].itemsize for name in target_fields])
+    starts, ends = merge_segments(offsets, offsets + sizes)
+    out_bytes = get_bytes_data(out)
+    if domains is None:
+        array_bytes = get_bytes_data(array[:])
+        now_field = 0
+        for start, end in zip(starts, ends):
+            seg_field = end - start
+            out_bytes[:, now_field:now_field+seg_field] = array_bytes[:, start:end]
+            now_field += seg_field
+    else:
+        now = 0
+        for dom, seg in zip(domains, segments):
+            now_field = 0
+            array_chunk = get_bytes_data(array[dom[0]:dom[1]])
+            out_chunk = out_bytes[now:now+seg]
+            for start, end in zip(starts, ends):
+                seg_field = end - start
+                out_chunk[:, now_field:now_field+seg_field] = array_chunk[:, start:end]
+                now_field += seg_field
+            now += seg
+            if update is not None:
+                update()
+
 
 def merge_segments(starts, ends):
     if starts.size == 0:
@@ -3998,6 +4008,7 @@ def part_density(part, reso, mode='m'):
 
 
 def get_bytes_data(array):
+    # works as non-copy view of structured array if array is contiguous
     barr = array.view('b').reshape((array.size, array.itemsize))
     return barr
 
