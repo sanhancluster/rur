@@ -12,7 +12,7 @@ from scipy.spatial import cKDTree as KDTree
 from numpy.lib.recfunctions import append_fields
 
 from rur.fortranfile import FortranFile
-from rur.hilbert3d import hilbert3d
+# from rur.hilbert3d import hilbert3d
 from rur.readr import readr
 from rur.io_ramses import io_ramses
 from rur.config import *
@@ -2623,18 +2623,26 @@ class RamsesSnapshot(object):
             return cell
 
     def get_sink(self, box=None, all=False):
-        if (all):
+        if self.hdf:
+            if all:
+                box = self.default_box
+            self.box_sink = box
+            self.box = box
+            sink = self.get_part(box=self.box_sink, pname='sink') # not saving as local parameter to save memory
+            return sink
+        if all:
             self.box_sink = self.default_box
             self.read_sink()
-            self.sink = Particle(self.sink_data, self)
-            return self.sink
-        if (box is not None):
+            sink = Particle(self.sink_data, self)
+            self.sink = sink
+            return sink
+        if box is not None:
             # if box is not specified, use self.box by default
             self.box = box
-        if (self.box is None or not np.array_equal(self.box, self.box_sink)):
+        if self.box_sink is None or not np.array_equal(self.box, self.box_sink):
             self.read_sink()
             sink = self.sink_data
-            if (self.box is not None):
+            if self.box is not None:
                 mask = box_mask(get_vector(sink), self.box)
                 timer.start('Masking sinks... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size), 1)
                 sink = sink[mask]
@@ -3521,7 +3529,8 @@ def get_cpulist(box_unit, binlvl, maxlvl, bound_key, ndim, n_divide, ncpu=None):
         print("N. of Blocks:", bin_list.shape[0])
 
     # compute hilbert key of all bins
-    keys = hilbert3d(*(bin_list.T), binlvl, bin_list.shape[0])
+    npoints = bin_list.shape[0]
+    keys = hilbert3d_py(bin_list, binlvl)
     keys = np.array(keys)
     key_range = np.stack([keys, keys + 1], axis=-1)
     key_range = key_range.astype('float128')
@@ -3569,7 +3578,8 @@ def get_hilbert_indices(box, bound_key, level_key, level_bin=None, n_divide=3, n
     bin_list = utool.cartesian(*[np.arange(bbox[i, 0], bbox[i, 1]) for i in range(ndim)])
 
     # compute hilbert key of all bins
-    keys = hilbert3d(*(bin_list.T), level_bin, bin_list.shape[0])
+    npoints = bin_list.shape[0]
+    keys = hilbert3d_py(bin_list, level_bin)
     keys = np.array(keys)
     key_range = np.stack([*merge_segments(keys, keys + 1)], axis=-1)
     key_range = key_range.astype('float128')

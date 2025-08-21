@@ -1575,3 +1575,123 @@ def box_mask(coo, box, size=None, exclusive=False, nchunk=10000000):
         mask_out.append(mask)
     mask_out = np.concatenate(mask_out)
     return mask_out
+
+def hilbert3d_py(pos, bit_length_max, bit_length=None):
+    """
+    Vectorized NumPy implementation of the Fortran 'hilbert3d' subroutine.
+
+    Parameters
+    ----------
+    pos : 2D array-like, shape (n, 3)
+        Coordinates of points in 3D space, where n is the number of points.
+        Each row corresponds to a point with (x, y, z) coordinates.
+    bit_length_max : int
+        Global maximum bit length used for the final left shift (scaling).
+    bit_length : 1D array-like of int (length n)
+        Per-point effective bit length (number of significant bits used).
+
+    Returns
+    -------
+    order : np.ndarray(float128), shape (n,)
+        Hilbert key (scaled) per point, as float128 (matching the Fortran behavior).
+    """
+    pos = np.asarray(pos, dtype=np.int64)
+    x = pos[:, 0]
+    y = pos[:, 1]
+    z = pos[:, 2]
+
+    if bit_length is None:
+        bit_length = np.full(pos.shape[0], bit_length_max, dtype=np.int64)
+    elif isinstance(bit_length, int):
+        bit_length = np.full(pos.shape[0], bit_length, dtype=np.int64)
+    else:
+        bit_length = np.asarray(bit_length, dtype=np.int64)
+
+    if not (x.shape == y.shape == z.shape == bit_length.shape):
+        raise ValueError("x, y, z, and bit_length must have the same length.")
+    n = x.shape[0]
+
+    if np.any(bit_length < 0):
+        raise ValueError("bit_length must be non-negative.")
+    if bit_length_max < 0:
+        raise ValueError("bit_length_max must be non-negative.")
+
+    bl_max = int(bit_length.max(initial=0))
+    if bl_max == 0:
+        return np.zeros(n, dtype=np.float128)
+
+    # --- State diagram table (matches Fortran RESHAPE(..., (/8,2,12/)) with column-major order) ---
+    vals = np.array([
+         1, 2, 3, 2, 4, 5, 3, 5,
+         0, 1, 3, 2, 7, 6, 4, 5,
+         2, 6, 0, 7, 8, 8, 0, 7,
+         0, 7, 1, 6, 3, 4, 2, 5,
+         0, 9,10, 9, 1, 1,11,11,
+         0, 3, 7, 4, 1, 2, 6, 5,
+         6, 0, 6,11, 9, 0, 9, 8,
+         2, 3, 1, 0, 5, 4, 6, 7,
+        11,11, 0, 7, 5, 9, 0, 7,
+         4, 3, 5, 2, 7, 0, 6, 1,
+         4, 4, 8, 8, 0, 6,10, 6,
+         6, 5, 1, 2, 7, 4, 0, 3,
+         5, 7, 5, 3, 1, 1,11,11,
+         4, 7, 3, 0, 5, 6, 2, 1,
+         6, 1, 6,10, 9, 4, 9,10,
+         6, 7, 5, 4, 1, 0, 2, 3,
+        10, 3, 1, 1,10, 3, 5, 9,
+         2, 5, 3, 4, 1, 6, 0, 7,
+         4, 4, 8, 8, 2, 7, 2, 3,
+         2, 1, 5, 6, 3, 0, 4, 7,
+         7, 2,11, 2, 7, 5, 8, 5,
+         4, 5, 7, 6, 3, 2, 0, 1,
+        10, 3, 2, 6,10, 3, 4, 4,
+         6, 1, 7, 0, 5, 2, 4, 3
+    ], dtype=np.int64)
+    state_diagram = vals.reshape((8, 2, 12), order='F')  # sdigit ∈ [0..7], second axis ∈ {0(nstate),1(hdigit)}, cstate ∈ [0..11]
+    nstate_tbl = state_diagram[:, 0, :]  # (8, 12)
+    hdigit_tbl = state_diagram[:, 1, :]  # (8, 12)
+
+    # Precompute powers of two for positions 0..(3*bl_max-1), as float128
+    pow2 = np.exp2(np.arange(3 * bl_max, dtype=np.int64)).astype(np.float128)
+
+    # Outputs and current state per point
+    order = np.zeros(n, dtype=np.float128)
+    cstate = np.zeros(n, dtype=np.int64)
+
+    # Process bit positions from MSB to LSB to respect the state machine order
+    for i in range(bl_max - 1, -1, -1):
+        # Only points where this bit position is valid contribute
+        active = bit_length > i
+        if not np.any(active):
+            continue
+
+        # Build sdigit = (x_bit << 2) | (y_bit << 1) | (z_bit) for active points
+        b2 = ((x[active] >> i) & 1).astype(np.int64)  # x bit
+        b1 = ((y[active] >> i) & 1).astype(np.int64)  # y bit
+        b0 = ((z[active] >> i) & 1).astype(np.int64)  # z bit
+        sdigit = (b2 << 2) | (b1 << 1) | b0           # 0..7
+
+        # Transition: next state and Hilbert digit from the table
+        cs = cstate[active]
+        nstate = nstate_tbl[sdigit, cs]
+        hdigit = hdigit_tbl[sdigit, cs]
+
+        # Extract the 3 bits of hdigit: (x,y,z) as bits 2,1,0
+        hx = (hdigit >> 2) & 1
+        hy = (hdigit >> 1) & 1
+        hz = (hdigit >> 0) & 1
+
+        # Accumulate into the (z,y,x) positions 3*i+0, 3*i+1, 3*i+2
+        j0 = 3 * i + 0  # z position
+        j1 = 3 * i + 1  # y position
+        j2 = 3 * i + 2  # x position
+        order[active] += hz * pow2[j0] + hy * pow2[j1] + hx * pow2[j2]
+
+        # Update current state
+        cstate[active] = nstate
+
+    # Final scaling: left-shift by 3*(bit_length_max - bit_length)
+    shift = 3 * (int(bit_length_max) - bit_length)
+    order *= np.exp2(shift).astype(np.float128)
+
+    return order
