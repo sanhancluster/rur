@@ -146,7 +146,7 @@ class Timestamp:
     def message(self, message, verbose_lim=1):
         if verbose_lim <= self.verbose:
             time = self.elapsed()
-            time_string = self.get_time_string(time, add_units=True)
+            time_string = get_time_string(time, add_units=True)
             print(f"{CYAN}[ {time_string} ]{RESET} {message}")
 
     def record(self, message=None, name=None, verbose_lim=1):
@@ -154,7 +154,7 @@ class Timestamp:
             name = 'last'
         if verbose_lim <= self.verbose:
             time = self.elapsed()
-            time_string = self.get_time_string(time, add_units=True)
+            time_string = get_time_string(time, add_units=True)
             recorded_time = self.elapsed(name)
             recorded_time_string = self.get_time_string(recorded_time, add_units=True)
             if message is None:
@@ -162,39 +162,39 @@ class Timestamp:
             print(f"{CYAN}[ {time_string} ]{RESET} {message} -> {GREEN}{recorded_time_string}{RESET}")
         #self.stamps.pop(name)
 
-    def get_time_string(self, elapsed_time, add_units=False):
-        """
-        Convert elapsed time in seconds to a formatted string.
-        """
-        time_format = "%H:%M:%S"
-        if elapsed_time < 60:
-            if add_units:
-                return f"{elapsed_time:05.2f}s"
-            else:
-                return f"{elapsed_time:05.2f}"
-        elif elapsed_time < 3600:
-            if add_units:
-                time_format = "%Mm %Ss"
-            else:
-                time_format = "%M:%S"
-        elif elapsed_time < 86400:
-            if add_units:
-                time_format = "%Hh %Mm %Ss"
-            else:
-                time_format = "%H:%M:%S"
-        else:
-            elapsed_day = elapsed_time // 86400  # Convert to days
-            if add_units:
-                time_format = f"{elapsed_day}d %Hh %Mm %Ss"
-            else:
-                time_format = f"{elapsed_day} %H:%M:%S"
-        return time.strftime(time_format, time.gmtime(elapsed_time))
-
     def measure(self, func, message=None, **kwargs):
         self.start(message)
         result = func(**kwargs)
         self.record()
         return result
+
+def get_time_string(elapsed_time, add_units=False, use_float=False):
+    """
+    Convert elapsed time in seconds to a formatted string.
+    """
+    time_format = "%H:%M:%S"
+    if elapsed_time < 60:
+        if add_units:
+            return f"{elapsed_time:05.2f}s"
+        else:
+            return f"{elapsed_time:05.2f}"
+    elif elapsed_time < 3600:
+        if add_units:
+            time_format = "%Mm %Ss"
+        else:
+            time_format = "%M:%S"
+    elif elapsed_time < 86400:
+        if add_units:
+            time_format = "%Hh %Mm %Ss"
+        else:
+            time_format = "%H:%M:%S"
+    else:
+        elapsed_day = int(elapsed_time // 86400)  # Convert to days
+        if add_units:
+            time_format = f"{elapsed_day:2d}d %Hh %Mm %Ss"
+        else:
+            time_format = f"{elapsed_day:2d} %H:%M:%S"
+    return time.strftime(time_format, time.gmtime(elapsed_time))
 
 def get_vector(table, prefix='', ndim=3):
     return np.stack([table[prefix + key] for key in dim_keys[:ndim]], axis=-1)

@@ -1546,12 +1546,22 @@ def uniform_digitize(values, lim, nbins):
     """
     A faster version of np.digitize that works with uniform bins.
     The result may vary from np.digitize near the bin edges.
-    :param values: array-like, values to digitize
-    :param lim: array-like, limits for the bins
-    :param nbins: int or array-like, number of bins
-    :return: array of indices of bins for each value
+
+    Parameters
+    ----------
+    values : array-like
+        The input values to digitize.
+    lim : array-like
+        The limits for the bins.
+    nbins : int
+        The number of bins.
+
+    Returns
+    -------
+    array-like
+        The digitized indices of the input values.
     """
-    values_idx = (values - lim[0]) / (lim[1] - lim[0]) * nbins + 1
+    values_idx = (values - lim[..., 0]) / (lim[..., 1] - lim[..., 0]) * nbins + 1
     values_idx = values_idx.astype(int)
     values_idx = np.clip(values_idx, 0, nbins+1)
     return values_idx
@@ -1576,51 +1586,81 @@ def box_mask(coo, box, size=None, exclusive=False, nchunk=10000000):
     mask_out = np.concatenate(mask_out)
     return mask_out
 
-def hilbert3d_py(pos, bit_length_max, bit_length=None):
+def hilbert3d_map(pos, bit_length, levels=None, lims=None, check_bounds=True):
+    """
+    Position-based Hilbert curve mapping.
+    This function maps 3D positions to Hilbert curve indices based on the specified levels and bit length.
+    """
+    if lims is None:
+        lims = np.array([[0, 1],] * pos.shape[-1], dtype=np.float64)
+
+    if levels is None:
+        levels = bit_length
+
+    if not isinstance(levels, int):
+        levels = np.asarray(levels, dtype=np.int64)
+        bl_max = np.max(levels)
+    else:
+        bl_max = levels
+        levels = np.atleast_1d(levels)
+
+    idx = uniform_digitize(pos, lims, 2**bl_max) - 1
+    if check_bounds and (np.any(idx < 0) or np.any(idx >= 2**bl_max)):
+        raise ValueError("Position values out of bounds for the specified bit length.")
+    if levels is not None:
+        idx = idx // (2 ** (bl_max - levels))[:, np.newaxis]
+
+    return hilbert3d_py(idx, bit_length, levels=levels)
+
+
+def hilbert3d_py(idx, bit_length, levels=None, chunk_size=1000000):
     """
     Vectorized NumPy implementation of the Fortran 'hilbert3d' subroutine.
+    Processes input in chunks to avoid excessive memory usage.
 
     Parameters
     ----------
-    pos : 2D array-like, shape (n, 3)
-        Coordinates of points in 3D space, where n is the number of points.
+    idx : 2D array-like, shape (n, 3)
+        Indices of points in 3D space, where n is the number of points.
         Each row corresponds to a point with (x, y, z) coordinates.
-    bit_length_max : int
+    bit_length : int
         Global maximum bit length used for the final left shift (scaling).
-    bit_length : 1D array-like of int (length n)
+    levels : 1D array-like of int (length n)
         Per-point effective bit length (number of significant bits used).
+    chunk_size : int
+        Number of points to process per chunk.
 
     Returns
     -------
     order : np.ndarray(float128), shape (n,)
-        Hilbert key (scaled) per point, as float128 (matching the Fortran behavior).
+        Hilbert key (scaled) per point, as float128.
     """
-    pos = np.asarray(pos, dtype=np.int64)
-    x = pos[:, 0]
-    y = pos[:, 1]
-    z = pos[:, 2]
+    idx = np.asarray(idx, dtype=np.int64)
+    x = idx[:, 0]
+    y = idx[:, 1]
+    z = idx[:, 2]
 
-    if bit_length is None:
-        bit_length = np.full(pos.shape[0], bit_length_max, dtype=np.int64)
-    elif isinstance(bit_length, int):
-        bit_length = np.full(pos.shape[0], bit_length, dtype=np.int64)
+    n = idx.shape[0]
+    if levels is None:
+        levels = np.full(n, bit_length, dtype=np.int64)
+    elif isinstance(levels, int):
+        levels = np.full(n, levels, dtype=np.int64)
     else:
-        bit_length = np.asarray(bit_length, dtype=np.int64)
+        levels = np.asarray(levels, dtype=np.int64)
 
-    if not (x.shape == y.shape == z.shape == bit_length.shape):
+    if not (x.shape == y.shape == z.shape == levels.shape):
         raise ValueError("x, y, z, and bit_length must have the same length.")
-    n = x.shape[0]
 
-    if np.any(bit_length < 0):
+    if np.any(levels < 0):
         raise ValueError("bit_length must be non-negative.")
-    if bit_length_max < 0:
+    if bit_length < 0:
         raise ValueError("bit_length_max must be non-negative.")
 
-    bl_max = int(bit_length.max(initial=0))
+    bl_max = int(levels.max(initial=0))
     if bl_max == 0:
         return np.zeros(n, dtype=np.float128)
 
-    # --- State diagram table (matches Fortran RESHAPE(..., (/8,2,12/)) with column-major order) ---
+    # --- State diagram table ---
     vals = np.array([
          1, 2, 3, 2, 4, 5, 3, 5,
          0, 1, 3, 2, 7, 6, 4, 5,
@@ -1647,51 +1687,52 @@ def hilbert3d_py(pos, bit_length_max, bit_length=None):
         10, 3, 2, 6,10, 3, 4, 4,
          6, 1, 7, 0, 5, 2, 4, 3
     ], dtype=np.int64)
-    state_diagram = vals.reshape((8, 2, 12), order='F')  # sdigit ∈ [0..7], second axis ∈ {0(nstate),1(hdigit)}, cstate ∈ [0..11]
-    nstate_tbl = state_diagram[:, 0, :]  # (8, 12)
-    hdigit_tbl = state_diagram[:, 1, :]  # (8, 12)
+    state_diagram = vals.reshape((8, 2, 12), order='F')
+    nstate_tbl = state_diagram[:, 0, :]
+    hdigit_tbl = state_diagram[:, 1, :]
 
-    # Precompute powers of two for positions 0..(3*bl_max-1), as float128
     pow2 = np.exp2(np.arange(3 * bl_max, dtype=np.int64)).astype(np.float128)
 
-    # Outputs and current state per point
     order = np.zeros(n, dtype=np.float128)
     cstate = np.zeros(n, dtype=np.int64)
 
-    # Process bit positions from MSB to LSB to respect the state machine order
-    for i in range(bl_max - 1, -1, -1):
-        # Only points where this bit position is valid contribute
-        active = bit_length > i
-        if not np.any(active):
-            continue
+    # Process in chunks to avoid high memory usage
+    for chunk_start in range(0, n, chunk_size):
+        chunk_end = min(chunk_start + chunk_size, n)
+        x_chunk = x[chunk_start:chunk_end]
+        y_chunk = y[chunk_start:chunk_end]
+        z_chunk = z[chunk_start:chunk_end]
+        levels_chunk = levels[chunk_start:chunk_end]
+        cstate_chunk = np.zeros(chunk_end - chunk_start, dtype=np.int64)
+        order_chunk = np.zeros(chunk_end - chunk_start, dtype=np.float128)
 
-        # Build sdigit = (x_bit << 2) | (y_bit << 1) | (z_bit) for active points
-        b2 = ((x[active] >> i) & 1).astype(np.int64)  # x bit
-        b1 = ((y[active] >> i) & 1).astype(np.int64)  # y bit
-        b0 = ((z[active] >> i) & 1).astype(np.int64)  # z bit
-        sdigit = (b2 << 2) | (b1 << 1) | b0           # 0..7
+        for i in range(bl_max - 1, -1, -1):
+            active = levels_chunk > i
+            if not np.any(active):
+                continue
 
-        # Transition: next state and Hilbert digit from the table
-        cs = cstate[active]
-        nstate = nstate_tbl[sdigit, cs]
-        hdigit = hdigit_tbl[sdigit, cs]
+            b2 = ((x_chunk[active] >> i) & 1).astype(np.int64)
+            b1 = ((y_chunk[active] >> i) & 1).astype(np.int64)
+            b0 = ((z_chunk[active] >> i) & 1).astype(np.int64)
+            sdigit = (b2 << 2) | (b1 << 1) | b0
 
-        # Extract the 3 bits of hdigit: (x,y,z) as bits 2,1,0
-        hx = (hdigit >> 2) & 1
-        hy = (hdigit >> 1) & 1
-        hz = (hdigit >> 0) & 1
+            cs = cstate_chunk[active]
+            nstate = nstate_tbl[sdigit, cs]
+            hdigit = hdigit_tbl[sdigit, cs]
 
-        # Accumulate into the (z,y,x) positions 3*i+0, 3*i+1, 3*i+2
-        j0 = 3 * i + 0  # z position
-        j1 = 3 * i + 1  # y position
-        j2 = 3 * i + 2  # x position
-        order[active] += hz * pow2[j0] + hy * pow2[j1] + hx * pow2[j2]
+            hx = (hdigit >> 2) & 1
+            hy = (hdigit >> 1) & 1
+            hz = (hdigit >> 0) & 1
 
-        # Update current state
-        cstate[active] = nstate
+            j0 = 3 * i + 0
+            j1 = 3 * i + 1
+            j2 = 3 * i + 2
+            order_chunk[active] += hz * pow2[j0] + hy * pow2[j1] + hx * pow2[j2]
 
-    # Final scaling: left-shift by 3*(bit_length_max - bit_length)
-    shift = 3 * (int(bit_length_max) - bit_length)
-    order *= np.exp2(shift).astype(np.float128)
+            cstate_chunk[active] = nstate
+
+        shift = 3 * (int(bit_length) - levels_chunk)
+        order_chunk *= np.exp2(shift, dtype=np.float128)
+        order[chunk_start:chunk_end] = order_chunk
 
     return order

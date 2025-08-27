@@ -1,0 +1,46 @@
+{
+    "ncsedd":{
+        "input_name": "ncsedd",
+        "name": "NewCluster_sEdd",
+        "repo": "/storage8/NewCluster_sEdd",
+        "sim_publication": "None",
+        "ramses_ver": 4,
+        "rur_mode": "nc",
+        "minout": 0,
+        "maxout": 69,
+        "skipout": []
+    },
+    "nh3":{
+        "input_name": "nh3",
+        "name": "NH3",
+        "repo": "/storage8/NH3",
+        "sim_publication": "None",
+        "ramses_ver": 4,
+        "rur_mode": "nc",
+        "minout": 0,
+        "maxout": 10000,
+        "skipout": [36, 109]
+    },
+    "ncdustfix":{
+        "input_name": "ncdustfix",
+        "name": "NCdustfix",
+        "repo": "/storage8/NCdustfix",
+        "sim_publication": "None",
+        "ramses_ver": 4,
+        "rur_mode": "nc",
+        "minout": 0,
+        "maxout": 10000,
+        "skipout": []
+    },
+    "ncdustfix2":{
+        "input_name": "ncdustfix2",
+        "name": "NCdustfix2",
+        "repo": "/storage8/NCdustfix/NCdustfix2",
+        "sim_publication": "None",
+        "ramses_ver": 4,
+        "rur_mode": "nc",
+        "minout": 0,
+        "maxout": 10000,
+        "skipout": []
+    }
+}
