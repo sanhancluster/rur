@@ -11,7 +11,8 @@ from rur import uri, utool
 from rur import sim as simlist
 from rur.fortranfile import FortranFile
 from rur.scripts.san import simulations as sim
-from rur.hilbert3d import hilbert3d
+from rur.utool import hilbert3d_map
+# from rur.hilbert3d import hilbert3d
 import signal
 from multiprocessing import Pool
 
@@ -610,12 +611,16 @@ def export_snapshots(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size
             snap.clear()
             timer.record(f"Particle data extraction completed for iout = {snap.iout}.", name='part_hdf')
 
-def get_hilbert_key(coordinates:np.ndarray, levelmax:int) -> np.ndarray:
-    subdivisions = 2 ** levelmax
+def get_hilbert_key(coordinates:np.ndarray, levelmax:int, levels=None) -> np.ndarray:
+    # subdivisions = 2 ** levelmax
     if levelmax > 21:
         raise ValueError("Levelmax must be less than or equal to 21 to avoid overflow in Hilbert key calculation.")
-    idx_list = np.floor(coordinates * subdivisions).astype(int)
-    return hilbert3d(*idx_list.T, levelmax, idx_list.shape[0]).astype(np.float128)
+    # idx_list = np.floor(coordinates * subdivisions).astype(int)
+    # npoints = idx_list.shape[0]
+    if levels is None:
+        return hilbert3d_map(coordinates, levelmax).astype(np.float128)
+    else:
+        return hilbert3d_map(coordinates, levelmax, levels=levels).astype(np.float128)
 
 
 def get_chunk_boundaries(hilbert_key:np.ndarray, n_chunk:int) -> np.ndarray:
