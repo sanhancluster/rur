@@ -300,7 +300,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             cshape, caddress, cdtype, cpulist_cell, bound_cell = cell_memory
             cexist = shared_memory.SharedMemory(name=caddress)
             allcells = np.ndarray(cshape, dtype=cdtype, buffer=cexist.buf)
-            domcells = uri.domain_slice(allcells, cdomain, cpulist_cell, bound_cell)
+            domcells = uri.domain_slice(allcells, cdomain, bound_cell, cpulist_all=cpulist_cell)
             cdist = np.sqrt( (domcells['x']-cx)**2 + (domcells['y']-cy)**2 + (domcells['z']-cz)**2 )
             rmask = cdist <= halo['r']
             if(np.sum(rmask) < 8): rmask = cdist < (halo['r'] + (1 / 2**domcells['level'])/2)
@@ -314,7 +314,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             dshape, daddress, ddtype, cpulist_dm, bound_dm = dm_memory
             dexist = shared_memory.SharedMemory(name=daddress)
             alldms = np.ndarray(dshape, dtype=ddtype, buffer=dexist.buf)
-            domdms = uri.domain_slice(alldms, cdomain, cpulist_dm, bound_dm)
+            domdms = uri.domain_slice(alldms, cdomain, bound_dm, cpulist_all=cpulist_dm)
             ddist = np.sqrt( (domdms['x']-cx)**2 + (domdms['y']-cy)**2 + (domdms['z']-cz)**2 )
             dmask = ddist <= halo['r']
             dms = domdms[dmask]; ddist = ddist[dmask]
@@ -331,7 +331,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
                 cx=halo['x']; cy=halo['y']; cz=halo['z']
                 sexist = shared_memory.SharedMemory(name=saddress)
                 allstars = np.ndarray(sshape, dtype=sdtype, buffer=sexist.buf)
-                domstars = uri.domain_slice(allstars, cdomain, cpulist_star, bound_star)
+                domstars = uri.domain_slice(allstars, cdomain, bound_star, cpulist_all=cpulist_star)
                 sdist = np.sqrt( (domstars['x']-cx)**2 + (domstars['y']-cy)**2 + (domstars['z']-cz)**2 )
                 smask = sdist <= halo['r']
                 stars = domstars[smask]; sdist = sdist[smask]
