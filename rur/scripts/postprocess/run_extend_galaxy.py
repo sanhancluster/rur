@@ -452,7 +452,7 @@ def _verify(i, halo, shape, address, dtype, sparams, sunits, cell_memory, cdomai
     cshape, caddress, cdtype, cpulist_cell, bound_cell = cell_memory
     cexist = shared_memory.SharedMemory(name=caddress)
     allcells = np.ndarray(cshape, dtype=cdtype, buffer=cexist.buf)
-    cells = uri.domain_slice(allcells, cdomain, cpulist_cell, bound_cell)
+    cells = uri.domain_slice(allcells, cdomain, bound_cell, cpulist_all=cpulist_cell)
     cdist = np.sqrt( (cells['x']-cx)**2 + (cells['y']-cy)**2 + (cells['z']-cz)**2 )
     rmask = cdist <= halo['r']
     if(np.sum(rmask) < 8):

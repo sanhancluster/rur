@@ -760,7 +760,7 @@ def main(args):
     version = '1.1'
 
     n_chunk = args.n_chunk # 8000
-    size_load = 160
+    size_load = args.sizeload
 
     iout_list = None #[30]#[10, 30, 620, 670]
     if iout_list is None:
@@ -799,6 +799,7 @@ if __name__ == '__main__':
     parser.add_argument("--compression", "-c", help='Compression type for HDF5 datasets', type=str, default='lzf')
     parser.add_argument("--n_chunk", "-N", help='Number of chunks to divide the data into', type=int, default=8000)
     parser.add_argument("--nthread", "-n", help='Number of threads to use for processing', type=int, default=8)
+    parser.add_argument("--sizeload", "-S", help='Size of data chunks to load into memory', type=int, default=160)
     parser.add_argument("--sep", "-s", help='Separation for iouts', type=int, default=-1, required=False)
     parser.add_argument("--dsep", "-d", help='Denominator of separations', type=int, default=2, required=False)
     parser.add_argument("--export", "-e", help='Which for export (c and/or p)', type=str, required=False, default='cp')
