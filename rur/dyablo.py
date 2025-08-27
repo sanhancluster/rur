@@ -9,9 +9,10 @@ def get_amr(data):
 
     # coordinates are always in 3-dim
     coordinates = np.array(data['coordinates'])
+    domain_length_max = np.max(np.max(coordinates, axis=0) - np.min(coordinates, axis=0))
     vertices = np.reshape(coordinates[connectivity], newshape=(-1, n_vertices, 3))
     centers = np.mean(vertices, axis=1)
-    levels = -np.log2((vertices[:, 1, 0] - vertices[:, 0, 0])).astype(int)
+    levels = np.round(-np.log2((vertices[:, 1, 0] - vertices[:, 0, 0]) / domain_length_max)).astype(int)
     return centers, levels
 
 
