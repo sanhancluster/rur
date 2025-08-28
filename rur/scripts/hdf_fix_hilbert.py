@@ -60,6 +60,7 @@ def main():
         'compression': 'lzf',
         'shuffle': True,
         'fletcher32': True,
+        'chunks': True,
     }
     reset_hilbert_keys(dataset_kw=dataset_kw)
 

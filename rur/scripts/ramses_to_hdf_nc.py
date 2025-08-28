@@ -616,6 +616,7 @@ def main():
         'compression': 'lzf',
         'shuffle': True,
         'fletcher32': True,
+        'chunks': True,
     }
 
     # receive the snapshot from the simulation repository
