@@ -63,7 +63,7 @@ timer = Timestamp()
 def export_part(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load:int=60, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0'):
     ts = repo
     if iout_list is None:
-        iout_list = ts.read_iout_avail()
+        iout_list = ts.read_iout_avail()['iout']
     
     for iout in tqdm(iout_list, desc=f"Exporting particle data", disable=True):
         timer.message(f"Starting particle data extraction for iout = {iout}.", name='part_hdf')
@@ -232,7 +232,7 @@ def compute_key_boundaries(key_array: np.ndarray, n_key: int) -> np.ndarray:
 def export_cell(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load:int=60, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0'):
     ts = repo
     if iout_list is None:
-        iout_list = ts.read_iout_avail()
+        iout_list = ts.read_iout_avail()['iout']
     
     for iout in tqdm(iout_list, desc=f"Exporting cell data", disable=True):
         timer.message(f"Starting cell data extraction for iout = {iout}.", name='cell_hdf')
@@ -344,7 +344,7 @@ def get_new_cell(snap:uri.RamsesSnapshot, cpu_list, size_load, read_branch=False
             sl = slice(*bound)
             cell_sl = cell_data[sl]
             sl_coo = np.array([cell_sl['x'], cell_sl['y'], cell_sl['z']]).T
-            hilbert_key = get_hilbert_key(sl_coo, snap.levelmax)
+            hilbert_key = get_hilbert_key(sl_coo, snap.levelmax, cell_data['level'])
             sort_key = np.argsort(hilbert_key)
             cell_data[sl] = cell_data[sl][sort_key]
 
