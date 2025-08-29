@@ -156,7 +156,7 @@ class Timestamp:
             time = self.elapsed()
             time_string = get_time_string(time, add_units=True)
             recorded_time = self.elapsed(name)
-            recorded_time_string = self.get_time_string(recorded_time, add_units=True)
+            recorded_time_string = get_time_string(recorded_time, add_units=True)
             if message is None:
                 message = "Done."
             print(f"{CYAN}[ {time_string} ]{RESET} {message} -> {GREEN}{recorded_time_string}{RESET}")
