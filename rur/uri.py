@@ -711,12 +711,13 @@ class RamsesSnapshot(object):
     """
 
     def __init__(self, repo, iout, mode='none', box=None, path_in_repo=default_path_in_repo['snapshots'], snap=None,
-                 longint=False, verbose=None, z=None, hdf=False):
+                 longint=False, verbose=None, z=None, hdf=False, simple_boundary=False):
         self.repo = repo
         self.path_in_repo = path_in_repo
         self.snap_path = join(repo, path_in_repo)
         self.verbose = timer.verbose if verbose is None else verbose
         self.hdf = hdf
+        self.simple_boundary = simple_boundary
 
         if z is not None:
             path = join(self.repo, 'list_iout_avail.txt')
@@ -1171,6 +1172,8 @@ class RamsesSnapshot(object):
                     with FortranFile(amr_filename) as file:
                         for _ in range(25):
                             file.read_record('b')
+                        if self.simple_boundary:
+                            for _ in range(3): file.read_record('b')
                         bounds = file.read_record(dtype='b')
                     if (bounds.size == 16 * (params['ncpu'] + 1)):
                         # quad case
