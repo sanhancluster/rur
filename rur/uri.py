@@ -12,7 +12,7 @@ from scipy.spatial import cKDTree as KDTree
 from numpy.lib.recfunctions import append_fields
 
 from rur.fortranfile import FortranFile
-from rur.hilbert3d import hilbert3d
+# from rur.hilbert3d import hilbert3d
 from rur.readr import readr
 from rur.io_ramses import io_ramses
 from rur.config import *
@@ -2632,18 +2632,26 @@ class RamsesSnapshot(object):
             return cell
 
     def get_sink(self, box=None, all=False):
-        if (all):
+        if self.hdf:
+            if all:
+                box = self.default_box
+            self.box_sink = box
+            self.box = box
+            sink = self.get_part(box=self.box_sink, pname='sink') # not saving as local parameter to save memory
+            return sink
+        if all:
             self.box_sink = self.default_box
             self.read_sink()
-            self.sink = Particle(self.sink_data, self)
-            return self.sink
-        if (box is not None):
+            sink = Particle(self.sink_data, self)
+            self.sink = sink
+            return sink
+        if box is not None:
             # if box is not specified, use self.box by default
             self.box = box
-        if (self.box is None or not np.array_equal(self.box, self.box_sink)):
+        if self.box_sink is None or not np.array_equal(self.box, self.box_sink):
             self.read_sink()
             sink = self.sink_data
-            if (self.box is not None):
+            if self.box is not None:
                 mask = box_mask(get_vector(sink), self.box)
                 timer.start('Masking sinks... %d / %d (%.4f)' % (np.sum(mask), mask.size, np.sum(mask) / mask.size), 1)
                 sink = sink[mask]
@@ -3530,7 +3538,8 @@ def get_cpulist(box_unit, binlvl, maxlvl, bound_key, ndim, n_divide, ncpu=None):
         print("N. of Blocks:", bin_list.shape[0])
 
     # compute hilbert key of all bins
-    keys = hilbert3d(*(bin_list.T), binlvl, bin_list.shape[0])
+    npoints = bin_list.shape[0]
+    keys = hilbert3d_py(bin_list, binlvl)
     keys = np.array(keys)
     key_range = np.stack([keys, keys + 1], axis=-1)
     key_range = key_range.astype('float128')
@@ -3578,7 +3587,8 @@ def get_hilbert_indices(box, bound_key, level_key, level_bin=None, n_divide=3, n
     bin_list = utool.cartesian(*[np.arange(bbox[i, 0], bbox[i, 1]) for i in range(ndim)])
 
     # compute hilbert key of all bins
-    keys = hilbert3d(*(bin_list.T), level_bin, bin_list.shape[0])
+    npoints = bin_list.shape[0]
+    keys = hilbert3d_py(bin_list, level_bin)
     keys = np.array(keys)
     key_range = np.stack([*merge_segments(keys, keys + 1)], axis=-1)
     key_range = key_range.astype('float128')
@@ -3641,14 +3651,7 @@ def domain_slice(array, cpulist, bound, cpulist_all=None, cpulist_end=None, targ
             new_dtype = [(name, array.dtype[name]) for name in target_fields]
 
         out = np.empty(np.sum(segs), dtype=new_dtype)  # same performance with np.concatenate
-        now = 0
-        for dom, seg in zip(doms, segs):
-            if target_fields is not None:
-                for name in target_fields:
-                    out[now:now + seg][name] = array[dom[0]:dom[1]][name]
-            else:
-                out[now:now + seg] = array[dom[0]:dom[1]]
-            now += seg
+        copy_fields(array, out, target_fields, doms, segs)
 
         return out
     else:
@@ -3685,19 +3688,8 @@ def domain_slice(array, cpulist, bound, cpulist_all=None, cpulist_end=None, targ
                 pbar = tqdm(total=len(segs), desc=f"Domain slicing")
                 def update(*a): pbar.update(1)
             # -----------------------------------
-            now = 0
-            for dom, seg in zip(doms, segs):
-                # -----------------------------------
-                # SY Update: Convert h5py.Dataset to ndarray (more efficient)
-                iarr = array[dom[0]:dom[1]]
-                if target_fields is not None:
-                    for name in target_fields:
-                        out[now:now + seg][name] = iarr[name]
-                else:
-                    out[now:now + seg] = iarr
-                # -----------------------------------
-                now += seg
-                update()
+            copy_fields(array, out, target_fields, doms, segs, update=update)
+
         # -----------------------------------
         # SY Update: Multi-threaded domain slicing
         else:
@@ -3765,12 +3757,40 @@ def _domain_slice_worker(shape, dtype, address, cursor, hdf_path, hdf_group, dom
         array = grp['data']
         iarr = array[dom[0]:dom[1]]
         if target_fields is not None:
-            for name in target_fields:
-                pointer[name] = iarr[name]
+            copy_fields(iarr, pointer, target_fields)
+            #for name in target_fields:
+            #    pointer[name] = iarr[name]
         else:
             pointer[:] = iarr
     exist.close()
 # -----------------------------------
+
+def copy_fields(array, out, target_fields, domains=None, segments=None, update=None):
+    offsets = np.asarray([array.dtype.fields[name][1] for name in target_fields])
+    sizes = np.asarray([array.dtype.fields[name][0].itemsize for name in target_fields])
+    starts, ends = merge_segments(offsets, offsets + sizes)
+    out_bytes = get_bytes_data(out)
+    if domains is None:
+        array_bytes = get_bytes_data(array[:])
+        now_field = 0
+        for start, end in zip(starts, ends):
+            seg_field = end - start
+            out_bytes[:, now_field:now_field+seg_field] = array_bytes[:, start:end]
+            now_field += seg_field
+    else:
+        now = 0
+        for dom, seg in zip(domains, segments):
+            now_field = 0
+            array_chunk = get_bytes_data(array[dom[0]:dom[1]])
+            out_chunk = out_bytes[now:now+seg]
+            for start, end in zip(starts, ends):
+                seg_field = end - start
+                out_chunk[:, now_field:now_field+seg_field] = array_chunk[:, start:end]
+                now_field += seg_field
+            now += seg
+            if update is not None:
+                update()
+
 
 def merge_segments(starts, ends):
     if starts.size == 0:
@@ -4020,6 +4040,7 @@ def part_density(part, reso, mode='m'):
 
 
 def get_bytes_data(array):
+    # works as non-copy view of structured array if array is contiguous
     barr = array.view('b').reshape((array.size, array.itemsize))
     return barr
 

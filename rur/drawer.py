@@ -1101,7 +1101,7 @@ def dark_cmap(color):
 def grid_projection(centers, levels=None, quantities=None, weights=None, shape=None, lims=None,
                     mode='sum', plot_method='hist', projector_kwargs={}, projection=['x', 'y'],
                     interp_order=0, crop_mode='subpixel', output_dtype=np.float64, padding=0,
-                    type='particle'):
+                    type='particle', lims_domain=None):
     """
     Generate a 2D projection plot of a quantity using particle or AMR data.
 
@@ -1169,8 +1169,15 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
     levelmin, levelmax = None, None
     # if lims is None, set all limits to [0, 1]
     if lims is None:
-        lims = [[0, 1],] * ndim
-    lims = np.array(lims)
+        if lims_domain is None:
+            lims = [[0, 1],] * ndim
+        else:
+            lims = lims_domain
+    lims = np.asarray(lims)
+    if lims_domain is None:
+        lims_domain = np.array([[0, 1],] * ndim)
+        lims_domain = np.stack([np.minimum(lims[:, 0], lims_domain[:, 0]), np.maximum(lims[:, 1], lims_domain[:, 1])], axis=-1)
+    lims_domain = np.asarray(lims_domain)
     # if quantities is None, set all quantities to 1
     if quantities is None:
         quantities = np.ones(centers.shape[0])
@@ -1194,12 +1201,16 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
     elif type in ['amr', 'cell', 'grid']:
         type = 'amr'
 
-    dim_keys = np.array(['x', 'y', 'z'][:ndim])
-    proj = [np.arange(ndim)[dim_keys==p][0] for p in projection]
+    proj = get_projection_index(projection, ndim=ndim)
     
     # get the z-axis that is not in the projection
     proj_z = np.setdiff1d(np.arange(ndim), proj)[0]
-    lims_2d = np.array([lims[proj[0]], lims[proj[1]]])
+    lims_2d = lims[proj]
+    domain_shape = np.array(lims_domain)[:, 1] - np.array(lims_domain)[:, 0]
+    domain_length_max = np.max(domain_shape)
+    lims_domain_2d = lims_domain[proj]
+    scope = (lims - lims_domain[:, 0, np.newaxis]) / domain_length_max
+    scope_2d = scope[proj]
 
     if mode in ['sum', 'mean']:
         fill_value = 0
@@ -1207,6 +1218,31 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
         fill_value = np.inf
     elif mode in ['max']:
         fill_value = -np.inf
+    
+    if type == 'part':
+        if shape is None:
+            shape = (100, 100)
+    elif type == 'amr':
+        if levels is None:
+            raise ValueError("Levels must be provided for AMR data.")
+        if centers.shape[0] != len(levels):
+            raise ValueError("The number of centers and levels do not match.")
+        levelmin, levelmax = np.min(levels), np.max(levels)
+        levelmin_draw = levelmin
+
+        if shape is None:
+            # if shape is not specified, draw with the full resolution
+            levelmax_draw = levelmax
+            dx_min = 2. ** -levelmax_draw
+            shape = (scope_2d[0, 1] - scope_2d[0, 0]) // dx_min, (scope_2d[1, 1] - scope_2d[1, 0]) // dx_min
+            if np.prod(shape) >= 1E8:
+                warnings.warn("The shape of the grid is too large: {shape}, it may cause memory issues.")
+        else:
+            # get the levels of the grid to draw the desired resolution
+            dx_min = np.minimum((scope_2d[0, 1] - scope_2d[0, 0]) / shape[0], (scope_2d[1, 1] - scope_2d[1, 0]) / shape[1])
+            levelmax_draw = np.minimum(np.ceil(-np.log2(dx_min)).astype(int), levelmax)
+    else:
+        raise ValueError("Unknown type: %s. Supported types are 'part' and 'amr'." % type)
 
     pixel_size = (lims_2d[:, 1] - lims_2d[:, 0]) / np.array(shape)
     if padding != 0:
@@ -1216,46 +1252,25 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
         padding_size = 0.
 
     if type == 'part':
-        if shape is None:
-            shape = (100, 100)
         # get mask that indicates particles to draw
         mask_draw = box_mask(centers, lims, size=padding_size)
         shape_grid = shape
 
     elif type == 'amr':
-        if levels is None:
-            raise ValueError("Levels must be provided for AMR data.")
-        if centers.shape[0] != len(levels):
-            raise ValueError("The number of centers and levels do not match.")
-        levelmin, levelmax = np.min(levels), np.max(levels)
-
-        if shape is not None:
-            # get the levels of the grid to draw the desired resolution
-            dx_min = np.minimum((lims_2d[0, 1] - lims_2d[0, 0]) / shape[0], (lims_2d[1, 1] - lims_2d[1, 0]) / shape[1])
-            levelmax_draw = np.minimum(np.ceil(-np.log2(dx_min)).astype(int), levelmax)
-        else:
-            # if shape is not specified, draw with the full resolution
-            levelmax_draw = levelmax
-            dx_min = 2. ** -levelmax_draw
-            shape = (lims_2d[0, 1] - lims_2d[0, 0]) // dx_min, (lims_2d[1, 1] - lims_2d[1, 0]) // dx_min
-            if np.prod(shape) >= 1E8:
-                warnings.warn("The shape of the grid is too large: {shape}, it may cause memory issues.")
-        levelmin_draw = levelmin
-
         # get the smallest levelmin grid space that covers the whole region
-        i_lims_levelmin = lims_2d * 2**levelmin_draw
+        i_lims_levelmin = scope_2d * 2**levelmin_draw
         i_lims_levelmin[:, 0] = np.floor(i_lims_levelmin[:, 0])
         i_lims_levelmin[:, 1] = np.ceil(i_lims_levelmin[:, 1])
         i_lims_levelmin = i_lims_levelmin.astype(int)
 
         shape_grid = tuple(i_lims_levelmin[:, 1] - i_lims_levelmin[:, 0])
-        lims_2d_draw = i_lims_levelmin / 2**levelmin_draw
+        lims_2d_draw = (i_lims_levelmin / 2**levelmin_draw) * domain_length_max + lims_domain_2d[:, 0, np.newaxis]
 
-        # get mask that indicates cells to draw
-        mask_draw = box_mask(centers, lims, size=(0.5**levels)[..., np.newaxis]+padding_size)
+        assert levels is not None
+        # get mask to draw the particles that are within the limits of the current drawing scope
+        # apply padding to the limits
+        mask_draw = box_mask(centers, lims, size=(0.5**levels * domain_length_max)[..., np.newaxis]+padding_size)
         ll = levels[mask_draw]
-    else:
-        raise ValueError("Unknown type: %s. Supported types are 'part' and 'amr'." % type)
 
     # initialize grid and grid_weight
     grid = np.full(shape_grid, fill_value, dtype=output_dtype)
@@ -1327,7 +1342,7 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
     return grid.T
 
 def part_projection(centers, quantities=None, weights=None, shape=100, lims=None,
-                    mode='sum', plot_method='hist', projection=['x', 'y'], output_dtype=np.float64, padding=0):
+                    mode='sum', plot_method='hist', projection=['x', 'y'], output_dtype=np.float64, padding=0, lims_domain=None):
     """
     Generate a 2D projection plot of a quantity using particle data.
 
@@ -1357,10 +1372,10 @@ def part_projection(centers, quantities=None, weights=None, shape=100, lims=None
     grid : np.ndarray
         2D array representing the projected quantity.
     """
-    return grid_projection(centers=centers, levels=None, quantities=quantities, weights=weights, shape=shape, lims=lims, mode=mode, plot_method=plot_method, projection=projection, output_dtype=output_dtype, padding=padding, type='particle')
+    return grid_projection(centers=centers, levels=None, quantities=quantities, weights=weights, shape=shape, lims=lims, mode=mode, plot_method=plot_method, projection=projection, output_dtype=output_dtype, padding=padding, type='particle', lims_domain=lims_domain)
 
 def amr_projection(centers, levels, quantities=None, weights=None, shape=None, lims=None,
-                   mode='sum', plot_method='hist', projection=['x', 'y'], interp_order=0, output_dtype=np.float64, padding=0, crop_mode='subpixel'):
+                   mode='sum', plot_method='hist', projection=['x', 'y'], interp_order=0, output_dtype=np.float64, padding=0, crop_mode='subpixel', lims_domain=None):
     """
     Generate a 2D projection plot of a quantity using Adaptive Mesh Refinement (AMR) data.
 
@@ -1392,7 +1407,7 @@ def amr_projection(centers, levels, quantities=None, weights=None, shape=None, l
     grid : np.ndarray
         2D array representing the projected quantity.
     """
-    return grid_projection(centers=centers, levels=levels, quantities=quantities, weights=weights, shape=shape, lims=lims, mode=mode, plot_method=plot_method, projection=projection, interp_order=interp_order, crop_mode=crop_mode, output_dtype=output_dtype, padding=padding, type='amr')
+    return grid_projection(centers=centers, levels=levels, quantities=quantities, weights=weights, shape=shape, lims=lims, mode=mode, plot_method=plot_method, projection=projection, interp_order=interp_order, crop_mode=crop_mode, output_dtype=output_dtype, padding=padding, type='amr', lims_domain=lims_domain)
 
 
 def crop(img, range, output_shape=None, subpixel=True, padding=0, **kwargs):
@@ -1401,34 +1416,53 @@ def crop(img, range, output_shape=None, subpixel=True, padding=0, **kwargs):
     """
     range = np.array(range)
     shape = np.array(img.shape)
-    idx_true = shape[:, np.newaxis] * range
-    idx_true += np.asarray([-padding, padding])
+    idx_range = shape[:, np.newaxis] * range + np.asarray([-padding, padding])
+    idx_range = np.clip(idx_range, 0, shape[:, np.newaxis])
+    crop_shape = idx_range[:, 1] - idx_range[:, 0]
+
+    if output_shape is None:
+        output_shape = np.round(crop_shape).astype(int)
+    else:
+        output_shape = np.array(output_shape) + 2 * padding
+
     if not subpixel:
-        idx_int = np.array(np.round(idx_true), dtype=int)
+        idx_range_int = np.array(np.round(idx_range), dtype=int)
         #idxs = np.array([np.round(shape[0] * range[0] - 0.5), np.round(shape[1] * range[1] - 0.5)], dtype=int)
-        img = img[idx_int[0, 0]:idx_int[0, 1], idx_int[1, 0]:idx_int[1, 1]]
+        img = img[idx_range_int[0, 0]:idx_range_int[0, 1], idx_range_int[1, 0]:idx_range_int[1, 1]]
         if output_shape is not None:
             img = resize(img, output_shape, **kwargs)
-    else:
-        # subpixel crop using pixel interpolation
-        # only works for square image and ranges
-        true_shape = idx_true[:, 1] - idx_true[:, 0]
+    else:        
+        def _inverse_map(coords):
+            return (coords + 0.5) * crop_shape / output_shape - 0.5 + idx_range[:, 0]
 
-        if output_shape is None:
-            output_shape = np.round(true_shape).astype(int)
-        else:
-            output_shape = np.array(output_shape)
-        output_shape = output_shape + 2 * padding
-
-        scale = true_shape / output_shape
-
-        tform1 = EuclideanTransform(translation=idx_true[:, 0] - 0.5)
-        tform2 = AffineTransform(scale=scale)
-        # need to trnspose the image to apply the transformation correctly
-        img = warp(img.T, tform2+tform1, output_shape=output_shape[::-1], **kwargs).T
+        img = warp(img, inverse_map=_inverse_map, output_shape=output_shape, mode='edge', preserve_range=True, **kwargs)
+    if padding > 0:
         img = img[padding:-padding, padding:-padding]
 
     return img
+
+def get_projection_index(projection=['x', 'y'], ndim=3, dim_keys=None):
+    """
+    Get the projection index for the given projection axes.
+    
+    Parameters:
+    -----------
+    projection : list of str
+        Axes to project onto. Default is ['x', 'y'].
+    ndim : int, optional
+        Number of dimensions. Default is 3.
+    dim_keys : np.ndarray, optional
+        Array of name for each axes. Default is ['x', 'y', 'z'].
+
+    Returns:
+    --------
+    proj : list of int
+        List of indices corresponding to the projection axes.
+    """
+    if dim_keys is None:
+        dim_keys = np.array(['x', 'y', 'z'][:ndim])
+    proj = [np.arange(ndim)[dim_keys==p][0] for p in projection]
+    return proj
 
 class ccm:
     # write custom colormaps here

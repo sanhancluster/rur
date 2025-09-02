@@ -1313,7 +1313,7 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
                 star = star[star['age', 'Gyr'] < age_cut]
             im = draw_partmap(star, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
                               unit='Msol/pc2')
-            colorbar_label = 'Stellar density\nM$_{\odot}$ pc$^{-2}$'
+            colorbar_label = 'Stellar density\nM$_{\\odot}$ pc$^{-2}$'
             mode_label = 'Stars'
         elif mode_now == 'phot':
             star = part['star']
@@ -1344,12 +1344,12 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
             im = draw_partmap(dm, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, crho=True, method=part_method,
                               unit='Msol/pc2')
             mode_label = 'DM'
-            colorbar_label = 'DM density [M$_{\odot}$ pc$^{-2}$]'
+            colorbar_label = 'DM density [M$_{\\odot}$ pc$^{-2}$]'
         elif mode_now == 'gas' or mode_now == 'rho':
             im = draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='crho', cmap=ccm.hesperia,
                              interp_order=interp_order, unit='Msol/pc2', method=cell_method)
             mode_label = 'Gas - Density'
-            colorbar_label = 'Gas density [M$_{\odot}$ pc$^{-2}$]'
+            colorbar_label = 'Gas density [M$_{\\odot}$ pc$^{-2}$]'
         elif mode_now == 'temp' or mode_now == 'T':
             im = draw_gasmap(cell, proj=proj_now, shape=shape, qscale=qscale, vmax=vmax, mode='T', cmap=ccm.hesperia,
                              unit='K', method=cell_method)
