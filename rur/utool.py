@@ -1593,13 +1593,18 @@ def hilbert3d_map(pos, bit_length, levels=None, lims=None, check_bounds=True):
     """
     if lims is None:
         lims = np.array([[0, 1],] * pos.shape[-1], dtype=np.float64)
+    
+    if levels is None:
+        levels = bit_length
 
-    if not isinstance(levels, int):
+    if isinstance(levels, Iterable):
         levels = np.asarray(levels, dtype=np.int64)
         bl_max = np.max(levels)
-    else:
+    elif isinstance(levels, int):
         bl_max = levels
-        levels = np.atleast_1d(levels)
+        levels = np.full(pos.shape[0], levels, dtype=np.int64)
+    else:
+        raise ValueError("`levels` should be an integer or an array-like of integers.")
 
     idx = uniform_digitize(pos, lims, 2**bl_max) - 1
     if check_bounds and (np.any(idx < 0) or np.any(idx >= 2**bl_max)):

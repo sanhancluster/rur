@@ -6,6 +6,7 @@ import os
 import time, datetime
 from tqdm import tqdm
 import argparse
+from packaging.version import Version
 
 from rur import uri, utool
 from rur.fortranfile import FortranFile
@@ -86,8 +87,8 @@ def create_hdf5_part(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output
     if os.path.exists(output_file) and not overwrite:
         try:
             with h5py.File(output_file, 'r') as fl:
-                if fl.attrs['version'] != version:
-                    print(f"File {output_file} exists but with different version ({fl.attrs['version']} != {version}). Overwriting.")
+                if Version(fl.attrs['version']) < Version(version):
+                    print(f"File {output_file} exists but with lower version ({fl.attrs['version']} < {version}). Overwriting.")
                 else:
                     # If the file exists and the version matches, skip creation
                     timer.message(f"File {output_file} already exists with matching version. Skipping creation.")
@@ -172,7 +173,7 @@ def get_new_part_dict(snap:uri.RamsesSnapshot, cpu_list, size_load, nthread=8) -
     names = new_part_dict.keys() # update names to only include available data
     idx_array = np.arange(len(cpu_list))[::size_load]
     for idx in idx_array:
-        timer.message(f"Loading particles ({idx} / {len(idx_array)})...")
+        timer.message(f"Loading particles ({idx} / {len(cpu_list)})...")
         cpu_list_sub = cpu_list[idx:np.minimum(idx + size_load, len(cpu_list))]
         if len(cpu_list_sub) == 0:
             continue
@@ -209,7 +210,7 @@ def get_new_part_dict(snap:uri.RamsesSnapshot, cpu_list, size_load, nthread=8) -
                 part = uri.Particle(part_data, snap)[name]
 
             timer.message(f"Exporting {name} data with {part.size} particles..."
-                  f"\nItem size: {part.table.dtype.itemsize} -> {new_part.dtype.itemsize} B ({new_part.dtype.itemsize / part.table.dtype.itemsize * 100:.2f}%)")
+                  f"\nReduced item size: {part.table.dtype.itemsize} -> {new_part.dtype.itemsize} B ({new_part.dtype.itemsize / part.table.dtype.itemsize * 100:.2f}%)")
 
             for field in new_dtypes:
                 new_part_dict[name][pointer_dict[name]:pointer_dict[name] + part.size][field[0]] = part[field[0]]
@@ -245,7 +246,6 @@ def export_cell(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load
         snap.clear()
         timer.record(f"Cell data extraction completed for iout = {snap.iout}.", name='cell_hdf')
 
-
 def create_hdf5_cell(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0', nthread=8):
     """
     Export cell data from the snapshot to HDF5 format.
@@ -261,8 +261,8 @@ def create_hdf5_cell(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output
     if os.path.exists(output_file) and not overwrite:
         try:
             with h5py.File(output_file, 'r') as fl:
-                if fl.attrs['version'] != version:
-                    print(f"File {output_file} exists but with different version ({fl.attrs['version']} != {version}). Overwriting.")
+                if Version(fl.attrs['version']) < Version(version):
+                    print(f"File {output_file} exists but with lower version ({fl.attrs['version']} < {version}). Overwriting.")
                 else:
                     # If the file exists and the version matches, skip creation
                     timer.message(f"File {output_file} already exists with matching version. Skipping creation.")
@@ -335,7 +335,7 @@ def get_new_cell(snap:uri.RamsesSnapshot, cpu_list, size_load, read_branch=False
     # sub-load cell data
     idx_array = np.arange(len(cpu_list))[::size_load]
     for idx in idx_array:
-        timer.message(f"Loading cells ({idx} / {len(idx_array)})...")
+        timer.message(f"Loading cells ({idx} / {len(cpu_list)})...")
         cpu_list_sub = cpu_list[idx:np.minimum(idx + size_load, len(cpu_list))]
         if len(cpu_list_sub) == 0:
             continue
@@ -641,12 +641,10 @@ def main(args):
         f"\n{sim_publication}" \
         f"\nUse RUR library to efficiently handle and analyze the data:" \
         f"\n{rur_repo}"
-    #version = '1.1'
 
     n_chunk = 8000
     size_load = args.load
     nthread = args.nthread
-    timer.use_color = not args.nocolor
 
     #iout_list = np.arange(0, snap.iout, 10)[::-1]
     #iout_list = [repo.get_snap(z=z).iout for z in [1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0, 8.0]][::-1]
@@ -658,6 +656,7 @@ def main(args):
 
 repo_path_default = '/storage7/NewCluster/'
 nthread_default = 8
+load_default = 160
 uri.timer.verbose = 0
 
 if __name__ == '__main__':
@@ -668,18 +667,23 @@ if __name__ == '__main__':
     parser.add_argument("--imax", "-I", help='Maximum output index to process (default: 1)', type=int, default=1)
     parser.add_argument("--version", "-v", help='Version of the output files', type=str, default='1.1')
     parser.add_argument("--overwrite", "-o", help='Overwrite existing output files', action='store_true')
-    parser.add_argument("--load", "-l", help='Number of RAMSES files to load at once', type=int, default=160)
-    parser.add_argument("--nthread", "-t", help='Number of threads to use for loading data', type=int, default=nthread_default)
-    parser.add_argument("--nocolor", "-c", help='Use color on timer', action='store_true')
+    parser.add_argument("--load", "-l", help=f'Number of RAMSES files to load at once (default: {load_default})', type=int, default=load_default)
+    parser.add_argument("--nthread", "-t", help=f'Number of threads to use for loading data (default: {nthread_default})', type=int, default=nthread_default)
+    parser.add_argument("--nocolor", "-c", help='Disable color on output messages', action='store_true')
 
     args = parser.parse_args()
-    print()
-    print()
-    print(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print('-----------------------------------------------')
+    print(f"RAMSES to HDF5 for NC: Script started at {now}")
     print(f"Input arguments: {args}")
-    print()
-    print()
+    print('-----------------------------------------------')
+    timer.use_color = not args.nocolor
 
     timer.start("Starting data export...", name='main')
     main(args)
     timer.record("Script completed successfully.", name='main')
+
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print('-----------------------------------------------')
+    print(f"RAMSES to HDF5 for NC: Script completed at {now}")
+    print('-----------------------------------------------')
