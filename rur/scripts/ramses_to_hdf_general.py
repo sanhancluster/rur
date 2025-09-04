@@ -12,9 +12,13 @@ from rur import sim as simlist
 from rur.fortranfile import FortranFile
 from rur.scripts.san import simulations as sim
 from rur.utool import hilbert3d_map
+from rur.config import Timestamp
 # from rur.hilbert3d import hilbert3d
 import signal
 from multiprocessing import Pool
+
+
+from rur.scripts.ramses_to_hdf_nc import get_chunk_boundaries, add_basic_attrs, add_attr_with_descr, write_dataset, add_group, set_hilbert_boundaries, set_level_boundaries, assert_sorted, get_hilbert_key
 
 
 converted_dtypes = {
@@ -61,79 +65,6 @@ converted_dtype_cell = [
     ('d1', 'f4'), ('d2', 'f4'), ('d3', 'f4'), ('d4', 'f4'),
     ('refmask', 'f4'), ('sigma', 'f4'), ('pot', 'f4'), ('cpu', 'i2')]
 
-CYAN = "\033[36m"
-GREEN = "\033[33m"
-RESET = "\033[0m"
-class Timestamp:
-    """
-    A class to export time that took to execute the script.
-    """
-
-    def __init__(self):
-        self.t0 = time.time()
-        self.stamps = {}
-        self.stamps['start'] = self.t0
-        self.verbose = 1
-
-    def elapsed(self, name=None):
-        if name is None:
-            name = 'start'
-        t = self.stamps[name]
-        return time.time() - t
-
-    def start(self, name=None):
-        if name is None:
-            name = 'last'
-        self.stamps[name] = time.time()
-
-    def message(self, msg, name=None, verbose=1):
-        self.start(name)
-        if verbose <= self.verbose:
-            elapsed_time = self.elapsed()
-            time_string = self.get_time_string(elapsed_time)
-            print(f"{CYAN}[ {time_string} ]{RESET} {msg}")
-
-    def record(self, msg=None, name=None, verbose=1):
-        if name is None:
-            name = 'last'
-        if verbose <= self.verbose:
-            elapsed_time = self.elapsed()
-            time_string = self.get_time_string(elapsed_time)
-            recorded_time = self.elapsed(name)
-            recorded_time_string = self.get_time_string(recorded_time, add_units=True)
-            if msg is None:
-                msg = "Done."
-            print(f"{CYAN}[ {time_string} ]{RESET} {msg} -> {GREEN}{recorded_time_string}{RESET}")
-        self.stamps.pop(name)
-
-    def get_time_string(self, elapsed_time, add_units=False):
-        """
-        Convert elapsed time in seconds to a formatted string.
-        """
-        time_format = "%H:%M:%S"
-        if elapsed_time < 60:
-            if add_units:
-                return f"{elapsed_time:.2f}s"
-            else:
-                return "%S"
-        elif elapsed_time < 3600:
-            if add_units:
-                time_format = "%Mm %Ss"
-            else:
-                time_format = "%M:%S"
-        elif elapsed_time < 86400:
-            if add_units:
-                time_format = "%Hh %Mm %Ss"
-            else:
-                time_format = "%H:%M:%S"
-        else:
-            elapsed_day = elapsed_time // 86400  # Convert to days
-            if add_units:
-                time_format = f"{elapsed_day}d %Hh %Mm %Ss"
-            else:
-                time_format = f"{elapsed_day} %H:%M:%S"
-        return time.strftime(time_format, time.gmtime(elapsed_time))
-
 timer = Timestamp()
 
 def export_part(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load:int=60, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0', nthread:int=8):
@@ -142,7 +73,7 @@ def export_part(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load
         iout_list = ts.read_iout_avail()['iout']
     
     for iout in tqdm(iout_list, desc=f"Exporting particle data", disable=True):
-        timer.message(f"Starting particle data extraction for iout = {iout}.", name='part_hdf')
+        timer.start(f"Starting particle data extraction for iout = {iout}.", name='part_hdf')
         snap = ts[iout]
 
         create_hdf5_part(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite, sim_description=sim_description, version=version, nthread=nthread)
@@ -197,7 +128,6 @@ def create_hdf5_part(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output
         "\n'level_boundary': Level boundary indices for each level within chunks." \
         "\n" + sim_description
         fl.attrs['created'] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        fl.attrs['attributes'] = "This file include following attributes:"
         add_basic_attrs(fl, snap)
         add_attr_with_descr(fl, 'cpulist', cpu_list, 'List of CPU indices used for this snapshot.')
 
@@ -211,55 +141,13 @@ def create_hdf5_part(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output
             if new_part.size == 0:
                 print(f"No particles of type {name} found in iout = {snap.iout}. Skipping export.")
                 continue
-            timer.message("Measuring Hilbert key for %s data..." % name)
-            coordinates = np.array([new_part['x'], new_part['y'], new_part['z']]).T
-            hilbert_key = get_hilbert_key(coordinates, snap.levelmax)
 
-            if new_part.size > 1E8:
-                timer.message(f"Sorting {name} data with {new_part.size} particles...")
-            sort_key = np.argsort(hilbert_key)
-            hilbert_key = hilbert_key[sort_key]
-            new_part = new_part[sort_key]
-            assert_sorted(hilbert_key)
-
-            timer.message("Getting chunk boundaries...")
-            chunk_boundary = get_chunk_boundaries(hilbert_key, n_chunk)
-            assert_sorted(chunk_boundary)
-
-            hilbert_key_max = 2**(3 * snap.levelmax)
-            safe_mask = chunk_boundary < hilbert_key.size
-
-            # generate hilbery key for each chunk boundary
-            hilbert_boundary = np.empty(n_chunk+1, dtype=hilbert_key.dtype)
-            hilbert_boundary[safe_mask] = hilbert_key[chunk_boundary[safe_mask]]
-            hilbert_boundary[0] = 0
-            hilbert_boundary[~safe_mask] = hilbert_key_max
-            assert_sorted(hilbert_boundary)
-
-            grp = fl.create_group(name)
-            grp.attrs['name'] = name
-            grp.attrs['size'] = new_part.size
-
-            grp.attrs['n_level'] = n_level
-            grp.attrs['n_chunk'] = n_chunk
-            grp.attrs['levelmax'] = snap.levelmax
-            grp.attrs['levelmin'] = snap.levelmin
+            # Add particle data to HDF5 file
+            add_group(fl, name, new_part,
+                      levelmin=snap.levelmin, levelmax=snap.levelmax,
+                      n_chunk=n_chunk, n_level=n_level, part=True, dataset_kw=dataset_kw)
 
             n_part_tot += new_part.size
-
-            # grp.create_dataset('hilbert_boundary', data=hilbert_boundary, **dataset_kw)
-            dset = grp.create_dataset('hilbert_boundary', shape=hilbert_boundary.shape, dtype=hilbert_boundary.dtype, **dataset_kw)
-            dset.write_direct(hilbert_boundary)
-            # grp.create_dataset('chunk_boundary', data=chunk_boundary, **dataset_kw)
-            dset = grp.create_dataset('chunk_boundary', shape=chunk_boundary.shape, dtype=chunk_boundary.dtype, **dataset_kw)
-            dset.write_direct(chunk_boundary)
-            if 'level' in new_part.dtype.names:
-                level_boundary = set_level_boundaries(new_part, chunk_boundary, n_chunk, n_level)
-                grp.create_dataset('level_boundary', data=level_boundary, **dataset_kw)
-            timer.message(f"Exporting {name} data with {new_part.size} particles...")
-            # grp.create_dataset('data', data=new_part, **dataset_kw)
-            dset = grp.create_dataset('data', shape=new_part.shape, dtype=new_part.dtype, **dataset_kw)
-            dset.write_direct(new_part)
         
         add_attr_with_descr(fl, 'size', n_part_tot, 'Total number of particles in the snapshot.')
         add_attr_with_descr(fl, 'version', version, 'Version of the file.')
@@ -305,7 +193,7 @@ def get_new_part_dict(snap:uri.RamsesSnapshot, cpu_list, size_load, nthread=8) -
             if bound[0] == bound[1]:
                 continue
             sl = slice(*bound)
-            part_sl = snap.part_data[sl]
+            part_sl = part_data[sl]
             sl_coo = np.array([part_sl['x'], part_sl['y'], part_sl['z']]).T
             hilbert_key = get_hilbert_key(sl_coo, snap.levelmax)
             sort_key = np.argsort(hilbert_key)
@@ -353,7 +241,7 @@ def export_cell(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load
         iout_list = ts.read_iout_avail()['iout']
     
     for iout in tqdm(iout_list, desc=f"Exporting cell data", disable=True):
-        timer.message(f"Starting cell data extraction for iout = {iout}.", name='cell_hdf')
+        timer.start(f"Starting cell data extraction for iout = {iout}.", name='cell_hdf')
         snap = ts[iout]
 
         create_hdf5_cell(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite, sim_description=sim_description, version=version, nthread=nthread)
@@ -424,54 +312,12 @@ def create_hdf5_cell(snap:uri.RamsesSnapshot, n_chunk:int, size_load:int, output
             new_cell, pointer = get_new_cell(snap, cpu_list=cpu_list, size_load=size_load, read_branch=read_branch)
             new_cell = new_cell[:pointer]
 
-            timer.message("Measuring Hilbert key for cell data...")
-            coordinates = np.array([new_cell['x'], new_cell['y'], new_cell['z']]).T
-            hilbert_key = get_hilbert_key(coordinates, snap.levelmax)
-            if new_cell.size > 1E8:
-                timer.message(f"Sorting data with {new_cell.size} cells...")
-            sort_key = np.argsort(hilbert_key)
-            hilbert_key = hilbert_key[sort_key]
-            new_cell = new_cell[sort_key]
-            assert_sorted(hilbert_key)
+            # Add cell data to HDF5 file
+            add_group(fl, name, new_cell,
+                      levelmin=snap.levelmin, levelmax=snap.levelmax,
+                      n_chunk=n_chunk, n_level=n_level, part=False, dataset_kw=dataset_kw)
 
-            timer.message("Getting chunk boundaries...")
-            chunk_boundary = get_chunk_boundaries(hilbert_key, n_chunk)
-            assert_sorted(chunk_boundary)
-
-            hilbert_key_max = 2**(3 * snap.levelmax)
-            safe_mask = chunk_boundary < hilbert_key.size
-
-            hilbert_boundary = np.empty(n_chunk+1, dtype=hilbert_key.dtype)
-            hilbert_boundary[safe_mask] = hilbert_key[chunk_boundary[safe_mask]]
-            hilbert_boundary[0] = 0
-            hilbert_boundary[~safe_mask] = hilbert_key_max
-            assert_sorted(hilbert_boundary)
-
-            grp = fl.create_group(name)
-            grp.attrs['name'] = name
-            grp.attrs['size'] = new_cell.size
-
-            grp.attrs['n_level'] = n_level
-            grp.attrs['n_chunk'] = n_chunk
-            grp.attrs['levelmax'] = snap.levelmax
-            grp.attrs['levelmin'] = snap.levelmin
             n_cell_tot += new_cell.size
-
-            # grp.create_dataset('hilbert_boundary', data=hilbert_boundary, **dataset_kw)
-            dset = grp.create_dataset('hilbert_boundary', shape=hilbert_boundary.shape, dtype=hilbert_boundary.dtype, **dataset_kw)
-            dset.write_direct(hilbert_boundary)
-            # grp.create_dataset('chunk_boundary', data=chunk_boundary, **dataset_kw)
-            dset = grp.create_dataset('chunk_boundary', shape=chunk_boundary.shape, dtype=chunk_boundary.dtype, **dataset_kw)
-            dset.write_direct(chunk_boundary)
-
-            if 'level' in new_cell.dtype.names:
-                level_boundary = set_level_boundaries(new_cell, chunk_boundary, n_chunk, n_level)
-                grp.create_dataset('level_boundary', data=level_boundary, **dataset_kw)
-            
-            timer.message(f"Exporting cell data with {new_cell.size} cells...")
-            # grp.create_dataset('data', data=new_cell, **dataset_kw)
-            dset = grp.create_dataset('data', shape=new_cell.shape, dtype=new_cell.dtype, **dataset_kw)
-            dset.write_direct(new_cell)
 
         add_attr_with_descr(fl, 'size', n_cell_tot, 'Total number of cells in the snapshot.')
         add_attr_with_descr(fl, 'version', version, 'Version of the file.')
@@ -523,7 +369,7 @@ def get_new_cell(snap:uri.RamsesSnapshot, cpu_list, size_load, read_branch=False
             sl = slice(*bound)
             cell_sl = cell_data[sl]
             sl_coo = np.array([cell_sl['x'], cell_sl['y'], cell_sl['z']]).T
-            hilbert_key = get_hilbert_key(sl_coo, snap.levelmax)
+            hilbert_key = get_hilbert_key(sl_coo, snap.levelmax, cell_data['level'])
             sort_key = np.argsort(hilbert_key)
             cell_data[sl] = cell_data[sl][sort_key]
 
@@ -598,116 +444,18 @@ def export_snapshots(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size
     for iout in tqdm(iout_list, desc=f"Exporting snapshot data", disable=True):
         # Start exporting cell and particle data for each snapshot
         if 'c' in export:
-            timer.message(f"Starting cell data extraction for iout = {iout}.", name='cell_hdf')
+            timer.start(f"Starting cell data extraction for iout = {iout}.", name='cell_hdf')
             snap = ts[iout]
             create_hdf5_cell(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite, sim_description=sim_description, version=version, nthread=nthread)
             snap.clear()
             timer.record(f"Cell data extraction completed for iout = {snap.iout}.", name='cell_hdf')
 
         if 'p' in export:
-            timer.message(f"Starting particle data extraction for iout = {iout}.", name='part_hdf')
+            timer.start(f"Starting particle data extraction for iout = {iout}.", name='part_hdf')
             snap = ts[iout]
             create_hdf5_part(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite, sim_description=sim_description, version=version, nthread=nthread)
             snap.clear()
             timer.record(f"Particle data extraction completed for iout = {snap.iout}.", name='part_hdf')
-
-def get_hilbert_key(coordinates:np.ndarray, levelmax:int, levels=None) -> np.ndarray:
-    # subdivisions = 2 ** levelmax
-    if levelmax > 21:
-        raise ValueError("Levelmax must be less than or equal to 21 to avoid overflow in Hilbert key calculation.")
-    # idx_list = np.floor(coordinates * subdivisions).astype(int)
-    # npoints = idx_list.shape[0]
-    if levels is None:
-        return hilbert3d_map(coordinates, levelmax).astype(np.float128)
-    else:
-        return hilbert3d_map(coordinates, levelmax, levels=levels).astype(np.float128)
-
-
-def get_chunk_boundaries(hilbert_key:np.ndarray, n_chunk:int) -> np.ndarray:
-    """
-    Get the boundary indices based on the given array of Hilbert key.
-    The Hilbert key must be sorted in ascending order.
-    The boundaries are determined by dividing the Hilbert key into `n_chunk` equal parts.
-    Indices with same Hilbert key are grouped together.
-    """
-    chunk_boundary_exact = np.linspace(0, len(hilbert_key), n_chunk + 1).astype(int)
-    # get hilbert keys for the exact chunk boundaries
-    bound_key = hilbert_key[chunk_boundary_exact[1:-1]]
-    lower_boundary = np.searchsorted(hilbert_key, bound_key, side='left')
-    upper_boundary = np.searchsorted(hilbert_key, bound_key, side='right')
-    # get either left or right boundaries that are closer to the index
-    chunk_boundary = np.select([chunk_boundary_exact[1:-1] - lower_boundary < upper_boundary - chunk_boundary_exact[1:-1], True], [lower_boundary, upper_boundary])
-    chunk_boundary = np.concatenate([[0], chunk_boundary, [len(hilbert_key)]])  # ensure the last boundary is the end of the array
-
-    return chunk_boundary.astype(np.int32)
-
-
-def assert_sorted(arr: np.ndarray):
-    """
-    Assert that the input array is sorted in ascending order.
-    """
-    if not np.all(arr[:-1] <= arr[1:]):
-        raise ValueError("Input array must be sorted in ascending order.")
-    return True
-
-
-def add_basic_attrs(fl: h5py.File, snap: uri.RamsesSnapshot):
-    """
-    Add basic attributes to the HDF5 file.
-    """
-    add_attr_with_descr(fl, 'iout', snap.iout, 'Output index of the snapshot.')
-    add_attr_with_descr(fl, 'icoarse', snap.icoarse, 'Number of coarse time steps of the snapshot.')
-    add_attr_with_descr(fl, 'ncpu', snap.ncpu, 'Number of CPUs used in the simulation.')
-    add_attr_with_descr(fl, 'ndim', snap.ndim, 'Number of dimensions of the simulation.')
-
-    add_attr_with_descr(fl, 'levelmin', snap.levelmin, 'Minimum level of the simulation.')
-    add_attr_with_descr(fl, 'levelmax', snap.levelmax, 'Maximum level of the simulation.')
-    add_attr_with_descr(fl, 'boxlen', snap.boxlen, 'Length of the simulation box.')
-
-    add_attr_with_descr(fl, 'time', snap.time, 'Time of the snapshot.')
-    add_attr_with_descr(fl, 'aexp', snap.aexp, 'Scale factor of the snapshot.')
-    add_attr_with_descr(fl, 'age', snap.age, 'Age of the snapshot in Gyr.')
-    add_attr_with_descr(fl, 'z', snap.z, 'Redshift of the snapshot.')
-
-    add_attr_with_descr(fl, 'omega_m', snap.omega_m, 'Matter density parameter.')
-    add_attr_with_descr(fl, 'omega_l', snap.omega_l, 'Dark energy density parameter.')
-    add_attr_with_descr(fl, 'omega_k', snap.omega_k, 'Curvature density parameter.')
-    add_attr_with_descr(fl, 'omega_b', snap.omega_b, 'Baryon density parameter.')
-    add_attr_with_descr(fl, 'H0', snap.H0, 'Hubble constant at z=0.')
-
-    add_attr_with_descr(fl, 'unit_l', snap.unit_l, 'Unit of length in cm.')
-    add_attr_with_descr(fl, 'unit_d', snap.unit_d, 'Unit of density in g/cm^3.')
-    add_attr_with_descr(fl, 'unit_t', snap.unit_t, 'Unit of time in s.')
-    add_attr_with_descr(fl, 'unit_m', snap.unit_d * snap.unit_l**3, 'Unit of mass in g.')
-    add_attr_with_descr(fl, 'unit_v', snap.unit_l / snap.unit_t, 'Unit of velocity in cm/s.')
-    add_attr_with_descr(fl, 'unit_p', snap.unit_m / snap.unit_l / snap.unit_t**2, 'Unit of pressure in g/(cm*s^2).')
-
-def add_attr_with_descr(fl: h5py.File, key: str, value, description: str):
-    """
-    Add an attribute to the HDF5 file with a description.
-    """
-    fl.attrs[key] = value
-    fl.attrs['attributes'] += f"\n'{key}': {description}"
-
-
-def set_level_boundaries(new_data: np.ndarray, chunk_boundary: np.ndarray, n_chunk: int, n_level: int):
-    """
-    Get the level boundaries for the cell data after sorting by level within each chunk.
-    """
-    for ichunk in range(n_chunk):
-        bound = chunk_boundary[ichunk], chunk_boundary[ichunk + 1]
-        if bound[0] == bound[1]:
-            continue
-        sl = slice(*bound)
-        sort_key = np.argsort(new_data[sl]['level'])
-        new_data[sl] = new_data[sl][sort_key]
-
-    chunk_array = np.repeat(np.arange(n_chunk), chunk_boundary[1:] - chunk_boundary[:-1])
-    key = chunk_array * n_level + (new_data['level'] - 1)
-    assert_sorted(key)
-    level_boundary = compute_key_boundaries(key, n_key=n_chunk * n_level)
-    return level_boundary
-
 
 
 def main(args):
@@ -748,6 +496,8 @@ def main(args):
     dataset_kw = {
         'compression': args.compression,
         'shuffle': True,
+        'fletcher32': True,
+        'chunks': True,
     }
 
     # receive the snapshot from the simulation repository
@@ -818,6 +568,6 @@ if __name__ == '__main__':
     print()
     print()
 
-    timer.message("Starting data export...", name='main')
+    timer.start("Starting data export...", name='main')
     main(args)
     timer.record("Script completed successfully.", name='main')

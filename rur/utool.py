@@ -1594,9 +1594,6 @@ def hilbert3d_map(pos, bit_length, levels=None, lims=None, check_bounds=True):
     if lims is None:
         lims = np.array([[0, 1],] * pos.shape[-1], dtype=np.float64)
 
-    if levels is None:
-        levels = bit_length
-
     if not isinstance(levels, int):
         levels = np.asarray(levels, dtype=np.int64)
         bl_max = np.max(levels)

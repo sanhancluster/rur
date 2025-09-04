@@ -117,12 +117,13 @@ class Timestamp:
     A class to export time that took to execute the script.
     """
 
-    def __init__(self):
+    def __init__(self, use_color=True):
         self.t0 = time.time()
         self.stamps = {}
         self.stamps['start'] = self.t0
         self.stamps['last'] = self.t0
         self.verbose = 1
+        self.use_color = use_color
 
     def elapsed(self, name=None):
         if name is None:
@@ -147,7 +148,10 @@ class Timestamp:
         if verbose_lim <= self.verbose:
             time = self.elapsed()
             time_string = get_time_string(time, add_units=True)
-            print(f"{CYAN}[ {time_string} ]{RESET} {message}")
+            if self.use_color:
+                print(f"{CYAN}[ {time_string} ]{RESET} {message}")
+            else:
+                print(f"[ {time_string} ] {message}")
 
     def record(self, message=None, name=None, verbose_lim=1):
         if name is None:
@@ -159,7 +163,10 @@ class Timestamp:
             recorded_time_string = get_time_string(recorded_time, add_units=True)
             if message is None:
                 message = "Done."
-            print(f"{CYAN}[ {time_string} ]{RESET} {message} -> {GREEN}{recorded_time_string}{RESET}")
+            if self.use_color:
+                print(f"{CYAN}[ {time_string} ]{RESET} {message} -> {GREEN}{recorded_time_string}{RESET}")
+            else:
+                print(f"[ {time_string} ] {message} -> {recorded_time_string}")
         #self.stamps.pop(name)
 
     def measure(self, func, message=None, **kwargs):

@@ -24,11 +24,15 @@ import glob
 import re
 import datetime
 from copy import deepcopy
-from multiprocessing import Pool, shared_memory
+from multiprocessing import Pool, shared_memory, get_context
 import atexit, signal
 from sys import exit
 import configparser
 
+try:
+    mp_ctx = get_context("forkserver")  # good on Linux servers
+except ValueError:
+    mp_ctx = get_context("spawn")       # portable fallbac
 
 class TimeSeries(object):
     """
@@ -1356,7 +1360,7 @@ class RamsesSnapshot(object):
             if (size == 0): return part, None
         else:
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
-            with Pool(processes=nthread) as pool:
+            with mp_ctx.Pool(processes=nthread) as pool:
                 results = pool.starmap(_calc_npart, [(fname, kwargs) for fname in files])
             results = np.asarray(results, dtype=[("mask", object), ("size", int), ("icpu", int)])
             signal.signal(signal.SIGTERM, self.terminate)
@@ -1393,7 +1397,7 @@ class RamsesSnapshot(object):
             else:
                 update = None   
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
-            with Pool(processes=nthread) as pool:
+            with mp_ctx.Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(_read_part, (
                 fname, kwargs, None, mask, size, cursor, self.part_mem.name, part.shape), callback=update) for
                                 fname, mask, size, cursor in zip(files, masks, sizes, cursors)]
@@ -1683,7 +1687,7 @@ class RamsesSnapshot(object):
             if(sizes is None):
                 files = [f"{self.snap_path}/output_{self.iout:05d}/amr_{self.iout:05d}.out{icpu:05d}" for icpu in cpulist]
                 signal.signal(signal.SIGTERM, signal.SIG_DFL)
-                with Pool(processes=nthread) as pool:
+                with mp_ctx.Pool(processes=nthread) as pool:
                     sizes = pool.starmap(_calc_ncell, [(fname, amr_kwargs, read_branch) for fname in files])
                 signal.signal(signal.SIGTERM, self.terminate)
                 sizes = np.asarray(sizes, dtype=np.int32)
@@ -1726,7 +1730,7 @@ class RamsesSnapshot(object):
             else:
                 update = None
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
-            with Pool(processes=nthread) as pool:
+            with mp_ctx.Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(_read_cell, (
                 icpu, snap_kwargs, amr_kwargs, None, size, cursor, self.cell_mem.name, cell.shape, read_branch), callback=update) for
                                 icpu, size, cursor in zip(cpulist, sizes, cursors)]
@@ -2688,7 +2692,7 @@ class RamsesSnapshot(object):
                     cpulist.append(get_cpulist(box, None, self.levelmax, self.bound_key, self.ndim, n_divide,
                                             ncpu=self.params['ncpu']))
             else:
-                with Pool(processes=nthread) as pool:
+                with mp_ctx.Pool(processes=nthread) as pool:
                     async_result = [
                         pool.apply_async(
                             get_cpulist,
@@ -3080,7 +3084,7 @@ def box_mask_table(table, box, snap=None, size=0, exclusive=False, chunksize=500
             update = None
 
         if(snap is not None): signal.signal(signal.SIGTERM, signal.SIG_DFL)
-        with Pool(processes=nthread) as pool:
+        with mp_ctx.Pool(processes=nthread) as pool:
             async_result = []
             if(np.isscalar(rad)): # For part
                 async_result = [pool.apply_async(_mask_table, args=(box_mask.shape, memory.name, table[ith:jth], box, rad, ith, jth), callback=update) for ith,jth in zip(indicies[:-1], indicies[1:])]
@@ -3395,7 +3399,7 @@ def track_tracer(tracer, target_iouts=None, target_fields=['x','y','z','cpu','fa
                 update = None
 
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
-            with Pool(processes=nthread) as pool:
+            with mp_ctx.Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(
                     _track_tracer, (data_shared.shape, snap.tracer_mem.name, dtype, ikey, path, target_iouts, ids, keys, argwhere, chunk, target_fields), callback=update
                     ) for ikey in ikeys]
@@ -3457,7 +3461,7 @@ def cpumap_tracer(tracer, target_iouts=None, extend=False, nthread=4):
         data = np.ndarray(data.shape, dtype='int16', buffer=snap.tracer_mem.buf)
 
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
-        with Pool(processes=nthread) as pool:
+        with mp_ctx.Pool(processes=nthread) as pool:
             async_result = [pool.apply_async(_cpumap_tracer, (data.shape, snap.tracer_mem.name, ikey, path, target_iouts, ids, keys==ikey, where), callback=update) for ikey in range(1000)]
             # iterobj = tqdm(async_result, desc=f"Reading tracer bricks") if (timer.verbose >= 1) else async_result
             iterobj = async_result
@@ -3734,7 +3738,7 @@ def domain_slice(array, cpulist, bound, cpulist_all=None, cpulist_end=None, targ
             cursors = np.cumsum(segs)
             cursors = np.insert(cursors, 0, 0)
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
-            with Pool(processes=nthread) as pool:
+            with mp_ctx.Pool(processes=nthread) as pool:
                 async_result = [pool.apply_async(
                     _domain_slice_worker, (out.shape, new_dtype, shmname, cursors[i], hdf_path, hdf_group, dom, seg, target_fields), callback=update
                 ) for i, (dom, seg) in enumerate(zip(doms, segs))]
