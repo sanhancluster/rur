@@ -784,7 +784,7 @@ class RamsesSnapshot(object):
             self.box = np.array(box)
         else:
             # if not, set as default box
-            self.box = self.default_box
+            self.box = self.default_box.copy()
 
         self.region = BoxRegion(self.box)
 
@@ -2167,7 +2167,7 @@ class RamsesSnapshot(object):
         """
         if(self.unitmode != 'code'):
             self.switch_unitmode()
-        self.box = self.default_box
+        self.box = self.default_box.copy()
         self.pcmap = None
         if (part):
             self.part_data = None
@@ -2638,13 +2638,13 @@ class RamsesSnapshot(object):
     def get_sink(self, box=None, all=False):
         if self.hdf:
             if all:
-                box = self.default_box
+                box = self.default_box.copy()
             self.box_sink = box
             self.box = box
             sink = self.get_part(box=self.box_sink, pname='sink') # not saving as local parameter to save memory
             return sink
         if all:
-            self.box_sink = self.default_box
+            self.box_sink = self.default_box.copy()
             self.read_sink()
             sink = Particle(self.sink_data, self)
             self.sink = sink
@@ -2814,7 +2814,7 @@ class RamsesSnapshot(object):
 
     def write_contam_part(self, mdm_cut):
         self.clear()
-        self.get_part(box=self.default_box, pname='dm', target_fields=['x', 'y', 'z', 'm', 'cpu'])
+        self.get_part(box=self.default_box.copy(), pname='dm', target_fields=['x', 'y', 'z', 'm', 'cpu'])
         part = self.part
         contam_part = part[part['m'] > mdm_cut]
         dirpath = join(self.repo, 'contam')
