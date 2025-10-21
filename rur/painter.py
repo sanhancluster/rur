@@ -633,6 +633,8 @@ def draw_points(points, box=None, proj=[0, 1], color=None, label=None, fontsize=
 
 def draw_smbhs(smbh, box=None, proj=[0, 1], s=30, cmap=None, color='k', mass_range=None, zorder=100,
                labels=None, fontsize=10, fontcolor='lightyellow', **kwargs):
+    if smbh.size == 0:
+        return
     mass_scale = None
     if box is None and isinstance(smbh, uri.Particle):
         box = smbh.snap.box
@@ -1123,8 +1125,10 @@ def quick_target_box(snap: uri.RamsesSnapshot, center=None, target=None, catalog
                 elif source == 'SINKPROPS':
                     catalog = snap.read_sinkprop(drag_part=drag_part)
                 elif source == 'sink':
-                    snap.get_sink(all=True)
-                    catalog = snap.sink.table
+                    sink = snap.get_sink(all=True)
+                    catalog = sink.table
+                elif source == 'ptree':
+                    catalog = uhmi.PhantomTree.load(snap, path_in_repo=default_path_in_repo['ptree'], iout=snap.iout)
                 else:
                     raise ValueError("Unknown source: %s" % source)
 
@@ -1157,8 +1161,8 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
            smbh_minmass=1E4, interp_order=1, subplots_adjust_kw=None,
            smbh_labels=True, figsize=None, dpi=150, vmaxs=None, qscales=None, phot_filter='SDSS_u', shape=1000,
            drag_part=True, colorbar=False, colorbar_kw=None, colorbar_size=0.15,
-           axis=False, ruler=True, ruler_size_in_radius_unit=None, props=['contam', 'sfr', 'fedd', 'mbh'], fontsize=8,
-           nrows=1, ncols=-1, size_panel=3.5, title=None):
+           axis=False, ruler=True, ruler_size=None, ruler_unit=None, props=['contam', 'sfr', 'fedd', 'mbh'], fontsize=8,
+           nrows=1, ncols=-1, size_panel=3.5, title=None, nthread_load=8):
     """Simple galaxy viewer integrated with GalaxyMaker / SINKPROPS data.
     parameters are used in following priorities, inputs with lower priorities are ignored
     - box
@@ -1255,25 +1259,24 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
 
     if (np.any(np.isin(['star', 'dm', 'sdss', 'phot'], mode)) or True in show_smbh
             or np.any(np.isin(['sfr', 'contam'], mode))):
-        snap.get_part()
+        if np.any(np.isin(['star', 'sdss', 'phot'], mode)):
+            pname = 'star'
+        elif 'dm' in mode:
+            pname = 'dm'
+        part = snap.get_part(pname=pname, nthread=nthread_load)
         if target is not None and align:
-            part = align_axis(snap.part, target)
-        else:
-            part = snap.part
+            part = align_axis(part, target)
         if True in show_smbh:
             smbh = part['smbh']
             if smbh is not None:
                 smbh = smbh[smbh['m', 'Msol'] >= smbh_minmass]
     if np.any(np.isin(['gas', 'd1', 'd2', 'd3', 'd4', 'metal', 'temp'], mode)):
-        snap.get_cell()
+        cell = snap.get_cell(nthread=nthread_load)
         if target is not None and align:
-            cell = align_axis_cell(snap.cell, target)
-        else:
-            cell = snap.cell
+            cell = align_axis_cell(cell, target)
 
     if np.any(np.isin(['fedd', 'mbh'], props)):
-        snap.get_sink()
-        sink = snap.sink
+        sink = snap.get_sink()
 
     if figsize is None:
         figsize = [size_panel * ncols, size_panel * nrows]
@@ -1423,6 +1426,10 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
                        linespacing=1.5)
 
         if ruler:
+            add_ruler(snap, box=snap.box, ruler_size=ruler_size, proj_now=proj_now, direction='horizontal',
+                      unit=ruler_unit, fontsize=fontsize, thickness=0.02,
+                      xy_offset=(0.075, 0.1), zorder=100)
+            """
             radius_in_unit = (snap.box[proj_now[0], 1] - snap.box[proj_now[0], 0]) * 0.5 / snap.unit[radius_unit]
             if ruler_size_in_radius_unit is None:
                 ruler_size_in_radius_unit = int(radius_in_unit / 2.5)
@@ -1431,7 +1438,7 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
             plt.gca().add_patch(rect)
             plt.text(0.075 + bar_length / 2, 0.08, '%g %s' % (ruler_size_in_radius_unit, radius_unit), ha='center',
                      va='top', color='white', transform=plt.gca().transAxes, fontsize=8)
-
+            """
         if colorbar:
             divider = make_axes_locatable(plt.gca())
             if colorbar_kw['orientation'] == 'horizontal':
@@ -1452,15 +1459,28 @@ def viewer(snap: uri.RamsesSnapshot, box=None, center=None, target=None, catalog
         save_figure(savefile)
     return fig, axes
 
-def add_ruler(snap, box=None, ruler_size=None, proj_now=[0, 1], direction='horizontal', unit='kpc', fontsize=8, thickness=0.02, xy_offset=(0.075, 0.1), zorder=100):
+def add_ruler(snap, box=None, ruler_size=None, proj_now=[0, 1], direction='horizontal', unit=None, fontsize=8, thickness=0.02, xy_offset=(0.075, 0.1), zorder=100, unit_options=['Gpc', 'Mpc', 'kpc', 'pc', 'au']):
     """
     adds horizontal ruler in current panel
     """
     if box is None:
         box = snap.box
-    extent_in_unit = (box[proj_now[0], 1] - box[proj_now[0], 0]) / snap.unit[unit]
+    extent = box[proj_now[0], 1] - box[proj_now[0], 0]
+    if unit is None:
+        for u in unit_options:
+            if extent / 5 >= snap.unit[u]:
+                unit = u
+                break
+        if unit is None:
+            unit = unit_options[-1]
+    extent_in_unit = extent / snap.unit[unit]
     if ruler_size is None:
-        ruler_size = int(extent_in_unit / 5)
+        ruler_size = extent_in_unit / 5
+        base = 10 ** np.floor(np.log10(ruler_size))
+        ruler_size_number = ruler_size / base
+        possible_numbers = np.array([1, 1.5, 2, 2.5, 3, 4, 5, 7.5, 10])
+        closest_number = possible_numbers[np.argmin(np.abs(possible_numbers - ruler_size_number))]
+        ruler_size = closest_number * base
     bar_length = ruler_size / extent_in_unit
     rect = Rectangle(xy_offset, bar_length, thickness, transform=plt.gca().transAxes, color='white', zorder=zorder)
     plt.gca().add_patch(rect)

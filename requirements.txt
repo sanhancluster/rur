@@ -7,5 +7,4 @@ h5py>=3.7.0
 astropy>=5.1
 meson>=1.2.0
 ninja>=1.8.2
-numba>=0.50.0
 setuptools>=60.0.0

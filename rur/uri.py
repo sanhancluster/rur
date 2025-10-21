@@ -1223,13 +1223,14 @@ class RamsesSnapshot(object):
             self.params['boxsize'] = self.params['unit_l'] * self.params['h'] / Mpc / self.params['aexp']
             self.params['boxsize_physical'] = self.params['boxsize'] / (self.params['h']) * self.params['aexp']
             self.params['boxsize_comoving'] = self.params['boxsize'] / (self.params['h'])
+            self.params['nstep_colarse'] = self.params['icoarse']
+
+        self.set_cosmology(snap=snap, verbose=verbose)
+        self.set_unit()
 
         self.cell_extra = custom_extra_fields(self, 'cell')
         self.part_extra = custom_extra_fields(self, 'particle')
 
-
-        self.set_cosmology(snap=snap, verbose=verbose)
-        self.set_unit()
 
 
     def get_involved_cpu(self, box=None, binlvl=None, n_divide=5):
@@ -1408,7 +1409,7 @@ class RamsesSnapshot(object):
         if(sequential): return part, None
         return part, np.append(cursors, size)
 
-    def read_part(self, target_fields=None, cpulist=None, pname=None, nthread=8, python=True, use_cache=True):
+    def read_part(self, target_fields=None, cpulist=None, pname=None, nthread=nthread_load_default, python=True, use_cache=True):
         """Reads particle data from current box.
 
         Parameters
@@ -1741,7 +1742,7 @@ class RamsesSnapshot(object):
         if(sequential): return cell, None
         return cell, np.append(cursors, np.sum(sizes))
 
-    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, python=True, nthread=8, use_cache=True, read_branch=False):
+    def read_cell(self, target_fields=None, read_grav=False, cpulist=None, python=True, nthread=nthread_load_default, use_cache=True, read_branch=False):
         """Reads amr data from current box.
 
         Parameters
@@ -2254,7 +2255,7 @@ class RamsesSnapshot(object):
         self.cpu = np.concatenate(amr_cpus)
 
     def get_cell(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, read_grav=False,
-                 ripses=False, python=True, nthread=8, use_cache=False, hdf=None, read_branch=False, dev=False, legacy=False, htype='lzf', levelmax=None):
+                 ripses=False, python=True, nthread=nthread_load_default, use_cache=False, hdf=None, read_branch=False, dev=False, legacy=False, htype='lzf', levelmax=None):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -2338,7 +2339,7 @@ class RamsesSnapshot(object):
         self.cell['z'] *= boxlen/(l2-l1)
 
     def get_part(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, cpulist=None, pname=None,
-                 python=True, nthread=8, use_cache=False, hdf=None, dev=False, legacy=False, htype='lzf'):
+                 python=True, nthread=nthread_load_default, use_cache=False, hdf=None, dev=False, legacy=False, htype='lzf'):
         if (box is not None):
             # if box is not specified, use self.box by default
             self.box = box
@@ -2452,7 +2453,7 @@ class RamsesSnapshot(object):
 
                 if (self.box is not None and exact_box):
                     timer.start("Getting mask...", tab=1)
-                    mask = box_mask_table(data, self.box, snap=self, nthread=8)
+                    mask = box_mask_table(data, self.box, snap=self, nthread=nthread_mask_default)
                     timer.record(tab=1)
                     msg=None
                     if timer.verbose>1:
@@ -2513,7 +2514,7 @@ class RamsesSnapshot(object):
         # -------------------------------------------
 
 
-    def get_cell_hdf(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, read_branch=False, nthread=8, dev=False, legacy=False, htype='lzf', levelmax=None):
+    def get_cell_hdf(self, box=None, target_fields=None, domain_slicing=True, exact_box=True, read_branch=False, nthread=nthread_load_default, dev=False, legacy=False, htype='lzf', levelmax=None):
         hdf_path = self.get_path('hdf_cell')
         if htype == 'gzip':
             hdf_path = f"{hdf_path.split('.')[0]}_gzip4.h5"
@@ -2552,7 +2553,7 @@ class RamsesSnapshot(object):
 
                 if (self.box is not None and exact_box):
                     timer.start("Getting mask...", tab=1)
-                    mask = box_mask_table(data, self.box, snap=self, size=self.cell_extra['dx'](data), nthread=8)
+                    mask = box_mask_table(data, self.box, snap=self, size=self.cell_extra['dx'](data), nthread=nthread_mask_default)
                     timer.record(tab=1)
                     msg = None
                     if timer.verbose>1:
@@ -2636,9 +2637,14 @@ class RamsesSnapshot(object):
             return cell
 
     def get_sink(self, box=None, all=False):
+        if box is not None:
+            # if box is not specified, use self.box by default
+            self.box = box
         if self.hdf:
             if all:
                 box = self.default_box.copy()
+            else:
+                self.box_sink = self.box.copy()
             self.box_sink = box
             self.box = box
             sink = self.get_part(box=self.box_sink, pname='sink') # not saving as local parameter to save memory
@@ -2649,9 +2655,6 @@ class RamsesSnapshot(object):
             sink = Particle(self.sink_data, self)
             self.sink = sink
             return sink
-        if box is not None:
-            # if box is not specified, use self.box by default
-            self.box = box
         if self.box_sink is None or not np.array_equal(self.box, self.box_sink):
             self.read_sink()
             sink = self.sink_data
@@ -3059,7 +3062,7 @@ def _mask_table(shape, address, tmp, box, trad, ith, jth):
     imask = (tmp['x'] >= box[0,0]-trad) & (tmp['x'] <= box[0,1]+trad) & (tmp['y'] >= box[1,0]-trad) & (tmp['y'] <= box[1,1]+trad) & (tmp['z'] >= box[2,0]-trad) & (tmp['z'] <= box[2,1]+trad)
     data[ith:jth] = imask
 
-def box_mask_table(table, box, snap=None, size=0, exclusive=False, chunksize=50000, nthread=8):
+def box_mask_table(table, box, snap=None, size=0, exclusive=False, chunksize=50000, nthread=nthread_mask_default):
     if (exclusive):
         size *= -1
     rad = size/2
@@ -3655,6 +3658,7 @@ def domain_slice(array, cpulist, bound, cpulist_all=None, cpulist_end=None, targ
             new_dtype = [(name, array.dtype[name]) for name in target_fields]
 
         out = np.empty(np.sum(segs), dtype=new_dtype)  # same performance with np.concatenate
+        print(array.size, out.size, target_fields, doms, segs)
         copy_fields(array, out, target_fields, doms, segs)
 
         return out
@@ -3769,7 +3773,9 @@ def _domain_slice_worker(shape, dtype, address, cursor, hdf_path, hdf_group, dom
     exist.close()
 # -----------------------------------
 
-def copy_fields(array, out, target_fields, domains=None, segments=None, update=None):
+def copy_fields(array, out, target_fields=None, domains=None, segments=None, update=None):
+    if target_fields is None:
+        target_fields = array.dtype.names
     offsets = np.asarray([array.dtype.fields[name][1] for name in target_fields])
     sizes = np.asarray([array.dtype.fields[name][0].itemsize for name in target_fields])
     starts, ends = merge_segments(offsets, offsets + sizes)

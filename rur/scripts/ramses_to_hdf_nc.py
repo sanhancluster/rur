@@ -413,7 +413,7 @@ def get_ncell(snap:uri.RamsesSnapshot, python=False, read_branch=False) -> int:
     return ncell
 
 
-def export_snapshots(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load:int=60, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0', nthread=8):
+def export_snapshots(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load:int=60, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0', nthread=8, walltime:float=None):
     """
     Export snapshots from the repository to HDF5 format.
     This function will export both particle and cell data.
@@ -423,19 +423,28 @@ def export_snapshots(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size
         iout_list = ts.read_iout_avail()
 
     for iout in tqdm(iout_list, desc=f"Exporting snapshot data", disable=True):
+        try:
+            snap = ts[iout]
+        except FileNotFoundError:
+            timer.message(f"Snapshot iout = {iout} not found. Skipping.")
+            continue
+
         # Start exporting cell and particle data for each snapshot
         timer.start(f"Starting particle data extraction for iout = {iout}.", name='part_hdf')
-        snap = ts[iout]
         create_hdf5_part(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite, sim_description=sim_description, version=version, nthread=nthread)
         snap.clear()
         timer.record(f"Particle data extraction completed for iout = {snap.iout}.", name='part_hdf')
 
         timer.start(f"Starting cell data extraction for iout = {iout}.", name='cell_hdf')
-        snap = ts[iout]
         create_hdf5_cell(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite, sim_description=sim_description, version=version, nthread=nthread)
         snap.clear()
         timer.record(f"Cell data extraction completed for iout = {snap.iout}.", name='cell_hdf')
- 
+        if walltime is not None:
+            elapsed = timer.time()
+            if elapsed > walltime * 3600:
+                timer.message(f"Walltime exceeded for iout = {iout}. Elapsed time: {elapsed / 3600:.2f} hours.")
+                break
+
 def get_hilbert_key(coordinates:np.ndarray, levelmax:int, levels=None) -> np.ndarray:
     # subdivisions = 2 ** levelmax
     #if levelmax > 21:
@@ -573,9 +582,9 @@ def set_hilbert_boundaries(new_data: np.ndarray, n_chunk: int, levelmax:int, par
         hilbert_key = get_hilbert_key(coordinates, levelmax, new_data['level'])
     if new_data.size > 1E8:
         timer.message(f"Sorting data with {new_data.size} components...")
-    sort_key = np.argsort(hilbert_key)
+    sort_key = np.argsort(hilbert_key, kind='mergesort')
     hilbert_key = hilbert_key[sort_key]
-    new_data = new_data[sort_key]
+    new_data[:] = new_data[sort_key]
     assert_sorted(hilbert_key)
 
     timer.message("Getting chunk boundaries...")
@@ -625,7 +634,7 @@ def main(args):
         'chunks': True,
     }
 
-    iout_list = np.arange(args.imin, args.imax + 1)[::-1]
+    iout_list = np.arange(args.imin, args.imax + 1)
     repo_path = args.repo
     overwrite = args.overwrite
     version = args.version
@@ -651,7 +660,7 @@ def main(args):
     cpu_list = None
     export_snapshots(repo, iout_list=iout_list, n_chunk=n_chunk, size_load=size_load,
                      output_path='hdf', cpu_list=cpu_list, dataset_kw=dataset_kw,
-                     sim_description=sim_description, version=version, overwrite=overwrite, nthread=nthread)
+                     sim_description=sim_description, version=version, overwrite=overwrite, nthread=nthread, walltime=args.walltime)
 
 
 repo_path_default = '/storage7/NewCluster/'
@@ -670,6 +679,7 @@ if __name__ == '__main__':
     parser.add_argument("--load", "-l", help=f'Number of RAMSES files to load at once (default: {load_default})', type=int, default=load_default)
     parser.add_argument("--nthread", "-t", help=f'Number of threads to use for loading data (default: {nthread_default})', type=int, default=nthread_default)
     parser.add_argument("--nocolor", "-c", help='Disable color on output messages', action='store_true')
+    parser.add_argument("--walltime", "-w", help='Walltime limit (hours) for the job (default: None)', type=float, default=None)
 
     args = parser.parse_args()
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")

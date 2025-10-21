@@ -13,12 +13,16 @@ from collections.abc import Iterable
 from collections import defaultdict
 import warnings
 from numpy.lib import recfunctions as rf
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import pickle as pkl
 import os
 
 from multiprocessing import Process, cpu_count, Manager
 from time import sleep
+from multiprocessing import get_context
+from typing import List, Tuple, Any, Callable, Optional, Sequence
+import math
 
 '''
 
@@ -1419,7 +1423,23 @@ def weighted_median(values, *args, **kwargs):
     return weighted_quantile(values, quantiles=0.5, *args, **kwargs)
 
 
-def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, ncols_tqdm=None,
+def _worker(func, param_slice, idx_slice, output_arr, direct_input, kwargs_dict):
+    output_slice = []
+    for param in param_slice:
+        if (direct_input):
+            output_slice.append(func(*param, **kwargs_dict))
+        else:
+            output_slice.append(func(param, **kwargs_dict))
+
+    output_arr[idx_slice] = output_slice
+
+def _finalize(procs):
+    for proc in procs:
+        proc.join()
+    for proc in procs:
+        proc.close()
+
+def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.05, ncols_tqdm=None,
               direct_input=True, priorities=None, kwargs_dict=None, show_progress=True):
     """
     A simple multiprocessing tool similar to joblib, but independent to picklability.
@@ -1447,21 +1467,6 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
     if (kwargs_dict is None):
         kwargs_dict = {}
 
-    def worker(param_slice, idx_slice, output_arr):
-        output_slice = []
-        for param in param_slice:
-            if (direct_input):
-                output_slice.append(func(*param, **kwargs_dict))
-            else:
-                output_slice.append(func(param, **kwargs_dict))
-
-        output_arr[idx_slice] = output_slice
-
-    def finalize():
-        for proc in procs:
-            proc.join()
-        for proc in procs:
-            proc.close()
 
     procs = []
     output_size = len(param_arr)
@@ -1493,7 +1498,7 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
                         procs.pop(idx)
                 wait = wait_period_sec
 
-            p = Process(target=worker, args=(param_arr[idx_slice], idx_slice, output_arr))
+            p = Process(target=_worker, args=(func, param_arr[idx_slice], idx_slice, output_arr, direct_input, kwargs_dict))
             procs.append(p)
             p.start()
             idx_proc += 1
@@ -1502,10 +1507,247 @@ def multiproc(param_arr, func, n_proc=None, n_chunk=1, wait_period_sec=0.01, nco
             p.terminate()
         return None
     finally:
-        finalize()
+        _finalize(procs)
         if show_progress:
             iterator.close()
         return [output_arr[key] for key in keys_inv]
+
+def multiproc2(param_arr: List[Tuple],
+              func: Callable,
+              n_proc: Optional[int] = None,
+              n_chunk: int = 1,
+              ncols_tqdm: Optional[int] = None,
+              direct_input: bool = True,
+              weights: Optional[Sequence[float]] = None,   # <-- priorities removed, weights added
+              kwargs_dict: Optional[dict] = None,
+              show_progress: bool = True,
+              schedule: str = "input"  # "input" | "small_first" | "large_first"
+              ) -> List[Any]:
+    """
+    Multiprocessing with *weight-aware batching* for skewed workloads.
+
+    Key design:
+      - `weights` are used ONLY to size batches (IPC-efficient and skew-tolerant).
+      - Task dispatch order is controlled by `schedule` (input/small_first/large_first).
+      - Persistent workers + progressive feeding to avoid stragglers.
+
+    Parameters
+    ----------
+    param_arr : list
+        Parameters for each job; tuple elements will be expanded if `direct_input=True`.
+    func : callable
+        Function to execute in workers.
+    n_proc : int, optional
+        Number of worker processes (default: os.cpu_count()).
+    n_chunk : int
+        Target *weight-equivalent* batch size. Interpreted as: desired number of
+        average-weight items per batch. Larger -> fewer IPC messages.
+    wait_period_sec : float
+        Unused (kept for API compatibility).
+    ncols_tqdm : int, optional
+        tqdm width.
+    direct_input : bool
+        If True, tuple params are expanded via *args; otherwise passed as a single arg.
+    weights : sequence of float, optional
+        Per-task non-negative weights (proxy for runtime). Used for packing batches.
+        If None, all weights default to 1.0.
+    kwargs_dict : dict, optional
+        Extra keyword arguments for `func`.
+    show_progress : bool
+        Show a tqdm progress bar if available.
+    schedule : str
+        Dispatch order: "input" (as given), "small_first" (ascending weights),
+        or "large_first" (descending weights).
+
+    Returns
+    -------
+    list
+        Results aligned to the original `param_arr` order.
+
+    Notes
+    -----
+    - On Windows/macOS ("spawn"), guard the call site with `if __name__ == "__main__":`
+      and ensure `func` is defined at top-level so it is picklable.
+    - `weights` affect only batching (how many items go together), not result order.
+    """
+
+    if n_proc is None:
+        n_proc = os.cpu_count() or 1
+    if kwargs_dict is None:
+        kwargs_dict = {}
+
+    N = len(param_arr)
+    if N == 0:
+        return []
+
+    # --- sanitize weights -----------------------------------------------------
+    if weights is None:
+        w = [1.0] * N
+    else:
+        if len(weights) != N:
+            raise ValueError("`weights` length must match `param_arr` length.")
+        w = []
+        for val in weights:
+            # Coerce to a sane non-negative finite weight; fallback to 1.0
+            try:
+                fv = float(val)
+            except Exception:
+                fv = 1.0
+            if not math.isfinite(fv) or fv <= 0:
+                fv = 1.0
+            w.append(fv)
+
+    avg_w = sum(w) / N
+    base_chunk = max(1, int(n_chunk))
+    target_batch_weight = max(avg_w, base_chunk * avg_w)
+    heavy_singleton_cutoff = 0.8 * target_batch_weight
+    hard_item_cap = max(2 * base_chunk, 32)
+
+    # --- scheduling order (independent from weights usage) --------------------
+    if schedule == "input":
+        order = list(range(N))
+    elif schedule == "small_first":
+        order = sorted(range(N), key=lambda i: w[i])
+    elif schedule == "large_first":
+        order = sorted(range(N), key=lambda i: w[i], reverse=True)
+    else:
+        raise ValueError("`schedule` must be one of {'input','small_first','large_first'}.")
+
+    # --- worker loop ----------------------------------------------------------
+    def _worker_loop(f, kw, di, in_q, out_q):
+        """
+        Persistent worker:
+          - Receives a batch: list[(idx, param)]
+          - Produces a batch: list[(idx, result)]
+        """
+        while True:
+            batch = in_q.get()
+            if batch is None:
+                break
+            results = []
+            _is_tuple = tuple
+            if di:
+                for idx, param in batch:
+                    if isinstance(param, _is_tuple):
+                        results.append((idx, f(*param, **kw)))
+                    else:
+                        results.append((idx, f(param, **kw)))
+            else:
+                for idx, param in batch:
+                    results.append((idx, f(param, **kw)))
+            out_q.put(results)
+
+    # --- queues & processes ---------------------------------------------------
+    ctx = get_context()
+    in_q = ctx.Queue(maxsize=n_proc * 4)
+    out_q = ctx.Queue(maxsize=n_proc * 4)
+
+    procs = [
+        ctx.Process(target=_worker_loop,
+                    args=(func, kwargs_dict, direct_input, in_q, out_q),
+                    daemon=True)
+        for _ in range(n_proc)
+    ]
+    for p in procs:
+        p.start()
+
+    # --- weight-aware feeder --------------------------------------------------
+    def build_next_batch(start_pos: int) -> List[int]:
+        """
+        Greedy packer that fills a batch up to `target_batch_weight`.
+        - If the first item is very heavy (>= 80% of target), send it alone.
+        - Enforce `hard_item_cap` to avoid oversized batches with tiny weights.
+        """
+        if start_pos >= N:
+            return []
+        first_idx = order[start_pos]
+        first_w = w[first_idx]
+        if first_w >= heavy_singleton_cutoff:
+            return [first_idx]
+
+        chosen: List[int] = []
+        total = 0.0
+        count = 0
+        pos = start_pos
+        while pos < N:
+            idx = order[pos]
+            wi = w[idx]
+            # Stop if adding this item would overshoot the target and we have at least one item.
+            if chosen and (total + wi > target_batch_weight):
+                break
+            chosen.append(idx)
+            total += wi
+            count += 1
+            pos += 1
+            if count >= hard_item_cap:
+                break
+        return chosen
+
+    # Progressive feeding: keep a bounded window of in-flight batches.
+    max_inflight_batches = n_proc * 2
+    sent_pos = 0
+    inflight_batches = 0
+    out = [None] * N
+    received = 0
+
+    # optional progress bar
+    pbar = None
+    if show_progress:
+        try:
+            from tqdm import tqdm
+            pbar = tqdm(total=N, ncols=ncols_tqdm)
+        except Exception:
+            pbar = None
+
+    try:
+        # Prime pipeline
+        while inflight_batches < max_inflight_batches and sent_pos < N:
+            indices = build_next_batch(sent_pos)
+            if not indices:
+                break
+            batch = [(i, param_arr[i]) for i in indices]
+            in_q.put(batch)
+            sent_pos += len(indices)
+            inflight_batches += 1
+
+        # Drain/refill loop
+        while received < N:
+            results = out_q.get()
+            inflight_batches -= 1
+            for idx, res in results:
+                out[idx] = res
+                received += 1
+            if pbar:
+                pbar.update(len(results))
+
+            # Refill to keep workers busy
+            while inflight_batches < max_inflight_batches and sent_pos < N:
+                indices = build_next_batch(sent_pos)
+                if not indices:
+                    break
+                batch = [(i, param_arr[i]) for i in indices]
+                in_q.put(batch)
+                sent_pos += len(indices)
+                inflight_batches += 1
+
+        # Signal shutdown
+        for _ in range(n_proc):
+            in_q.put(None)
+
+    except KeyboardInterrupt:
+        for p in procs:
+            p.terminate()
+        raise
+    finally:
+        if pbar:
+            pbar.close()
+        for p in procs:
+            p.join(timeout=1.0)
+            if p.is_alive():
+                p.terminate()
+
+    return out
+
 
 
 def join_arrays(arrays):
@@ -1566,7 +1808,7 @@ def uniform_digitize(values, lim, nbins):
     values_idx = np.clip(values_idx, 0, nbins+1)
     return values_idx
 
-def box_mask(coo, box, size=None, exclusive=False, nchunk=10000000):
+def box_mask(coo, box, size=None, exclusive=False, nchunk=1000000):
     # masking coordinates based on the box
     if size is None:
         size = 0
@@ -1577,11 +1819,12 @@ def box_mask(coo, box, size=None, exclusive=False, nchunk=10000000):
     mask_out = []
     for i0 in range(0, coo.shape[0], nchunk):
         i1 = np.minimum(i0 + nchunk, coo.shape[-2])
+        sl = slice(i0, i1)
         if size.shape[-2] == coo.shape[-2]:
-            size_now = size[i0:i1]
+            size_now = size[sl]
         else:
             size_now = size
-        mask = np.all((box[..., 0] <= coo[i0:i1] + size_now / 2) & (coo[i0:i1] - size_now / 2 <= box[..., 1]), axis=-1)
+        mask = np.all((box[..., 0] <= coo[sl] + size_now / 2) & (coo[sl] - size_now / 2 <= box[..., 1]), axis=-1)
         mask_out.append(mask)
     mask_out = np.concatenate(mask_out)
     return mask_out

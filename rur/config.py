@@ -3,6 +3,7 @@ import numpy as np
 from collections import defaultdict
 import time
 from tqdm.autonotebook import tqdm
+from functools import partial
 
 def defnone(): return None
 class Table:
@@ -116,14 +117,16 @@ class Timestamp:
     """
     A class to export time that took to execute the script.
     """
-
-    def __init__(self, use_color=True):
+    def __init__(self, use_color=True, log_path=None):
         self.t0 = time.time()
         self.stamps = {}
         self.stamps['start'] = self.t0
         self.stamps['last'] = self.t0
         self.verbose = 1
         self.use_color = use_color
+        self.log_path = log_path
+        if log_path is not None:
+            self.log = open(log_path, 'w')
 
     def elapsed(self, name=None):
         if name is None:
@@ -137,12 +140,12 @@ class Timestamp:
         """
         return self.elapsed(name='start')
 
-    def start(self, message=None, name=None):
+    def start(self, message=None, name=None, verbose_lim=1):
         if name is None:
             name = 'last'
         self.stamps[name] = time.time()
         if message is not None:
-            self.message(message)
+            self.message(message, verbose_lim=verbose_lim)
 
     def message(self, message, verbose_lim=1):
         if verbose_lim <= self.verbose:
@@ -152,6 +155,8 @@ class Timestamp:
                 print(f"{CYAN}[ {time_string} ]{RESET} {message}")
             else:
                 print(f"[ {time_string} ] {message}")
+            if self.log_path is not None:
+                self.log.write(f"[ {time_string} ] {message}\n")
 
     def record(self, message=None, name=None, verbose_lim=1):
         if name is None:
@@ -167,11 +172,12 @@ class Timestamp:
                 print(f"{CYAN}[ {time_string} ]{RESET} {message} -> {GREEN}{recorded_time_string}{RESET}")
             else:
                 print(f"[ {time_string} ] {message} -> {recorded_time_string}")
-        #self.stamps.pop(name)
+            if self.log_path is not None:
+                self.log.write(f"[ {time_string} ] {message} -> {recorded_time_string}\n")
 
-    def measure(self, func, message=None, **kwargs):
+    def measure(self, func, message=None, *args, **kwargs):
         self.start(message)
-        result = func(**kwargs)
+        result = func(*args, **kwargs)
         self.record()
         return result
 
@@ -219,12 +225,16 @@ oct_x = oct_offset[:, 0].reshape(8, 1)
 oct_y = oct_offset[:, 1].reshape(8, 1)
 oct_z = oct_offset[:, 2].reshape(8, 1)
 
+nthread_load_default = 8
+nthread_mask_default = 8
+
 # path_related parameters
 # avaiable modes: none, ng, nh, etc.
 default_path_in_repo = {
     'snapshots': 'snapshots',
     'GalaxyMaker': 'galaxy',
     'HaloMaker': 'halo',
+    'ptree': 'ptree',
 }
 
 output_format = 'output_{snap.iout:05d}'
@@ -352,6 +362,7 @@ Gpc = 3.08E27
 Mpc = 3.08E24
 kpc = 3.08E21
 pc = 3.08E18
+au = 1.496E13
 ly = 9.4607E17
 km = 1E5
 
@@ -460,46 +471,87 @@ def set_custom_units(snap):
     }
 
 
-# some extra quantities that can be used as key of particle / cell data
-def custom_extra_fields(snap, type='common'):
+# picklable extra_fields (no lambdas, no closures)
+def field_pos(table):
+    return get_vector(table)
+
+def field_vel(table):
+    return get_vector(table, 'v')
+
+def field_T(table):
+    return table['P'] / table['rho']
+
+def field_vol(table):
+    return table['dx'] ** 3
+
+def field_m(table, *, mfactor):
+    return table['vol'] * table['rho'] / mfactor
+
+def field_cs(table, *, gamma):
+    return np.sqrt(gamma * table['P'] / table['rho'])
+
+def field_mach(table, *, gamma):
+    return rss(table['vel']) / np.sqrt(gamma * table['P'] / table['rho'])
+
+def field_e(table, *, gamma):
+    return table['P'] / (gamma - 1) + 0.5 * table['rho'] * ss(table['vel'])
+
+def field_dx(table, *, boxlen, unitfactor):
+    return boxlen / unitfactor / (2.0 ** table['level'])
+
+def field_age(table, *, age_now, unit_Gyr, epoch_to_age_fn):
+    return (age_now - epoch_to_age_fn(table['epoch'])) * unit_Gyr
+
+def field_aform(table, *, epoch_to_aexp_fn):
+    return epoch_to_aexp_fn(table['epoch'])
+
+def field_zform(table, *, epoch_to_aexp_fn):
+    a = epoch_to_aexp_fn(table['epoch'])
+    return 1.0 / a - 1.0
+
+def custom_extra_fields(snap, type='common',
+                        *,
+                        gamma=1.6666667,
+                        epoch_to_age_fn=None,
+                        epoch_to_aexp_fn=None):
+    if epoch_to_age_fn is None:
+        epoch_to_age_fn = snap.epoch_to_age
+    elif epoch_to_aexp_fn is None:
+        epoch_to_aexp_fn = snap.epoch_to_aexp
+
     extra_fields = {
-        'pos': lambda table: get_vector(table),  # position vector
-        'vel': lambda table: get_vector(table, 'v'),  # velocity vector
-        #        'FeH': lambda table: 1.024*np.log10(table['metal']) + 1.739
+        'pos': field_pos,
+        'vel': field_vel,
     }
+
     if type == 'common':
         return extra_fields
 
     elif type == 'cell':
-        # cell extra keys
-        mfactor = 1 if(snap.unitmode == 'code') else snap.unit['Msol']
+        mfactor = 1 if (snap.unitmode == 'code') else snap.unit['Msol']
         extra_fields.update({
-            'T': lambda table: table['P'] / table['rho'],  # temperature
-            'vol': lambda table: table['dx'] ** 3,  # cell volume
-            'm': lambda table: table['vol'] * table['rho']/mfactor,  # cell mass
-            'cs': lambda table: np.sqrt(gamma * table['P'] / table['rho']),  # sound speed
-            'mach': lambda table: rss(table['vel']) / np.sqrt(gamma * table['P'] / table['rho']),  # mach number
-            'e': lambda table: table['P'] / (gamma - 1) + 0.5 * table['rho'] * ss(table['vel']),  # total energy density
-            'dx': lambda table: snap.boxlen / snap.unitfactor / 2. ** table['level'],  # spatial resolution
+            'T'   : field_T,
+            'vol' : field_vol,
+            'm'   : partial(field_m, mfactor=mfactor),
+            'cs'  : partial(field_cs, gamma=gamma),
+            'mach': partial(field_mach, gamma=gamma),
+            'e'   : partial(field_e, gamma=gamma),
+            'dx'  : partial(field_dx, boxlen=snap.boxlen, unitfactor=snap.unitfactor),
         })
 
     elif type == 'particle':
-        # particle extra keys
         extra_fields.update({
-            'age': lambda table: (snap.age - snap.epoch_to_age(table['epoch'])) * snap.unit['Gyr'],  # stellar age
-            'aform': lambda table: snap.epoch_to_aexp(table['epoch']),  # formation epoch
-            'zform': lambda table: 1. / table['aform'] - 1,  # formation epoch
-            'dx': lambda table: snap.boxlen / snap.unitfactor / 2. ** table['level'],  # spatial resolution
+            'age'  : partial(field_age, age_now=snap.age, unit_Gyr=snap.unit['Gyr'],
+                             epoch_to_age_fn=epoch_to_age_fn),
+            'aform': partial(field_aform, epoch_to_aexp_fn=epoch_to_aexp_fn),
+            'zform': partial(field_zform, epoch_to_aexp_fn=epoch_to_aexp_fn),
+            'dx'   : partial(field_dx, boxlen=snap.boxlen, unitfactor=snap.unitfactor),
         })
 
-    elif type == 'halo':
-        # halo extra keys
-        extra_fields.update({
-        })
+    elif type in ('halo', 'smbh'):
+        pass
 
-    elif type == 'smbh':
-        # halo extra keys
-        extra_fields.update({
-        })
+    else:
+        raise ValueError(f"unknown type: {type!r}")
 
     return extra_fields
