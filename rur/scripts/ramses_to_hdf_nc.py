@@ -527,13 +527,30 @@ def add_attr_with_descr(fl: h5py.File, key: str, value, description: str):
         fl.attrs['attributes'] = "This file includes the following attributes:"
     fl.attrs['attributes'] += f"\n'{key}': {description}"
 
-def write_dataset(group:h5py.Group, name:str, data:np.ndarray, **dataset_kw):
+def write_dataset(group:h5py.Group, name:str, data:np.ndarray, sort_key=None, mem_block_bytes=100 * 1024**2, **dataset_kw):
     """
     Write a dataset to the HDF5 group with the specified name and data with allowing overwriting.
     """
     if name in group:
         del group[name]
-    group.create_dataset(name, data=data, **dataset_kw)
+
+    dset = group.create_dataset(name, shape=data.shape, dtype=data.dtype, **dataset_kw)
+    if sort_key is not None:
+        itemsize_per_row = data.dtype.itemsize * np.prod(data.shape[1:])  # itemsize per row
+        # determine write block size based on 100 MB memory usage
+        write_block = max(1, mem_block_bytes // itemsize_per_row)
+
+        # create dataset with chunking to save memory
+        n_total = data.shape[0]
+        buf = np.empty((write_block,) + data.shape[1:], dtype=data.dtype)
+        for start in range(0, n_total, write_block):
+            end = min(start + write_block, n_total)
+            k = end - start
+            np.take(data, sort_key[start:end], out=buf[:k])
+            dset[start:end] = buf[:k]
+    else:
+        dset = data
+    return dset
 
 def add_group(fl:h5py.File, name:str, new_data:np.ndarray, levelmin:int, levelmax:int, n_chunk:int, n_level:int, part=False, dataset_kw:dict={}):
     """
@@ -542,13 +559,20 @@ def add_group(fl:h5py.File, name:str, new_data:np.ndarray, levelmin:int, levelma
     timer.message(f"Measuring Hilbert key for {name} data...")
 
     # compute chunk boundaries based on Hilbert key and sort the data accordingly
-    chunk_boundary, hilbert_boundary = set_hilbert_boundaries(new_data, n_chunk, levelmax, part=part)
+    coordinates = np.array([new_data['x'], new_data['y'], new_data['z']]).T
+    chunk_boundary, hilbert_boundary, sort_key1 = set_hilbert_boundaries(coordinates, n_chunk, levelmax, part=part)
 
     level_boundary = None
     if 'level' in new_data.dtype.names:
         # compute level boundaries within each chunk and sort the data accordingly
-        level_boundary = set_level_boundaries(new_data, chunk_boundary, n_chunk, n_level)
+        levels = np.take(new_data['level'], sort_key1)
+        level_boundary, sort_key2 = set_level_boundaries(levels, chunk_boundary, n_chunk, n_level)
         assert_sorted(level_boundary)
+    
+        # combine the two sort keys
+        sort_key = sort_key1[sort_key2]
+    else:
+        sort_key = sort_key1
 
     if name not in fl:
         grp = fl.create_group(name)
@@ -567,15 +591,14 @@ def add_group(fl:h5py.File, name:str, new_data:np.ndarray, levelmin:int, levelma
     if level_boundary is not None:
         write_dataset(grp, 'level_boundary', data=level_boundary, **dataset_kw)
     timer.message(f"Exporting {name} data with {new_data.size} components...")
-    write_dataset(grp, 'data', data=new_data, **dataset_kw)
+    write_dataset(grp, 'data', data=new_data, sort_key=sort_key, mem_block_bytes=1000 * 1024**2, **dataset_kw)
 
     return grp
 
-def set_hilbert_boundaries(new_data: np.ndarray, n_chunk: int, levelmax:int, part:bool=False):
+def set_hilbert_boundaries(coordinates: np.ndarray, n_chunk: int, levelmax:int, part:bool=False):
     """
     Sort the given data according to the Hilbert key, and returns the indices and Hilbert keys at chunk boundaries.
     """
-    coordinates = np.array([new_data['x'], new_data['y'], new_data['z']]).T
     if part:
         hilbert_key = get_hilbert_key(coordinates, levelmax)
     else:
@@ -584,7 +607,9 @@ def set_hilbert_boundaries(new_data: np.ndarray, n_chunk: int, levelmax:int, par
         timer.message(f"Sorting data with {new_data.size} components...")
     sort_key = np.argsort(hilbert_key, kind='mergesort')
     hilbert_key = hilbert_key[sort_key]
-    new_data[:] = new_data[sort_key]
+    # buf = np.empty_like(new_data)
+    # np.take(new_data, sort_key, out=buf)
+    # new_data[:] = buf
     assert_sorted(hilbert_key)
 
     timer.message("Getting chunk boundaries...")
@@ -601,25 +626,27 @@ def set_hilbert_boundaries(new_data: np.ndarray, n_chunk: int, levelmax:int, par
     hilbert_boundary[~safe_mask] = hilbert_key_max
     assert_sorted(hilbert_boundary)
 
-    return chunk_boundary, hilbert_boundary
+    return chunk_boundary, hilbert_boundary, sort_key
 
-def set_level_boundaries(new_data: np.ndarray, chunk_boundary: np.ndarray, n_chunk: int, n_level: int):
+def set_level_boundaries(levels: np.ndarray, chunk_boundary: np.ndarray, n_chunk: int, n_level: int):
     """
     Get the level boundaries for the cell data after sorting by level within each chunk.
     """
+    sort_key = np.arange(levels.size)
     for ichunk in range(n_chunk):
         bound = chunk_boundary[ichunk], chunk_boundary[ichunk + 1]
         if bound[0] == bound[1]:
             continue
         sl = slice(*bound)
-        sort_key = np.argsort(new_data[sl]['level'])
-        new_data[sl] = new_data[sl][sort_key]
+        sort_key_local = np.argsort(levels[sl])
+        sort_key[sl] = sort_key[sl][sort_key_local]
+        # new_data[sl] = new_data[sl][sort_key]
 
     chunk_array = np.repeat(np.arange(n_chunk), chunk_boundary[1:] - chunk_boundary[:-1])
-    key = chunk_array * n_level + (new_data['level'] - 1)
+    key = chunk_array * n_level + (levels - 1)
     assert_sorted(key)
     level_boundary = compute_key_boundaries(key, n_key=n_chunk * n_level)
-    return level_boundary
+    return level_boundary, sort_key
 
 
 
