@@ -560,7 +560,7 @@ def add_group(fl:h5py.File, name:str, new_data:np.ndarray, levelmin:int, levelma
 
     # compute chunk boundaries based on Hilbert key and sort the data accordingly
     coordinates = np.array([new_data['x'], new_data['y'], new_data['z']]).T
-    chunk_boundary, hilbert_boundary, sort_key1 = set_hilbert_boundaries(coordinates, n_chunk, levelmax, part=part)
+    chunk_boundary, hilbert_boundary, sort_key1 = set_hilbert_boundaries(coordinates, new_data['levels'], n_chunk, levelmax, part=part)
 
     level_boundary = None
     if 'level' in new_data.dtype.names:
@@ -595,16 +595,16 @@ def add_group(fl:h5py.File, name:str, new_data:np.ndarray, levelmin:int, levelma
 
     return grp
 
-def set_hilbert_boundaries(coordinates: np.ndarray, n_chunk: int, levelmax:int, part:bool=False):
+def set_hilbert_boundaries(coordinates: np.ndarray, levels: np.ndarray, n_chunk: int, levelmax:int, part:bool=False):
     """
     Sort the given data according to the Hilbert key, and returns the indices and Hilbert keys at chunk boundaries.
     """
     if part:
         hilbert_key = get_hilbert_key(coordinates, levelmax)
     else:
-        hilbert_key = get_hilbert_key(coordinates, levelmax, new_data['level'])
-    if new_data.size > 1E8:
-        timer.message(f"Sorting data with {new_data.size} components...")
+        hilbert_key = get_hilbert_key(coordinates, levelmax, levels)
+    if levels.size > 1E8:
+        timer.message(f"Sorting data with {levels.size} components...")
     sort_key = np.argsort(hilbert_key, kind='mergesort')
     hilbert_key = hilbert_key[sort_key]
     # buf = np.empty_like(new_data)
