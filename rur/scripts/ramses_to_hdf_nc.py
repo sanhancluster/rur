@@ -560,7 +560,7 @@ def add_group(fl:h5py.File, name:str, new_data:np.ndarray, levelmin:int, levelma
 
     # compute chunk boundaries based on Hilbert key and sort the data accordingly
     coordinates = np.array([new_data['x'], new_data['y'], new_data['z']]).T
-    chunk_boundary, hilbert_boundary, sort_key1 = set_hilbert_boundaries(coordinates, new_data['levels'], n_chunk, levelmax, part=part)
+    chunk_boundary, hilbert_boundary, sort_key1 = set_hilbert_boundaries(coordinates, new_data['level'], n_chunk, levelmax, part=part)
 
     level_boundary = None
     if 'level' in new_data.dtype.names:
