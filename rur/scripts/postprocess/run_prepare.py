@@ -89,6 +89,7 @@ vprint(f" > Recorded iouts: {full_iouts[0]}~{full_iouts[-1]} ({len(full_iouts)})
 # Manual check iout table
 vprint(f" > Read info files...", verbose)
 fnames = glob.glob(f"{snaprepo}/output*")
+fnames = [f for f in fnames if f[-5:].isdigit()]
 fnames = [int(f[-5:]) for f in fnames]
 fnames.sort()
 vprint(f" > Found iouts: {fnames[0]}~{fnames[-1]} ({len(fnames)})", verbose)

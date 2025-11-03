@@ -30,7 +30,7 @@ from sys import exit
 import configparser
 
 try:
-    mp_ctx = get_context("forkserver")  # good on Linux servers
+    mp_ctx = get_context("fork")  # good on Linux servers
 except ValueError:
     mp_ctx = get_context("spawn")       # portable fallbac
 
