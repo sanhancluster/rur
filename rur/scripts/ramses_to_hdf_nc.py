@@ -413,7 +413,7 @@ def get_ncell(snap:uri.RamsesSnapshot, python=False, read_branch=False) -> int:
     return ncell
 
 
-def export_snapshots(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load:int=60, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0', nthread=8, walltime:float=None):
+def export_snapshots(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load:int=60, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0', nthread:int=8, walltime:float=None):
     """
     Export snapshots from the repository to HDF5 format.
     This function will export both particle and cell data.
@@ -438,6 +438,7 @@ def export_snapshots(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size
         timer.start(f"Starting cell data extraction for iout = {iout}.", name='cell_hdf')
         create_hdf5_cell(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite, sim_description=sim_description, version=version, nthread=nthread)
         snap.clear()
+        snap.clear_shm()
         timer.record(f"Cell data extraction completed for iout = {snap.iout}.", name='cell_hdf')
         if walltime is not None:
             elapsed = timer.time()
@@ -640,6 +641,7 @@ def set_level_boundaries(levels: np.ndarray, chunk_boundary: np.ndarray, n_chunk
         sl = slice(*bound)
         sort_key_local = np.argsort(levels[sl])
         sort_key[sl] = sort_key[sl][sort_key_local]
+        levels[sl] = levels[sl][sort_key_local]
         # new_data[sl] = new_data[sl][sort_key]
 
     chunk_array = np.repeat(np.arange(n_chunk), chunk_boundary[1:] - chunk_boundary[:-1])
