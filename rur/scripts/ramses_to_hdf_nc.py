@@ -528,7 +528,7 @@ def add_attr_with_descr(fl: h5py.File, key: str, value, description: str):
         fl.attrs['attributes'] = "This file includes the following attributes:"
     fl.attrs['attributes'] += f"\n'{key}': {description}"
 
-def write_dataset(group:h5py.Group, name:str, data:np.ndarray, sort_key=None, mem_block_bytes=100 * 1024**2, **dataset_kw):
+def write_dataset(group:h5py.Group, name:str, data:np.ndarray, sort_key=None, mem_block_bytes=1000 * 1024**2, **dataset_kw):
     """
     Write a dataset to the HDF5 group with the specified name and data with allowing overwriting.
     """
@@ -537,8 +537,8 @@ def write_dataset(group:h5py.Group, name:str, data:np.ndarray, sort_key=None, me
 
     dset = group.create_dataset(name, shape=data.shape, dtype=data.dtype, **dataset_kw)
     if sort_key is not None:
-        itemsize_per_row = data.dtype.itemsize * np.prod(data.shape[1:])  # itemsize per row
-        # determine write block size based on 100 MB memory usage
+        elems_per_row = int(np.prod(data.shape[1:], dtype=np.int64)) if data.ndim > 1 else 1
+        itemsize_per_row = int(data.dtype.itemsize) * elems_per_row
         write_block = max(1, mem_block_bytes // itemsize_per_row)
 
         # create dataset with chunking to save memory
