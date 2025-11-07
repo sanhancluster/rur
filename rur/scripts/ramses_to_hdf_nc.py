@@ -7,6 +7,7 @@ import time, datetime
 from tqdm import tqdm
 import argparse
 from packaging.version import Version
+from typing import Optional
 
 from rur import uri, utool
 from rur.fortranfile import FortranFile
@@ -561,7 +562,10 @@ def add_group(fl:h5py.File, name:str, new_data:np.ndarray, levelmin:int, levelma
 
     # compute chunk boundaries based on Hilbert key and sort the data accordingly
     coordinates = np.array([new_data['x'], new_data['y'], new_data['z']]).T
-    chunk_boundary, hilbert_boundary, sort_key1 = set_hilbert_boundaries(coordinates, new_data['level'], n_chunk, levelmax, part=part)
+    if 'level' in new_data.dtype.names:
+        chunk_boundary, hilbert_boundary, sort_key1 = set_hilbert_boundaries(coordinates, new_data['level'], n_chunk, levelmax, part=part)
+    else:
+        chunk_boundary, hilbert_boundary, sort_key1 = set_hilbert_boundaries(coordinates, None, n_chunk, levelmax, part=part)
 
     level_boundary = None
     if 'level' in new_data.dtype.names:
@@ -596,16 +600,18 @@ def add_group(fl:h5py.File, name:str, new_data:np.ndarray, levelmin:int, levelma
 
     return grp
 
-def set_hilbert_boundaries(coordinates: np.ndarray, levels: np.ndarray, n_chunk: int, levelmax:int, part:bool=False):
+def set_hilbert_boundaries(coordinates: np.ndarray, levels: Optional[np.ndarray], n_chunk: int, levelmax:int, part: bool=False):
     """
     Sort the given data according to the Hilbert key, and returns the indices and Hilbert keys at chunk boundaries.
+    If levels is provided, it will be used to compute the Hilbert key with level information.
+    3D coordinates are expected to be in the range [0, 1).    
     """
     if part:
         hilbert_key = get_hilbert_key(coordinates, levelmax)
     else:
         hilbert_key = get_hilbert_key(coordinates, levelmax, levels)
-    if levels.size > 1E8:
-        timer.message(f"Sorting data with {levels.size} components...")
+    if coordinates.shape[0] > 1E8:
+        timer.message(f"Sorting data with {coordinates.shape[0]} components...")
     sort_key = np.argsort(hilbert_key, kind='mergesort')
     hilbert_key = hilbert_key[sort_key]
     # buf = np.empty_like(new_data)
