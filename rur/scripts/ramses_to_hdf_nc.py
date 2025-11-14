@@ -529,14 +529,14 @@ def add_attr_with_descr(fl: h5py.File, key: str, value, description: str):
         fl.attrs['attributes'] = "This file includes the following attributes:"
     fl.attrs['attributes'] += f"\n'{key}': {description}"
 
-def write_dataset(group:h5py.Group, name:str, data:np.ndarray, sort_key=None, mem_block_bytes=1000 * 1024**2, **dataset_kw):
+def write_dataset(group:h5py.Group, dataset_name:str, data:np.ndarray, sort_key=None, mem_block_bytes=1000 * 1024**2, **dataset_kw):
     """
     Write a dataset to the HDF5 group with the specified name and data with allowing overwriting.
     """
-    if name in group:
-        del group[name]
+    if dataset_name in group:
+        del group[dataset_name]
 
-    dset = group.create_dataset(name, shape=data.shape, dtype=data.dtype, **dataset_kw)
+    dset = group.create_dataset(dataset_name, shape=data.shape, dtype=data.dtype, **dataset_kw)
     if sort_key is not None:
         elems_per_row = int(np.prod(data.shape[1:], dtype=np.int64)) if data.ndim > 1 else 1
         itemsize_per_row = int(data.dtype.itemsize) * elems_per_row
@@ -551,7 +551,8 @@ def write_dataset(group:h5py.Group, name:str, data:np.ndarray, sort_key=None, me
             np.take(data, sort_key[start:end], out=buf[:k])
             dset[start:end] = buf[:k]
     else:
-        dset = data
+        # directly write the data without sorting
+        dset[:] = data
     return dset
 
 def add_group(fl:h5py.File, name:str, new_data:np.ndarray, levelmin:int, levelmax:int, n_chunk:int, n_level:int, part=False, dataset_kw:dict={}):
@@ -562,9 +563,11 @@ def add_group(fl:h5py.File, name:str, new_data:np.ndarray, levelmin:int, levelma
 
     # compute chunk boundaries based on Hilbert key and sort the data accordingly
     coordinates = np.array([new_data['x'], new_data['y'], new_data['z']]).T
-    if 'level' in new_data.dtype.names:
+    if not part:
+        # use level information to compute Hilbert key for cells
         chunk_boundary, hilbert_boundary, sort_key1 = set_hilbert_boundaries(coordinates, new_data['level'], n_chunk, levelmax, part=part)
     else:
+        # for particles, level information is not used
         chunk_boundary, hilbert_boundary, sort_key1 = set_hilbert_boundaries(coordinates, None, n_chunk, levelmax, part=part)
 
     level_boundary = None

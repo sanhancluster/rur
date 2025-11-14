@@ -23,6 +23,7 @@ from time import sleep
 from multiprocessing import get_context
 from typing import List, Tuple, Any, Callable, Optional, Sequence
 import math
+import numbers
 
 '''
 
@@ -1843,7 +1844,7 @@ def hilbert3d_map(pos, bit_length, levels=None, lims=None, check_bounds=True):
     if isinstance(levels, Iterable):
         levels = np.asarray(levels, dtype=np.int64)
         bl_max = np.max(levels)
-    elif isinstance(levels, int):
+    elif isinstance(levels, numbers.Integral):
         bl_max = levels
         levels = np.full(pos.shape[0], levels, dtype=np.int64)
     else:
@@ -1888,7 +1889,7 @@ def hilbert3d_py(idx, bit_length, levels=None, chunk_size=1000000):
     n = idx.shape[0]
     if levels is None:
         levels = np.full(n, bit_length, dtype=np.int64)
-    elif isinstance(levels, int):
+    elif isinstance(levels, numbers.Integral):
         levels = np.full(n, levels, dtype=np.int64)
     else:
         levels = np.asarray(levels, dtype=np.int64)
