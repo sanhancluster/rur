@@ -917,7 +917,7 @@ class RamsesSnapshot(object):
 
     def switch_iout(self, iout):
         # returns to other snapshot while maintaining repository, box, etc.
-        return RamsesSnapshot(self.repo, iout, self.mode, self.box, self.path_in_repo, snap=self, longint=self.longint, verbose=self.verbose)
+        return RamsesSnapshot(self.repo, iout, self.mode, self.box, self.path_in_repo, snap=self, longint=self.longint, verbose=self.verbose, hdf=self.hdf, simple_boundary=self.simple_boundary)
 
     def __getitem__(self, item):
         try:
