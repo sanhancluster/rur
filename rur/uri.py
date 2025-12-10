@@ -1217,13 +1217,19 @@ class RamsesSnapshot(object):
             self.params.update(params)
 
         else:
-            with h5py.File(self.get_path('hdf_cell'), 'r') as f:
-                self.params = {k: f.attrs[k] for k in f.attrs.keys()}
+            if os.path.exists(self.get_path('hdf_cell')):
+                with h5py.File(self.get_path('hdf_cell'), 'r') as f:
+                    self.params = {k: f.attrs[k] for k in f.attrs.keys()}
+            elif os.path.exists(self.get_path('hdf_part')):
+                with h5py.File(self.get_path('hdf_part'), 'r') as f:
+                    self.params = {k: f.attrs[k] for k in f.attrs.keys()}
+            else:
+                raise FileNotFoundError(f"Snapshot file not found: either {self.get_path('hdf_cell')} or {self.get_path('hdf_part')} should be available")
             self.params['h'] = self.params['H0'] / 100
             self.params['boxsize'] = self.params['unit_l'] * self.params['h'] / Mpc / self.params['aexp']
             self.params['boxsize_physical'] = self.params['boxsize'] / (self.params['h']) * self.params['aexp']
             self.params['boxsize_comoving'] = self.params['boxsize'] / (self.params['h'])
-            self.params['nstep_colarse'] = self.params['icoarse']
+            self.params['nstep_coarse'] = self.params['icoarse']
 
         self.set_cosmology(snap=snap, verbose=verbose)
         self.set_unit()
@@ -2091,7 +2097,7 @@ class RamsesSnapshot(object):
             for key in dim_keys: sink[key] /= self.unit['kpc']
             for key in vel_keys: sink[key] /= self.unit['km/s']
             sink['m']
-        sink = append_fields(sink, ['aexp', 'icoarse'], [aexp_table, icoarse_table], usemask=False)
+        sink = append_fields(sink, ['aexp', 'icoarse'], [aexp_table, icoarse_table], dtypes=['f8', 'i4'], usemask=False)
 
         timer.record()
         readr.close()
@@ -2644,9 +2650,8 @@ class RamsesSnapshot(object):
             if all:
                 box = self.default_box.copy()
             else:
-                self.box_sink = self.box.copy()
+                box = self.box.copy()
             self.box_sink = box
-            self.box = box
             sink = self.get_part(box=self.box_sink, pname='sink') # not saving as local parameter to save memory
             return sink
         if all:
