@@ -3273,7 +3273,7 @@ def load_tracer(tracers, input_iouts:np.ndarray=None, target_fields=None, verbos
         
     lenout = len(input_iouts)
     if target_fields is None:
-        target_fields = ['x','y','z','cpu','family']
+        target_fields = ['x','y','z','cpu','family', 'tag', 'partp']
     names = [('x','f8'), ('y','f8'), ('z','f8'), ('cpu','i2'), ('tag','i1'), ('family','i1'), ('partp','i4')]
     names = [it for it in names if it[0] in target_fields]
     dtype = names + [('id','i4'), ('iout','i4')]
