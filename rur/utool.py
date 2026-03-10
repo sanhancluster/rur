@@ -41,7 +41,7 @@ def uopen(path, mode):
     return open(path, mode)
 
 
-def dump(data, path, msg=True, format='pkl'):
+def dump(data, path, msg=True, format='pkl', chmod=None, uid=-1, gid=-1):
     t = Timer()
     path = os.path.expanduser(path)
     original = None
@@ -70,11 +70,16 @@ def dump(data, path, msg=True, format='pkl'):
         os.rename(path, original)
         path = original
 
+    if chmod is not None:
+        os.chmod(path, chmod)
+    if (uid>0) or (gid>0):
+        os.chown(path, uid, gid)
+
     if (msg):
         filesize = os.path.getsize(path)
         print("File %s dump complete (%s): %.3f seconds elapsed" % (path, format_bytes(filesize), t.time()))
 
-def datdump(data, path, msg=False):
+def datdump(data, path, msg=False, chmod=None, uid=-1, gid=-1):
     assert isinstance(data[0], np.ndarray), "Data should be numpy.ndarray"
     assert isinstance(data[1], str)
     leng = len(data[0])
@@ -82,6 +87,10 @@ def datdump(data, path, msg=False):
         f.write(leng.to_bytes(4, byteorder='little'))
         f.write(data[0].tobytes())
         f.write(data[1].encode())
+    if chmod is not None:
+        os.chmod(path, chmod)
+    if (uid>0) or (gid>0):
+        os.chown(path, uid, gid)
     if(msg): print(f" `{path}` saved")
 
 def load(path, msg=True, format=None):
@@ -137,7 +146,7 @@ def domload_legacy(path, msg=False):
     if(msg): print(f" `{path}` loaded")
     return domain
 
-def domsave(fname, domain):
+def domsave(fname, domain, chmod=None, uid=-1, gid=-1):
     domain_16 = [dom.astype(np.int16) for dom in domain]
     bdomain = [dom.tobytes() for dom in domain_16]
     nhalo = len(bdomain)
@@ -147,6 +156,10 @@ def domsave(fname, domain):
             f.write(len(bdomain[i]).to_bytes(4, byteorder='little'))
             f.write(bdomain[i])
     assert os.path.exists(fname)
+    if chmod is not None:
+        os.chmod(fname, chmod)
+    if (uid>0) or (gid>0):
+        os.chown(fname, uid, gid)
 
 def domload(path, msg=False, debug=False):
     with open(path, "rb") as f:

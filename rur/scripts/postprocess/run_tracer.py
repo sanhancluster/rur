@@ -30,6 +30,7 @@ def dump_as_dat(data1d, path, msg=False):
     with open(path, "wb") as f:
         f.write(leng.to_bytes(4, byteorder='little'))
         f.write(data1d.tobytes())
+    os.chmod(path, 0o664)
     if(msg): print(f" `{path}` saved")
 
 def load_from_dat(path, dtype='f8', msg=False):
@@ -56,8 +57,10 @@ def dump_as_dats(data1d, path, first, clear_col=None, msg=False):
                 leng = int.from_bytes(f.read(4), byteorder='little')
                 f.seek(4 + leng*bsize*clear_col)
                 f.truncate()
+            os.chmod(path, 0o664)
         with open(path, "ab+") as f:
             f.write(data1d.tobytes())
+        os.chmod(path, 0o664)
     if(msg): print(f" `{path}` saved")
 
 def load_from_dats(path, icols=None, dtype='f8', msg=False):
@@ -127,7 +130,7 @@ for iout in tqdm(table):
             nout = np.append(nout, iout)
             nout = np.unique(nout)
             header['nout'] = nout
-            dump(header, header_name, msg=False)
+            dump(header, header_name, msg=False, chmod=0o664, uid=-1, gid=20005)
         continue # Already done
     elif calced_iout == iout:
         if done_icol == icol:
@@ -135,7 +138,7 @@ for iout in tqdm(table):
                 nout = np.append(nout, iout)
                 nout = np.unique(nout)
                 header['nout'] = nout
-                dump(header, header_name, msg=False)
+                dump(header, header_name, msg=False, chmod=0o664, uid=-1, gid=20005)
             continue # Already done
         else: clear_col = done_icol # Terminated in the middle
     else: clear_col = None
@@ -148,7 +151,7 @@ for iout in tqdm(table):
     tracer = isnap.part.table[argsort]
 
     lenchunk = np.sum(iout_mask)
-    dump(np.array([iout, done_icol]), file_progress, msg=False)
+    dump(np.array([iout, done_icol]), file_progress, msg=False, chmod=0o664, uid=-1, gid=20005)
     for name, dtype in names.items():
         # parked = load_from_dat(f"{parking}/tracer_{name}_{iout:03d}.dat", dtype=dtype)
         parked = tracer[name]
@@ -165,9 +168,9 @@ for iout in tqdm(table):
             arr = parked[cursor : cursor+npart]
             dump_as_dats(arr, fname, first, msg=False, clear_col=clear_col)
             cursor += npart
-    dump(np.array([iout, icol]), file_progress, msg=False)
+    dump(np.array([iout, icol]), file_progress, msg=False, chmod=0o664, uid=-1, gid=20005)
     nout = np.append(nout, iout)
     nout = np.unique(nout)
     header['nout'] = nout
-    dump(header, header_name, msg=False)
+    dump(header, header_name, msg=False, chmod=0o664, uid=-1, gid=20005)
     isnap.clear()
