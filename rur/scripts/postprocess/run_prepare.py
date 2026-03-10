@@ -18,12 +18,14 @@ from _pfunc import vprint, yess, bs, be, filemode
 # ----------------------------------------------
 parser = argparse.ArgumentParser(description='Fast tracer timeseries')
 parser.add_argument("repo", help='repo', type=str)
+parser.add_argument("--maxiout", default=1000000, required=False, help='maxiout', type=int)
 parser.add_argument("--galaxy", action='store_true', default=False)
 parser.add_argument("--halo", action='store_true', default=False)
 parser.add_argument("--verbose", action='store_true')
 parser.add_argument("--debug", action='store_true')
 args = parser.parse_args()
 repo = args.repo
+maxiout = args.maxiout
 galaxy = args.galaxy
 halo = args.halo
 if galaxy and halo:
@@ -151,7 +153,7 @@ vprint(f" > Found {len(tree_bricks)} tree_bricks", verbose)
 new_iouts = []
 for iout in full_iouts:
     if not f"tree_bricks{iout:05d}" in tree_bricks:
-        if iout>30:
+        if iout>30 and iout<=maxiout:
             new_iouts.append(iout)
 if len(new_iouts)==0:
     print(f" > {bs}All halomaker done{be}")
@@ -178,7 +180,7 @@ vprint(f" > Found {len(pbricks)} pkl files", verbose)
 new_iouts = []
 for iout in full_iouts:
     if not f"ptree_{iout:05d}.pkl" in pbricks:
-        if iout>30:
+        if iout>30 and iout<=maxiout:
             new_iouts.append(iout)
 if len(new_iouts)==0:
     print(f" > {bs}All PhantomTree done{be}")
@@ -202,7 +204,7 @@ vprint(f" > Found {len(extended)} extended catalogs", verbose)
 new_iouts = []
 for iout in full_iouts:
     if not f"{iout:05d}" in extended:
-        if iout>30:
+        if iout>30 and iout<=maxiout:
             new_iouts.append(iout)
 if len(new_iouts)==0:
     print(f" > {bs}All extended catalogs are separately done{be}")
@@ -251,7 +253,7 @@ tracer_nout = header['nout']
 new_iouts = []
 for iout in full_iouts:
     if not iout in tracer_nout:
-        if iout>30:
+        if iout>30 and iout<=maxiout:
             new_iouts.append(iout)
 if len(new_iouts)==0:
     print(f" > {bs}All tracer done{be}")
