@@ -109,8 +109,8 @@ for iout in nout:
         for i in tqdm( range(nhal), desc=f"{iout}" ):
             for hname in hnames:
                 harr[hname] = np.nan if(hdict[hname] is None) else hdict[hname][i]
-            dump(harr, f"{hpath}/{i+1:07d}.pkl", msg=False)
-        dump(descs, f"{path}/desc.pkl", msg=False)
+            dump(harr, f"{hpath}/{i+1:07d}.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
+        dump(descs, f"{path}/desc.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
     # Rerun
     else:
         # Load data
@@ -133,8 +133,8 @@ for iout in nout:
                     harr[hname] = np.nan if(hdict[hname] is None) else hdict[hname][i]
                 else:
                     harr[hname] = tmp[hname]
-            dump(harr, f"{hpath}/{i+1:07d}.pkl", msg=False)
-        dump(descs, f"{path}/desc.pkl", msg=False)
+            dump(harr, f"{hpath}/{i+1:07d}.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
+        dump(descs, f"{path}/desc.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
 
 # ----------------------------------------------
 # Record availability
@@ -155,4 +155,4 @@ extend_avail = dict(
     names = names,
     avail = avail,
 )
-dump(extend_avail, f"{snap.repo}/halo/extended/avail.pkl")
+dump(extend_avail, f"{snap.repo}/halo/extended/avail.pkl", chmod=0o664, uid=-1, gid=20005)

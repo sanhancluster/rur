@@ -154,14 +154,14 @@ for iout in nout:
         for i in tqdm( range(ngal), desc=f"{iout}" ):
             for pname in pnames:
                 parr[pname] = np.nan if(pdict[pname] is None) else pdict[pname][i]
-            dump(parr, f"{ppath}/{i+1:07d}.pkl", msg=False)
+            dump(parr, f"{ppath}/{i+1:07d}.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
             for gname in gnames:
                 garr[gname] = np.nan if(gdict[gname] is None) else gdict[gname][i]
-            dump(garr, f"{gpath}/{i+1:07d}.pkl", msg=False)
+            dump(garr, f"{gpath}/{i+1:07d}.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
             for cname in cnames:
                 carr[cname] = np.nan if(cdict[cname] is None) else cdict[cname][i]
-            dump(carr, f"{cpath}/{i+1:07d}.pkl", msg=False)
-        dump(descs, f"{path}/desc.pkl", msg=False)
+            dump(carr, f"{cpath}/{i+1:07d}.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
+        dump(descs, f"{path}/desc.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
     # Rerun
     else:
         # Load data
@@ -202,22 +202,22 @@ for iout in nout:
                     parr[pname] = np.nan if(pdict[pname] is None) else pdict[pname][i]
                 else:
                     parr[pname] = tmp[pname]
-            dump(parr, f"{ppath}/{i+1:07d}.pkl", msg=False)
+            dump(parr, f"{ppath}/{i+1:07d}.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
             tmp = load(f"{gpath}/{i+1:07d}.pkl", msg=False)
             for gname in gnames:
                 if(gname in gextra):
                     garr[gname] = np.nan if(gdict[gname] is None) else gdict[gname][i]
                 else:
                     garr[gname] = tmp[gname]
-            dump(garr, f"{gpath}/{i+1:07d}.pkl", msg=False)
+            dump(garr, f"{gpath}/{i+1:07d}.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
             tmp = load(f"{cpath}/{i+1:07d}.pkl", msg=False)
             for cname in cnames:
                 if(cname in cextra):
                     carr[cname] = np.nan if(cdict[cname] is None) else cdict[cname][i]
                 else:
                     carr[cname] = tmp[cname]
-            dump(carr, f"{cpath}/{i+1:07d}.pkl", msg=False)
-        dump(descs, f"{path}/desc.pkl", msg=False)
+            dump(carr, f"{cpath}/{i+1:07d}.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
+        dump(descs, f"{path}/desc.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
 
 # ----------------------------------------------
 # Record availability
@@ -238,4 +238,4 @@ extend_avail = dict(
     names = names,
     avail = avail,
 )
-dump(extend_avail, f"{snap.repo}/galaxy/extended/avail.pkl")
+dump(extend_avail, f"{snap.repo}/galaxy/extended/avail.pkl", chmod=0o664, uid=-1, gid=20005)
