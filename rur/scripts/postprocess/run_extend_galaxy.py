@@ -293,8 +293,11 @@ def calc_extended(
     # Main Calculation
     if(verbose): print(f" > Start Calculation")
     if(verbose):
-        pbar = tqdm(total=len(table), desc=f"Nthread={min(len(table), nthread)}")
-        def update(*a): pbar.update()
+        pbar = tqdm(total=len(table), desc=f"[{datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S")}] Nthread={min(len(table), nthread)}")
+        def update(*a):
+            pbar.update()
+            now = datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S")
+            pbar.set_description(f"[{now}] Nthread={min(len(table), nthread)}")
     else: update = None
     if(snap is not None): signal.signal(signal.SIGTERM, signal.SIG_DFL)
     with Pool(processes=min(len(table),nthread)) as pool:
@@ -405,8 +408,11 @@ def verify(path, iout, verbose=False, nthread=8,izip=None, partition=-1, DEBUG=F
     # Main Calculation
     if(verbose): print(f" > Start Calculation")
     if(verbose):
-        pbar = tqdm(total=len(table), desc=f"Nthread={min(len(table), nthread)}")
-        def update(*a): pbar.update()
+        pbar = tqdm(total=len(table), desc=f"[{datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S")}] Nthread={min(len(table), nthread)}")
+        def update(*a):
+            pbar.update()
+            now = datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S")
+            pbar.set_description(f"[{now}] Nthread={min(len(table), nthread)}")
     else: update = None
     if(snap is not None): signal.signal(signal.SIGTERM, signal.SIG_DFL)
     with Pool(processes=min(len(table),nthread)) as pool:
