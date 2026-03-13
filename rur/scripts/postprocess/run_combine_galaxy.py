@@ -13,9 +13,9 @@ import shutil
 
 # ---------------------------------------------
 # Edit this
-snap = uri.RamsesSnapshot('/storage7/NewCluster', 623)
+snap = uri.RamsesSnapshot('/storage7/NewCluster', 633)
 #skip = 100000 # No skip
-skip = 623 # No check iout<skip
+skip = 633 # No check iout<skip
 CHEMs = ['H','O','Fe','Mg','C','N', 'S','Si','D']
 # CHEMs = [] # if no chem
 DUSTs = ['CDustLarge','CDustSmall','SiDustLarge','SiDustSmall']
@@ -94,25 +94,34 @@ for iout in nout:
     path = f"{snap.repo}/galaxy/extended/{iout:05d}"
     if(not os.path.exists(path)): continue # Not yet extended
     ppath = f"{path}/part"; gpath = f"{path}/gas"; cpath = f"{path}/chem"
-    if(not os.path.exists(ppath)): os.makedirs(ppath)
-    if(not os.path.exists(gpath)): os.makedirs(gpath)
-    if(not os.path.exists(cpath)): os.makedirs(cpath)
+    if(not os.path.exists(ppath)): 
+        os.makedirs(ppath)
+        os.chmod(ppath, 0o775)
+        os.chown(ppath, -1, 20005)
+    if(not os.path.exists(gpath)): 
+        os.makedirs(gpath)
+        os.chmod(gpath, 0o775)
+        os.chown(gpath, -1, 20005)
+    if(not os.path.exists(cpath)): 
+        os.makedirs(cpath)
+        os.chmod(cpath, 0o775)
+        os.chown(cpath, -1, 20005)
     
     # Check if already done
     descs = {}; rerun = False
-    if(os.path.exists(f"{path}/desc.pkl")):
+    if(os.path.exists(f"{path}/desc.pkl")): # Could be stopped in the middle of extension
         pextra = []; gextra = []; cextra = []
         descs = load(f"{path}/desc.pkl", msg=False)
         for pname in pnames:
-            if(descs[pname]=='Not ready'):
+            if(descs[pname]=='Not ready')or(not os.path.exists(f"{path}/part/0000001.pkl")):
                 pextra.append(pname)
                 rerun = True
         for gname in gnames:
-            if(descs[gname]=='Not ready'):
+            if(descs[gname]=='Not ready')or(not os.path.exists(f"{path}/gas/0000001.pkl")):
                 gextra.append(gname)
                 rerun = True
         for cname in cnames:
-            if(descs[cname]=='Not ready'):
+            if(descs[cname]=='Not ready')or(not os.path.exists(f"{path}/chem/0000001.pkl")):
                 cextra.append(cname)
                 rerun = True
         if(not rerun):
@@ -196,25 +205,28 @@ for iout in nout:
         garr = np.empty(1, dtype=gdtype)[0]
         carr = np.empty(1, dtype=cdtype)[0]
         for i in tqdm( range(ngal), desc=f"{iout}" ):
-            tmp = load(f"{ppath}/{i+1:07d}.pkl", msg=False)
+            pexist = os.path.exists(f"{ppath}/{i+1:07d}.pkl")
+            if pexist: tmp = load(f"{ppath}/{i+1:07d}.pkl", msg=False)
             for pname in pnames:
                 if(pname in pextra):
                     parr[pname] = np.nan if(pdict[pname] is None) else pdict[pname][i]
-                else:
+                elif pexist:
                     parr[pname] = tmp[pname]
             dump(parr, f"{ppath}/{i+1:07d}.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
-            tmp = load(f"{gpath}/{i+1:07d}.pkl", msg=False)
+            gexist = os.path.exists(f"{gpath}/{i+1:07d}.pkl")
+            if gexist: tmp = load(f"{gpath}/{i+1:07d}.pkl", msg=False)
             for gname in gnames:
                 if(gname in gextra):
                     garr[gname] = np.nan if(gdict[gname] is None) else gdict[gname][i]
-                else:
+                elif gexist:
                     garr[gname] = tmp[gname]
             dump(garr, f"{gpath}/{i+1:07d}.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
-            tmp = load(f"{cpath}/{i+1:07d}.pkl", msg=False)
+            cexist = os.path.exists(f"{cpath}/{i+1:07d}.pkl")
+            if cexist: tmp = load(f"{cpath}/{i+1:07d}.pkl", msg=False)
             for cname in cnames:
                 if(cname in cextra):
                     carr[cname] = np.nan if(cdict[cname] is None) else cdict[cname][i]
-                else:
+                elif cexist:
                     carr[cname] = tmp[cname]
             dump(carr, f"{cpath}/{i+1:07d}.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
         dump(descs, f"{path}/desc.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
