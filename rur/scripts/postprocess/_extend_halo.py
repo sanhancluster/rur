@@ -153,9 +153,9 @@ def pre_func(keys, table, snapm, members, snap, snapstar, dm_memory, star_memory
     # r200, r500 should be calculated first
     newcols = {}
 
-    needr200s = ['mdm', 'mstar','mcold','mgas','mdense']
-    # needr200 = True in np.isin(needr200s, keys, assume_unique=True)
-    needr200 = set(needr200s) & set(keys)
+    # needr200s = ['mdm', 'mstar','mcold','mgas','mdense']
+    needr200 = True in np.isin(needr200s, keys, assume_unique=True)
+    # needr200 = set(needr200s) & set(keys)
     if(not 'r500' in keys)&(needr200)&(not 'r500' in table.dtype.names): # r200, r500 already done
         if(verbose):
             print(f" [PreFunc] > Prepare r200, r500", end='\t'); ref = time.time()
@@ -239,12 +239,15 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
         G = 4.30091e-3 # pc Msun^-1 (km/s)^2
         d_pc = memdist / sunits['pc']
         vcir = np.sqrt(G*np.cumsum(memmass)/d_pc)
-        cumsum = np.cumsum(memmass)
-        smooth = gaussian_filter1d(cumsum, 3)
+        del d_pc
+        smooth = gaussian_filter1d(np.cumsum(memmass), 3)
         derivative = np.gradient(smooth)
+        del smooth
         argmax = np.argmax(derivative)
+        del derivative
         rmaxcir = memdist[argmax]#*sunits['pc']
         vmaxcir = vcir[argmax]
+        del vcir
         result_table['vmaxcir'][i] = vmaxcir
         result_table['rmaxcir'][i] = rmaxcir
 
@@ -307,6 +310,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
                 slope, error = getsingle(xx, yy)
             except:
                 slope, error = np.nan, np.nan
+            del xx; del yy; del vol
         del mask
         result_table['inslope'][i] = slope
         result_table['inslopeerr'][i] = error
@@ -369,8 +373,8 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
 
     # R200, M200, R500, M500
     needr200s = ['r500','mstar','mcold','mgas','mdense']
-    # needr200 = True in np.isin(needr200s, result_table.dtype.names, assume_unique=True)
-    needr200 = set(needr200s) & set(result_table.dtype.names)
+    needr200 = True in np.isin(needr200s, result_table.dtype.names, assume_unique=True)
+    # needr200 = set(needr200s) & set(result_table.dtype.names)
     if needr200:
         if('r500' in result_table.dtype.names):
             H0 = sparams['H0']; aexp=sparams['aexp']; kpc=sunits['kpc']
@@ -385,8 +389,9 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             cells, cdist = _get_cell(halo, cells, cdist, cell_memory, return_dist=True)
             stars, sdist = _get_star(halo, stars, sdist, star_memory, return_dist=True)
             dms, ddist = _get_dm(halo, dms, ddist, dm_memory, return_dist=True)
-            dx = 1 / 2**cells['level']; vol = dx**3
+            dx = 1 / 2**cells['level']; vol = dx**3; del dx
             cellmass = cells['rho']*vol / sunits['Msol']
+            del vol
             if nostar:
                 dis = np.hstack((cdist,ddist))/kpc # pkpc
                 mas = np.hstack((cellmass,dms['m']/sunits['Msol'])) # Msol
@@ -429,7 +434,8 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             radius = halo[rname] if rname in halo.dtype.names else result_table[i][rname]
             mask = ddist < radius
             result_table[f'mdm{suffix}'][i] = np.sum(dms['m'][mask]) / sunits['Msol']
-    del dms; del ddist
+        del mask
+        del dms; del ddist
 
     # Mstar
     if('mstar_r500' in result_table.dtype.names):
@@ -439,31 +445,36 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             rname = suffix.replace('_','') if suffix != '' else 'r'
             radius = halo[rname] if rname in halo.dtype.names else result_table[i][rname]
             if nostar:
+                mask=None
                 result_table[f'mstar{suffix}'][i] = 0
             else:
                 mask = sdist < radius
                 result_table[f'mstar{suffix}'][i] = np.sum(stars['m'][mask]) / sunits['Msol']
-    del stars; del sdist
+        del mask
+        del stars; del sdist
 
     # Cell mass
     if('mgas_r500' in result_table.dtype.names):
         cells, cdist = _get_cell(halo, cells, cdist, cell_memory, return_dist=True)
         if cellmass is None:
-            dx = 1 / 2**cells['level']; vol = dx**3
+            dx = 1 / 2**cells['level']; vol = dx**3; del dx
             cellmass = cells['rho']*vol / sunits['Msol']
+            del vol
         for suffix in ['','_rvir','_r200','_r500']:
             if(f'mgas{suffix}' not in result_table.dtype.names): continue
             rname = suffix.replace('_','') if suffix != '' else 'r'
             radius = halo[rname] if rname in halo.dtype.names else result_table[i][rname]
             mask = cdist < radius
             result_table[f'mgas{suffix}'][i] = np.sum(cellmass[mask])
-
+        del mask
+        
     # temperature
     if('mdense_r500' in result_table.dtype.names):
         cells, cdist = _get_cell(halo, cells, cdist, cell_memory, return_dist=True)
         if cellmass is None:
-            dx = 1 / 2**cells['level']; vol = dx**3
+            dx = 1 / 2**cells['level']; vol = dx**3; del dx
             cellmass = cells['rho']*vol / sunits['Msol']
+            del vol
         T = cells['P']/cells['rho'] / sunits['K']
         cold = T < 1e4
         dense = (cells['rho'] / sunits['H/cc'] > 5) & (cold)
@@ -475,7 +486,8 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             mask = cdist < radius
             result_table[f'mcold{suffix}'][i] = np.sum(cellmass[mask & cold])
             result_table[f'mdense{suffix}'][i] = np.sum(cellmass[mask & dense])
-    del cells; del cdist; del cellmass
+        del mask; del cold; del dense
+        del cells; del cdist; del cellmass
 
 
 def dump_func(result_table, table, full_path, iout, names, verbose, izip, partition):
