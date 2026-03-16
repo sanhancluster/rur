@@ -392,14 +392,31 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             dx = 1 / 2**cells['level']; vol = dx**3; del dx
             cellmass = cells['rho']*vol / sunits['Msol']
             del vol
+
+            leng = len(ddist) + len(cdist)
+            if not nostar: leng += len(sdist)
+            dis = np.empty(leng, dtype=np.float64)
+            mas = np.empty(leng, dtype=np.float64)
+
             if nostar:
-                dis = np.hstack((cdist,ddist))/kpc # pkpc
-                mas = np.hstack((cellmass,dms['m']/sunits['Msol'])) # Msol
+                # dis = np.hstack((cdist,ddist))/kpc # pkpc
+                cursor = 0; ladd = len(cdist)
+                dis[cursor:ladd] = cdist / kpc; mas[cursor:ladd] = cellmass; cursor+=ladd
+                ladd = len(ddist)
+                dis[cursor:ladd] = ddist / kpc; mas[cursor:ladd] = dms['m']/sunits['Msol']
+                # mas = np.hstack((cellmass,dms['m']/sunits['Msol'])) # Msol
             else:
-                dis = np.hstack((cdist,sdist,ddist))/kpc # pkpc
-                mas = np.hstack((cellmass,stars['m']/sunits['Msol'],dms['m']/sunits['Msol'])) # Msol
+                # dis = np.hstack((cdist,sdist,ddist))/kpc # pkpc
+                cursor = 0; ladd = len(cdist)
+                dis[cursor:ladd] = cdist / kpc; mas[cursor:ladd] = cellmass; cursor+=ladd
+                ladd = len(sdist)
+                dis[cursor:ladd] = sdist / kpc; mas[cursor:ladd] = stars['m']/sunits['Msol']; cursor+=ladd
+                ladd = len(ddist)
+                dis[cursor:ladd] = ddist / kpc; mas[cursor:ladd] = dms['m']/sunits['Msol']
+                # mas = np.hstack((cellmass,stars['m']/sunits['Msol'],dms['m']/sunits['Msol'])) # Msol
             argsort = np.argsort(dis)
             dis = dis[argsort] # pkpc
+            mindis = dis[0]; maxdis = dis[-1]
             mas = mas[argsort] # Msol
             del argsort
 
@@ -411,13 +428,13 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             del vols
             arg = np.argmin(np.abs(rhos - 200*rhoc))
             r200 = dis[arg] # pkpc
-            if(r200 >= np.max(dis))or(r200 <= np.min(dis)): r200 = np.nan
+            if(r200 >= maxdis)or(r200 <= mindis): r200 = np.nan
             m200 = cmas[arg] # Msol
             result_table['r200'][i] = r200 * sunits['kpc']
             result_table['m200'][i] = m200
             arg = np.argmin(np.abs(rhos - 500*rhoc))
             r500 = dis[arg] # pkpc
-            if(r500 >= np.max(dis))or(r500 <= np.min(dis)): r500 = np.nan
+            if(r500 >= maxdis)or(r500 <= mindis): r500 = np.nan
             m500 = cmas[arg] # Msol
             result_table['r500'][i] = r500 * sunits['kpc']
             result_table['m500'][i] = m500
