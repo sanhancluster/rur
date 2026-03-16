@@ -153,7 +153,7 @@ def pre_func(keys, table, snapm, members, snap, snapstar, dm_memory, star_memory
     # r200, r500 should be calculated first
     newcols = {}
 
-    # needr200s = ['mdm', 'mstar','mcold','mgas','mdense']
+    needr200s = ['mdm', 'mstar','mcold','mgas','mdense']
     needr200 = True in np.isin(needr200s, keys, assume_unique=True)
     # needr200 = set(needr200s) & set(keys)
     if(not 'r500' in keys)&(needr200)&(not 'r500' in table.dtype.names): # r200, r500 already done
@@ -478,6 +478,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
         T = cells['P']/cells['rho'] / sunits['K']
         cold = T < 1e4
         dense = (cells['rho'] / sunits['H/cc'] > 5) & (cold)
+        del T
         for suffix in ['','_rvir','_r200','_r500']:
             if(f'mcold{suffix}' not in result_table.dtype.names): continue
             if(f'mdense{suffix}' not in result_table.dtype.names): continue

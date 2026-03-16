@@ -200,6 +200,8 @@ def calc_extended(
         if(verbose):
             print(f" > Partition Level: {partition}, ({izip}/{nzip})")
             print(f" > Table: {ntable}->{len(table)}")
+            used_gb, total_gb = get_mem_usage()
+            print(f"   [M{used_gb:.1f}/{total_gb:.1f}]")
 
     if(verbose): print(f" > Calculate for {len(table)} {path_in_repo}s")
     domain = [None for _ in range(len(table))]
@@ -260,13 +262,19 @@ def calc_extended(
 
     # Preprocess
     if(pre_func is not None):
-        if(verbose): print(f" > Preprocess datasets")
+        if(verbose):
+            print(f" > Preprocess datasets")
+            used_gb, total_gb = get_mem_usage()
+            print(f"   [M{used_gb:.1f}/{total_gb:.1f}]")
         table, snapm, members, snap, snapstar, dm_memory, star_memory, cell_memory = pre_func(names, table, snapm, members, snap, snapstar, dm_memory, star_memory, cell_memory, full_path, nthread, verbose)
         walltime = ("Preprocess", time.time()-ref); walltimes.append(walltime); ref = time.time()
 
 
     # Assign shared memory
-    if(verbose): print(f" > Make shared memory")
+    if(verbose):
+        print(f" > Make shared memory")
+        used_gb, total_gb = get_mem_usage()
+        print(f"   [M{used_gb:.1f}/{total_gb:.1f}]")
     shmname = f"extendhalo_{mode}_{path_in_repo}_{snap.iout:05d}"
     if(os.path.exists(f"/dev/shm/{shmname}")): os.remove(f"/dev/shm/{shmname}")
     result_table = np.empty(len(table), dtype=result_dtype)
@@ -275,14 +283,17 @@ def calc_extended(
     shape = result_table.shape; address = memory.name; dtype = result_dtype
 
     # Main Calculation
-    if(verbose): print(f" > Start Calculation")
+    if(verbose):
+        print(f" > Start Calculation")
+        used_gb, total_gb = get_mem_usage()
+        print(f"   [M{used_gb:.1f}/{total_gb:.1f}]")
     if(verbose):
         pbar = tqdm(total=len(table), desc=f"[{datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S")}] Nthread={min(len(table), nthread)}")
         def update(*a):
             pbar.update()
             now = datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S")
-            this_gb, used_gb, total_gb = get_mem_usage()
-            pbar.set_description(f"[{now}][{this_gb:.1f} {used_gb:.1f} {total_gb:.1f}] Nthread={min(len(table), nthread)}")
+            used_gb, total_gb = get_mem_usage()
+            pbar.set_description(f"[{now}][{used_gb:.1f}/{total_gb:.1f}] Nthread={min(len(table), nthread)}")
     else: update = None
     uri.timer.verbose = 0
     if(snap is not None): signal.signal(signal.SIGTERM, signal.SIG_DFL)
@@ -320,20 +331,11 @@ def calc_extended(
 # --------------
 # For memory check
 # --------------
-def get_mem_usage():
-    current_process = psutil.Process(os.getpid())
-    this_gb = current_process.memory_info().rss
-    for child in current_process.children(recursive=True):
-        try:
-            this_gb += child.memory_info().rss
-        except psutil.NoSuchProcess:
-            pass
-        
+def get_mem_usage():        
     mem = psutil.virtual_memory()
     total_gb = mem.total / (1024 ** 3)
     used_gb = mem.used / (1024 ** 3)
-    this_gb = this_gb / (1024 ** 3)
-    return this_gb, used_gb, total_gb
+    return used_gb, total_gb
 
 
 
