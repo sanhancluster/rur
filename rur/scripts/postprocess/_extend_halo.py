@@ -154,7 +154,8 @@ def pre_func(keys, table, snapm, members, snap, snapstar, dm_memory, star_memory
     newcols = {}
 
     needr200s = ['mdm', 'mstar','mcold','mgas','mdense']
-    needr200 = True in np.isin(needr200s, keys, assume_unique=True)
+    # needr200 = True in np.isin(needr200s, keys, assume_unique=True)
+    needr200 = set(needr200s) & set(keys)
     if(not 'r500' in keys)&(needr200)&(not 'r500' in table.dtype.names): # r200, r500 already done
         if(verbose):
             print(f" [PreFunc] > Prepare r200, r500", end='\t'); ref = time.time()
@@ -368,7 +369,8 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
 
     # R200, M200, R500, M500
     needr200s = ['r500','mstar','mcold','mgas','mdense']
-    needr200 = True in np.isin(needr200s, result_table.dtype.names, assume_unique=True)
+    # needr200 = True in np.isin(needr200s, result_table.dtype.names, assume_unique=True)
+    needr200 = set(needr200s) & set(result_table.dtype.names)
     if needr200:
         if('r500' in result_table.dtype.names):
             H0 = sparams['H0']; aexp=sparams['aexp']; kpc=sunits['kpc']
@@ -394,11 +396,14 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             argsort = np.argsort(dis)
             dis = dis[argsort] # pkpc
             mas = mas[argsort] # Msol
+            del argsort
 
             # Inside density
             cmas = np.cumsum(mas) # Msol
+            del mas
             vols = 4/3*np.pi * dis**3 # pkpc^3
             rhos = cmas / vols # Msol pkpc-3
+            del vols
             arg = np.argmin(np.abs(rhos - 200*rhoc))
             r200 = dis[arg] # pkpc
             if(r200 >= np.max(dis))or(r200 <= np.min(dis)): r200 = np.nan
@@ -411,6 +416,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             m500 = cmas[arg] # Msol
             result_table['r500'][i] = r500 * sunits['kpc']
             result_table['m500'][i] = m500
+            del dis; del cmas; del rhos
         else:
             r200 = halo['r200']; r500 = halo['r500']
 
