@@ -189,8 +189,17 @@ def pre_func(keys, table, snapm, members, snap, snapstar, dm_memory, star_memory
 
 
 
-
-
+def calc_dist(arr1, arr2):
+    result = np.empty(arr1.shape, dtype=np.float64)
+    np.subtract(arr1['x'], arr2['x'], out=result)
+    np.square(result, out=result)
+    _tmp = np.empty(arr1.shape, dtype=np.float64)
+    for coord in ['y','z']:
+        np.subtract(arr1[coord], arr2[coord], out=_tmp)
+        np.square(_tmp, out=_tmp)
+        np.add(result, _tmp, out=result)
+    del _tmp
+    return np.sqrt(result, out=result)
 
 
 
@@ -219,11 +228,13 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
     
     # Circular Velocity
     if('rmaxcir' in result_table.dtype.names):
-        memdist = np.sqrt( (members['x']-halo['x'])**2 + (members['y']-halo['y'])**2 + (members['z']-halo['z'])**2 ) # code unit
+        # memdist = np.sqrt( (members['x']-halo['x'])**2 + (members['y']-halo['y'])**2 + (members['z']-halo['z'])**2 ) # code unit
+        memdist = calc_dist(members, halo) # code unit
         if(memmass is None): memmass = members['m'] / sunits['Msol']
         argsort = np.argsort(memdist)
         memdist = memdist[argsort]; memmass = memmass[argsort] # code unit
         nonzero = memdist>0; memdist = memdist[nonzero]; memmass = memmass[nonzero] # code unit
+        del argsort; del nonzero
         G = 4.30091e-3 # pc Msun^-1 (km/s)^2
         d_pc = memdist / sunits['pc']
         vcir = np.sqrt(G*np.cumsum(memmass)/d_pc)
@@ -243,12 +254,14 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             x = r / rs
             return logrho0 - np.log10(x) - 2*np.log10(1 + x)
         if(memdist is None):
-            memdist = np.sqrt( (members['x']-halo['x'])**2 + (members['y']-halo['y'])**2 + (members['z']-halo['z'])**2 )
+            #memdist = np.sqrt( (members['x']-halo['x'])**2 + (members['y']-halo['y'])**2 + (members['z']-halo['z'])**2 )
+            memdist = calc_dist(members, halo) # code unit
         if(memmass is None):
             memmass = members['m'] / sunits['Msol']
             argsort = np.argsort(memdist)        
             memdist = memdist[argsort]; memmass = memmass[argsort]
             nonzero = memdist>0; memdist = memdist[nonzero]; memmass = memmass[nonzero]
+            del argsort; del nonzero
         if 'cNFW' in result_table.dtype.names:
             bins = np.logspace(np.log10(memdist[0]), np.log10(memdist[-1]), 5*int(np.log10(halo['m']))) # code unit
             cmas = np.histogram(memdist, bins, weights=memmass)[0] # Msol
@@ -256,6 +269,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             r = (bins[1:] + bins[:-1]) / 2 / sunits['kpc'] # kpc
             mask = nums > 0
             r = r[mask]; cmas = cmas[mask]; nums = nums[mask]
+            del mask
             poisson_error = 1/np.sqrt(nums)
             rho = cmas / (4/3*np.pi*r**3) # Msol kpc-3
             rvir = halo['rvir'] / sunits['kpc'] # kpc
@@ -292,9 +306,12 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
                 slope, error = getsingle(xx, yy)
             except:
                 slope, error = np.nan, np.nan
+        del mask
         result_table['inslope'][i] = slope
         result_table['inslopeerr'][i] = error
     
+    del members; del memdist; del memmass
+
     cells = None; cdist = None; cellmass=None
     def _get_cell(halo, cells, cdist, cell_memory, return_dist=False):
         if cells is None:
@@ -303,10 +320,13 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             cexist = shared_memory.SharedMemory(name=caddress)
             allcells = np.ndarray(cshape, dtype=cdtype, buffer=cexist.buf)
             domcells = uri.domain_slice(allcells, cdomain, bound_cell, cpulist_all=cpulist_cell)
-            cdist = np.sqrt( (domcells['x']-cx)**2 + (domcells['y']-cy)**2 + (domcells['z']-cz)**2 )
+            del allcells
+            # cdist = np.sqrt( (domcells['x']-cx)**2 + (domcells['y']-cy)**2 + (domcells['z']-cz)**2 )
+            cdist = calc_dist(domcells, halo)
             rmask = cdist <= halo['r']
             if(np.sum(rmask) < 8): rmask = cdist < (halo['r'] + (1 / 2**domcells['level'])/2)
             cells = domcells[rmask]; cdist = cdist[rmask]
+            del domcells; del rmask
         if(return_dist): return cells, cdist
         return cells
     dms = None; ddist = None
@@ -317,9 +337,12 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             dexist = shared_memory.SharedMemory(name=daddress)
             alldms = np.ndarray(dshape, dtype=ddtype, buffer=dexist.buf)
             domdms = uri.domain_slice(alldms, cdomain, bound_dm, cpulist_all=cpulist_dm)
-            ddist = np.sqrt( (domdms['x']-cx)**2 + (domdms['y']-cy)**2 + (domdms['z']-cz)**2 )
+            del alldms
+            #ddist = np.sqrt( (domdms['x']-cx)**2 + (domdms['y']-cy)**2 + (domdms['z']-cz)**2 )
+            ddist = calc_dist(domdms, halo)
             dmask = ddist <= halo['r']
             dms = domdms[dmask]; ddist = ddist[dmask]
+            del domdms; del dmask
         if(return_dist): return dms, ddist
         return dms
     stars = None; sdist = None
@@ -334,9 +357,12 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
                 sexist = shared_memory.SharedMemory(name=saddress)
                 allstars = np.ndarray(sshape, dtype=sdtype, buffer=sexist.buf)
                 domstars = uri.domain_slice(allstars, cdomain, bound_star, cpulist_all=cpulist_star)
-                sdist = np.sqrt( (domstars['x']-cx)**2 + (domstars['y']-cy)**2 + (domstars['z']-cz)**2 )
+                del allstars
+                #sdist = np.sqrt( (domstars['x']-cx)**2 + (domstars['y']-cy)**2 + (domstars['z']-cz)**2 )
+                sdist = calc_dist(domstars, halo)
                 smask = sdist <= halo['r']
                 stars = domstars[smask]; sdist = sdist[smask]
+                del domstars; del smask
         if(return_dist): return stars, sdist
         return stars
 
@@ -397,6 +423,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             radius = halo[rname] if rname in halo.dtype.names else result_table[i][rname]
             mask = ddist < radius
             result_table[f'mdm{suffix}'][i] = np.sum(dms['m'][mask]) / sunits['Msol']
+    del dms; del ddist
 
     # Mstar
     if('mstar_r500' in result_table.dtype.names):
@@ -410,7 +437,8 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             else:
                 mask = sdist < radius
                 result_table[f'mstar{suffix}'][i] = np.sum(stars['m'][mask]) / sunits['Msol']
-            
+    del stars; del sdist
+
     # Cell mass
     if('mgas_r500' in result_table.dtype.names):
         cells, cdist = _get_cell(halo, cells, cdist, cell_memory, return_dist=True)
@@ -441,7 +469,7 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             mask = cdist < radius
             result_table[f'mcold{suffix}'][i] = np.sum(cellmass[mask & cold])
             result_table[f'mdense{suffix}'][i] = np.sum(cellmass[mask & dense])
-
+    del cells; del cdist; del cellmass
 
 
 def dump_func(result_table, table, full_path, iout, names, verbose, izip, partition):

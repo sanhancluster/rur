@@ -9,6 +9,7 @@ import os, glob, sys
 from multiprocessing import Pool, shared_memory
 from tqdm import tqdm
 import argparse, time, datetime, signal
+import psutil
 
 """
 Extend list:
@@ -280,8 +281,10 @@ def calc_extended(
         def update(*a):
             pbar.update()
             now = datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S")
-            pbar.set_description(f"[{now}] Nthread={min(len(table), nthread)}")
+            this_gb, used_gb, total_gb = get_mem_usage()
+            pbar.set_description(f"[{now}][{this_gb:.1f} {used_gb:.1f} {total_gb:.1f}] Nthread={min(len(table), nthread)}")
     else: update = None
+    uri.timer.verbose = 0
     if(snap is not None): signal.signal(signal.SIGTERM, signal.SIG_DFL)
     with Pool(processes=min(len(table),nthread)) as pool:
         async_result = [pool.apply_async(calc_func, args=(i, table[i], shape, address, dtype, sparams, sunits, getmem(members, cparts, i), dm_memory, star_memory, cell_memory, domain[i]), callback=update) for i in range(len(table))]
@@ -291,6 +294,7 @@ def calc_extended(
     if(verbose):
         pbar.close(); delprint(1)
     walltime = ("Get results", time.time()-ref); walltimes.append(walltime); ref = time.time()
+    uri.timer.verbose = 1 if verbose else 0
     if('cNFW' in result_table.dtype.names)and('inslope' in result_table.dtype.names):
         NnanNFW = np.sum(np.isnan(result_table['cNFW']))
         Nnanslope = np.sum(np.isnan(result_table['inslope']))
@@ -313,8 +317,23 @@ def calc_extended(
 
 
 
-
-
+# --------------
+# For memory check
+# --------------
+def get_mem_usage():
+    current_process = psutil.Process(os.getpid())
+    this_gb = current_process.memory_info().rss
+    for child in current_process.children(recursive=True):
+        try:
+            this_gb += child.memory_info().rss
+        except psutil.NoSuchProcess:
+            pass
+        
+    mem = psutil.virtual_memory()
+    total_gb = mem.total / (1024 ** 3)
+    used_gb = mem.used / (1024 ** 3)
+    this_gb = this_gb / (1024 ** 3)
+    return this_gb, used_gb, total_gb
 
 
 
