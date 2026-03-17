@@ -84,7 +84,7 @@ print(f"=================================")
 # Recorded iout table from txt
 snap = uri.RamsesSnapshot(repo, 1)
 snaps = uri.TimeSeries(snap)
-snaps.read_iout_avail()
+snaps.read_iout_avail(allow_write=True)
 vprint(f" > Check `{repo}/list_iout_avail.txt`", verbose)
 full_iouts = snaps.iout_avail['iout'] # type: ignore
 vprint(f" > Recorded iouts: {full_iouts[0]}~{full_iouts[-1]} ({len(full_iouts)})", verbose)
@@ -174,6 +174,9 @@ print(f"=================================")
 print(f"{bs} 3. Check merger tree {be}")
 print(f"=================================")
 vprint(f" > Check `{ptree_repo}`", verbose)
+if not os.path.exists(ptree_repo):
+    os.makedirs(ptree_repo)
+    os.chmod(ptree_repo, 0o775); os.chown(ptree_repo, -1, 20005)
 pbricks = os.listdir(ptree_repo)
 pbricks = [f for f in pbricks if f.endswith('pkl')]
 pbricks.sort()
@@ -181,8 +184,12 @@ vprint(f" > Found {len(pbricks)} pkl files", verbose)
 new_iouts = []
 for iout in full_iouts:
     if not f"ptree_{iout:05d}.pkl" in pbricks:
-        if iout>30 and iout<=maxiout:
-            new_iouts.append(iout)
+        if 'NewCluster' in repo:
+            if iout>30 and iout<=maxiout:
+                new_iouts.append(iout)
+        else:
+            if iout<=maxiout:
+                new_iouts.append(iout)
 if len(new_iouts)==0:
     print(f" > {bs}All PhantomTree done{be}")
 else:
@@ -196,6 +203,9 @@ print(f"{bs} 4. Check extended catalog {be}")
 print(f"=================================")
 extrepo = f"{catrepo}/extended"
 vprint(f" > Check `{extrepo}`", verbose)
+if not os.path.exists(extrepo):
+    os.makedirs(extrepo)
+    os.chmod(extrepo, 0o775); os.chown(extrepo, -1, 20005)
 extended = os.listdir(extrepo)
 extended = [f for f in extended if f.startswith('0')]
 extended.sort()
@@ -205,8 +215,12 @@ vprint(f" > Found {len(extended)} extended catalogs", verbose)
 new_iouts = []
 for iout in full_iouts:
     if not f"{iout:05d}" in extended:
-        if iout>30 and iout<=maxiout:
-            new_iouts.append(iout)
+        if 'NewCluster' in repo:
+            if iout>30 and iout<=maxiout:
+                new_iouts.append(iout)
+        else:
+            if iout<=maxiout:
+                new_iouts.append(iout)
 if len(new_iouts)==0:
     print(f" > {bs}All extended catalogs are separately done{be}")
     check_combine=True
