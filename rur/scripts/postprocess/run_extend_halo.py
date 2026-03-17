@@ -9,6 +9,7 @@ import os, glob, sys
 from multiprocessing import Pool, shared_memory
 from tqdm import tqdm
 import argparse, time, datetime, signal
+import psutil
 
 """
 Extend list:
@@ -199,6 +200,8 @@ def calc_extended(
         if(verbose):
             print(f" > Partition Level: {partition}, ({izip}/{nzip})")
             print(f" > Table: {ntable}->{len(table)}")
+            used_gb, total_gb = get_mem_usage()
+            print(f"   [M{used_gb:.1f}/{total_gb:.1f}]")
 
     if(verbose): print(f" > Calculate for {len(table)} {path_in_repo}s")
     domain = [None for _ in range(len(table))]
@@ -259,13 +262,19 @@ def calc_extended(
 
     # Preprocess
     if(pre_func is not None):
-        if(verbose): print(f" > Preprocess datasets")
+        if(verbose):
+            print(f" > Preprocess datasets")
+            used_gb, total_gb = get_mem_usage()
+            print(f"   [M{used_gb:.1f}/{total_gb:.1f}]")
         table, snapm, members, snap, snapstar, dm_memory, star_memory, cell_memory = pre_func(names, table, snapm, members, snap, snapstar, dm_memory, star_memory, cell_memory, full_path, nthread, verbose)
         walltime = ("Preprocess", time.time()-ref); walltimes.append(walltime); ref = time.time()
 
 
     # Assign shared memory
-    if(verbose): print(f" > Make shared memory")
+    if(verbose):
+        print(f" > Make shared memory")
+        used_gb, total_gb = get_mem_usage()
+        print(f"   [M{used_gb:.1f}/{total_gb:.1f}]")
     shmname = f"extendhalo_{mode}_{path_in_repo}_{snap.iout:05d}"
     if(os.path.exists(f"/dev/shm/{shmname}")): os.remove(f"/dev/shm/{shmname}")
     result_table = np.empty(len(table), dtype=result_dtype)
@@ -274,14 +283,19 @@ def calc_extended(
     shape = result_table.shape; address = memory.name; dtype = result_dtype
 
     # Main Calculation
-    if(verbose): print(f" > Start Calculation")
+    if(verbose):
+        print(f" > Start Calculation")
+        used_gb, total_gb = get_mem_usage()
+        print(f"   [M{used_gb:.1f}/{total_gb:.1f}]")
     if(verbose):
         pbar = tqdm(total=len(table), desc=f"[{datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S")}] Nthread={min(len(table), nthread)}")
         def update(*a):
             pbar.update()
             now = datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S")
-            pbar.set_description(f"[{now}] Nthread={min(len(table), nthread)}")
+            used_gb, total_gb = get_mem_usage()
+            pbar.set_description(f"[{now}][{used_gb:.1f}/{total_gb:.1f}] Nthread={min(len(table), nthread)}")
     else: update = None
+    uri.timer.verbose = 0
     if(snap is not None): signal.signal(signal.SIGTERM, signal.SIG_DFL)
     with Pool(processes=min(len(table),nthread)) as pool:
         async_result = [pool.apply_async(calc_func, args=(i, table[i], shape, address, dtype, sparams, sunits, getmem(members, cparts, i), dm_memory, star_memory, cell_memory, domain[i]), callback=update) for i in range(len(table))]
@@ -291,6 +305,7 @@ def calc_extended(
     if(verbose):
         pbar.close(); delprint(1)
     walltime = ("Get results", time.time()-ref); walltimes.append(walltime); ref = time.time()
+    uri.timer.verbose = 1 if verbose else 0
     if('cNFW' in result_table.dtype.names)and('inslope' in result_table.dtype.names):
         NnanNFW = np.sum(np.isnan(result_table['cNFW']))
         Nnanslope = np.sum(np.isnan(result_table['inslope']))
@@ -313,8 +328,14 @@ def calc_extended(
 
 
 
-
-
+# --------------
+# For memory check
+# --------------
+def get_mem_usage():        
+    mem = psutil.virtual_memory()
+    total_gb = mem.total / (1024 ** 3)
+    used_gb = mem.used / (1024 ** 3)
+    return used_gb, total_gb
 
 
 
