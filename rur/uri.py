@@ -2099,6 +2099,11 @@ class RamsesSnapshot(object):
         if cache is not None:
             sink = np.concatenate([cache, sink])
 
+        timer.start('Sorting by `icoarse` and `id`... ')
+        lexsort = np.lexsort((sink['icoarse'], sink['id']))
+        sink = sink[lexsort]
+        timer.record()
+
         if (reset_cache or use_cache):
             cache_file = join(path, cache_name)
             utool.dump(sink, cache_file, format=cache_format)
