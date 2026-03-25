@@ -36,7 +36,8 @@ def get_macc(tl, mseed=None):
 
 def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_params=dict(),
                        smooth=1, eagn_T=0.05, vlines=[], title=None, savefile=None, lw_small=0.7, ylims=None,
-                       eddington_cap=True, show_macc=True, show_bondi=True):
+                       eddington_cap=True, show_macc=True, show_bondi=True,
+                       axes=None, xarr=None):
     """
     Available modes = ['mass', 'velocity', 'density', 'accretion_rate', 'eddington_rate', 'spin', 'epsilon', 'energy',
                  'tot_energy']
@@ -56,15 +57,17 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
         modes = ['mass', 'velocity', 'density', 'accretion_rate', 'eddington_rate', 'spin', 'epsilon', 'energy',
                  'tot_energy']
     nrows = len(modes)
-    fig, axes = plt.subplots(ncols=1, nrows=nrows, figsize=(8, nrows * 2), dpi=150, sharex=True)
+    if axes is None:
+        fig, axes = plt.subplots(ncols=1, nrows=nrows, figsize=(8, nrows * 2), dpi=150, sharex=True)
     if title is not None:
         axes[0].set_title(title)
     plt.subplots_adjust(hspace=0.1)
     tl.sort(order='aexp')
-    if xmode == 'aexp':
-        xarr = tl['aexp']
-    else:
-        xarr = tl['icoarse']
+    if xarr is None:
+        if xmode == 'aexp':
+            xarr = tl['aexp']
+        else:
+            xarr = tl['icoarse']
 
     unit = set_unit(tl['aexp'], snap)
     unit_m = unit['m']  # unit to g

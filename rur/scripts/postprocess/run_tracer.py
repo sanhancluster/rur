@@ -30,7 +30,7 @@ def dump_as_dat(data1d, path, msg=False):
     with open(path, "wb") as f:
         f.write(leng.to_bytes(4, byteorder='little'))
         f.write(data1d.tobytes())
-    os.chmod(path, 0o664)
+    os.chmod(path, 0o664); os.chown(path, -1, 20005)
     if(msg): print(f" `{path}` saved")
 
 def load_from_dat(path, dtype='f8', msg=False):
@@ -60,7 +60,7 @@ def dump_as_dats(data1d, path, first, clear_col=None, msg=False):
             os.chmod(path, 0o664)
         with open(path, "ab+") as f:
             f.write(data1d.tobytes())
-        os.chmod(path, 0o664)
+        os.chmod(path, 0o664); os.chown(path, -1, 20005)
     if(msg): print(f" `{path}` saved")
 
 def load_from_dats(path, icols=None, dtype='f8', msg=False):
@@ -118,7 +118,9 @@ for iout in tqdm(table):
 
     # Ith output check
     dirname = f"{path}/{mynumber}00"
-    if not os.path.exists(dirname): os.makedirs(dirname)
+    if not os.path.exists(dirname):
+        os.makedirs(dirname)
+        os.chmod(dirname, 0o775); os.chown(dirname, -1, 20005)
     file_progress = f"{dirname}/progress.pkl"
     iout_mask = (table >= (mynumber)*100)&(table < (mynumber + 1)*100)
     icol = np.where(table[iout_mask] == iout)[0][0]

@@ -101,7 +101,9 @@ def calc_extended(
     names = list(name_dicts.keys())
     prefix = "HAL"
     full_path = f"{path}/{path_in_repo}/extended/{iout:05d}"
-    if(not os.path.exists(full_path)): os.makedirs(full_path)
+    if(not os.path.exists(full_path)):
+        os.makedirs(full_path)
+        os.chmod(full_path, 0o775); os.chown(full_path, -1, 20005)
     uri.timer.verbose=0
     snap = uri.RamsesSnapshot(path, iout); snap.shmprefix = "extendhalo"
     uri.timer.verbose = 1 if verbose else 0
@@ -356,7 +358,9 @@ def verify(path, iout, verbose=False, nthread=8,izip=None, partition=-1, DEBUG=F
     path_in_repo = 'halo'
     prefix = "HAL"
     full_path = f"{path}/{path_in_repo}/extended/{iout:05d}"
-    if(not os.path.exists(full_path)): os.makedirs(full_path)
+    if(not os.path.exists(full_path)):
+        os.makedirs(full_path)
+        os.chmod(full_path, 0o775); os.chown(full_path, -1, 20005)
     if os.path.exists(f"{full_path}/wrong_verified.txt"): return False
     if os.path.exists(f"{full_path}/good_verified.txt"): return True
     uri.timer.verbose=0
