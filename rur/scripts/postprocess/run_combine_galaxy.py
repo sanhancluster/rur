@@ -15,7 +15,7 @@ import shutil
 # Edit this
 snap = uri.RamsesSnapshot('/storage7/NewCluster', 633)
 #skip = 100000 # No skip
-skip = 633 # No check iout<skip
+skip = 50 # No check iout<skip
 CHEMs = ['H','O','Fe','Mg','C','N', 'S','Si','D']
 # CHEMs = [] # if no chem
 DUSTs = ['CDustLarge','CDustSmall','SiDustLarge','SiDustSmall']

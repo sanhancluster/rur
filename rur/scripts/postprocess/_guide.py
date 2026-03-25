@@ -9,13 +9,14 @@ def makeinput(youts, snappath, halpath, version='Ra3', ncore=1):
     # Check write permission
     if(os.access(halpath, os.W_OK)==False):
         raise PermissionError(f"Error: `{halpath}` is not writable!\nAsk admin to change permission.")
-
-    if(os.path.exists(f"{halpath}/inputfiles_HaloMaker.dat")):
-        os.remove(f"{halpath}/inputfiles_HaloMaker.dat")
-    with open(f"{halpath}/inputfiles_HaloMaker.dat", "w") as f:
+    fname = f"{halpath}/inputfiles_HaloMaker.dat"
+    if(os.path.exists(fname)):
+        os.remove(fname)
+    with open(fname, "w") as f:
         for yout in youts:
             line = f"'{snappath}/output_{yout:05d}/'\t{version}\t{ncore}\t{yout:05d}\n"
             f.write(line)
+    os.chmod(fname, 0o664); os.chown(fname, -1, 20005)
 
 def howtodo_halomaker(catrepo, new_iouts, galaxy=False, debug=False, snaprepo="/"):
     gstr = "Galaxy" if galaxy else "Halo"
