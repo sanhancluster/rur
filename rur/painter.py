@@ -20,6 +20,7 @@ from rur.config import default_path_in_repo, timer, tqdm
 import matplotlib as mpl
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from itertools import cycle
+from astropy.visualization import ManualInterval
 
 default_box = np.array([[0, 1], [0, 1], [0, 1]])
 
@@ -1489,24 +1490,29 @@ def add_ruler(snap, box=None, ruler_size=None, proj_now=[0, 1], direction='horiz
 
 
 
-def sdss_rgb(star, filename=None, **kwargs):
-    mags = phot.measure_magnitude(star, 'SDSS_g')
-    lums = 10 ** (-mags / 2.5)
-    g = partmap(star, weights=lums, **kwargs)
+def sdss_rgb(star, filter_r='SDSS_i', filter_g='SDSS_r', filter_b='SDSS_g', vmax=[1E20, 1E20, 7.5E19], filename=None, lupton_kwargs={}, **kwargs):
+    lums = phot.measure_luminosity(star, filter_b)
+    g = partmap(star, weights=lums, crho=True, **kwargs)
 
-    mags = phot.measure_magnitude(star, 'SDSS_r')
-    lums = 10 ** (-mags / 2.5)
-    r = partmap(star, weights=lums, **kwargs)
+    lums = phot.measure_luminosity(star, filter_g)
+    r = partmap(star, weights=lums, crho=True, **kwargs)
 
-    mags = phot.measure_magnitude(star, 'SDSS_i')
-    lums = 10 ** (-mags / 2.5)
-    i = partmap(star, weights=lums, **kwargs)
+    lums = phot.measure_luminosity(star, filter_r)
+    i = partmap(star, weights=lums, crho=True, **kwargs)
 
-    maxi = np.max([np.quantile(g, 0.99), np.quantile(r, 0.99), np.quantile(i, 0.99)])
+    if isinstance(vmax, (list, tuple, np.ndarray)):
+        g = g / vmax[2]
+        r = r / vmax[1]
+        i = i / vmax[0]
+    else:
+        g = g / vmax
+        r = r / vmax
+        i = i / vmax
 
-    g = g / maxi
-    r = r / maxi
-    i = i / maxi
+    if 'stretch' not in lupton_kwargs:
+        lupton_kwargs['stretch'] = 0.001
+    if 'Q' not in lupton_kwargs:
+        lupton_kwargs['Q'] = 10
 
-    rgb_default = make_lupton_rgb(i, r, g, Q=10, stretch=0.5, filename=filename)
+    rgb_default = make_lupton_rgb(i, r, g, filename=filename, **lupton_kwargs)
     return rgb_default
