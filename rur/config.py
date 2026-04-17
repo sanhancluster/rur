@@ -122,6 +122,7 @@ class Timestamp:
         self.stamps = {}
         self.stamps['start'] = self.t0
         self.stamps['last'] = self.t0
+        self.stat = {}
         self.verbose = 1
         self.use_color = use_color
         self.log_path = log_path
@@ -174,12 +175,27 @@ class Timestamp:
                 print(f"[ {time_string} ] {message} -> {recorded_time_string}")
             if self.log_path is not None:
                 self.log.write(f"[ {time_string} ] {message} -> {recorded_time_string}\n")
+        if name not in self.stat:
+            self.stat[name] = 0.0
+        self.stat[name] += self.elapsed(name)
 
     def measure(self, func, message=None, *args, **kwargs):
         self.start(message)
         result = func(*args, **kwargs)
         self.record()
         return result
+
+    def summary(self):
+        print("Summary of time consumption:")
+        for name, t in self.stat.items():
+            time_string = get_time_string(t, add_units=True)
+            print(f"  {CYAN}{name}{RESET}: {GREEN}{time_string}{RESET}")
+        if self.log_path is not None:
+            self.log.write("Summary of time consumption:\n")
+            for name, t in self.stat.items():
+                time_string = get_time_string(t, add_units=True)
+                self.log.write(f"  {name}: {time_string}\n")
+            self.log.close()
 
 def get_time_string(elapsed_time, add_units=False, use_float=False):
     """
