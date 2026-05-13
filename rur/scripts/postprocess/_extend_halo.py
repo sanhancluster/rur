@@ -401,18 +401,18 @@ def calc_func(i, halo, shape, address, dtype, sparams, sunits, members, dm_memor
             if nostar:
                 # dis = np.hstack((cdist,ddist))/kpc # pkpc
                 cursor = 0; ladd = len(cdist)
-                dis[cursor:ladd] = cdist / kpc; mas[cursor:ladd] = cellmass; cursor+=ladd
+                dis[cursor:cursor+ladd] = cdist / kpc; mas[cursor:cursor+ladd] = cellmass; cursor+=ladd
                 ladd = len(ddist)
-                dis[cursor:ladd] = ddist / kpc; mas[cursor:ladd] = dms['m']/sunits['Msol']
+                dis[cursor:cursor+ladd] = ddist / kpc; mas[cursor:cursor+ladd] = dms['m']/sunits['Msol']
                 # mas = np.hstack((cellmass,dms['m']/sunits['Msol'])) # Msol
             else:
                 # dis = np.hstack((cdist,sdist,ddist))/kpc # pkpc
                 cursor = 0; ladd = len(cdist)
-                dis[cursor:ladd] = cdist / kpc; mas[cursor:ladd] = cellmass; cursor+=ladd
+                dis[cursor:cursor+ladd] = cdist / kpc; mas[cursor:cursor+ladd] = cellmass; cursor+=ladd
                 ladd = len(sdist)
-                dis[cursor:ladd] = sdist / kpc; mas[cursor:ladd] = stars['m']/sunits['Msol']; cursor+=ladd
+                dis[cursor:cursor+ladd] = sdist / kpc; mas[cursor:cursor+ladd] = stars['m']/sunits['Msol']; cursor+=ladd
                 ladd = len(ddist)
-                dis[cursor:ladd] = ddist / kpc; mas[cursor:ladd] = dms['m']/sunits['Msol']
+                dis[cursor:cursor+ladd] = ddist / kpc; mas[cursor:cursor+ladd] = dms['m']/sunits['Msol']
                 # mas = np.hstack((cellmass,stars['m']/sunits['Msol'],dms['m']/sunits['Msol'])) # Msol
             argsort = np.argsort(dis)
             dis = dis[argsort] # pkpc
