@@ -112,7 +112,7 @@ class FortranFile(object):
         if readed.size == 0:
             raise IOError('File pointer reached EOF at {:d}.'.format(self._fp.tell()))
 
-        return int(readed)
+        return int(readed[0])
 
     def write_record(self, *items):
         """
