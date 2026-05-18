@@ -11,3 +11,4 @@
 *.mod
 rur/scripts/jeon/trashcan/*
 rur/scripts/jeon/*.ipynb
+rur/scripts/ncdraw/test.ipynb

@@ -157,6 +157,7 @@ need_extend = (P.GRADIUS not in gtree.dtype.names)
 if need_extend:
     gextend_path = f"{snap.repo}/galaxy/extended"
     pkeys = [P.GRADIUS]
+    if P.SHOW_MERGER: pkeys.append("SFR")
     gkeys = []
     ckeys = []
     keys = pkeys + gkeys + ckeys
@@ -212,6 +213,63 @@ for uni, ind, count in zip(unis, inds, counts):
     # Draw others
     # ---------------------------
     smbh.draw_sink_timeline(snap, isink_timeline, show_macc=False, axes=axes, xmode='Age [Gyr]', xarr=xgyr, plot_params=dict(color='k'))
+    
+    # SHOW MERGER
+    if P.SHOW_MERGER:
+        # Inferred from galaxy merger tree
+        gx = snaps.interpolate_iout_table(gtree['timestep'], 'iout', 'age')
+        dM = np.diff(gtree['m']) # True
+        dM_SFR = extended['SFR'][1:] * np.diff(gx*1e9) # Expected
+        mask1 = (dM > (dM_SFR + gtree['m'][1:]/20))&(dM > 1e8)
+        _mask1 = (dM<0) & (-dM / gtree['m'][1:] > 0.001)
+        mask1 = mask1|_mask1
+        mask2 = gtree['score_fat'][1:] < 0.45
+        mask = mask1&mask2
+        tmp = gtree['timestep'][1:][mask]
+        gmerger_age = snaps.interpolate_iout_table(tmp, 'iout', 'age')
+        oldout=-1
+        istart=0; iend=0; istarta=0; ienda=0
+        for _iout, _iage in zip(tmp, gmerger_age):
+            if (_iout-oldout > 10):
+                if (istart>0)and(iend>0):
+                    for ax in axes:
+                        ax.axvspan(istarta, ienda, ec='none', fc='r', alpha=0.5, zorder=-101)
+                    istart=0; iend=0; istarta=0; ienda=0
+                istart = _iout
+                istarta = _iage
+            # else:
+            iend = _iout
+            ienda = _iage
+            oldout = _iout
+
+        # Inferred from sink
+        x = isink_timeline['icoarse'][1:]
+        y = np.diff(isink_timeline['m'])/snap.unit['Msol']
+        y2 = isink_timeline['dM'][1:]/snap.unit['Msol'] / (1-isink_timeline[1:]['eps_sink'])
+        mask = y >= (y2+1e6)
+        merger_icorase = x[mask]
+        tmp = merger_icorase
+        merger_age = snaps.interpolate_icoarse_table(merger_icorase, 'icoarse', 'age')
+        oldout=-1
+        istart=0; iend=0; istarta=0; ienda=0
+        for _iout, _iage in zip(tmp, merger_age):
+            if (_iout-oldout > 300):
+                if (istart>0)and(iend>0):
+                    for ax in axes:
+                        if istarta==ienda:
+                            ax.axvline(istarta, color='k', ls='-', lw=1, alpha=0.6, zorder=-101)
+                        else:
+                            ax.axvspan(istarta, ienda, ec='none', fc='k', alpha=0.6, zorder=-100)
+                    istart=0; iend=0; istarta=0; ienda=0
+                istart = _iout
+                istarta = _iage
+            # else:
+            iend = _iout
+            ienda = _iage
+            oldout = _iout
+        # for ax in axes:
+        #     for iage in merger_age:
+        #         ax.axvline(iage, color='k', ls='-', alpha=0.5, lw=1, zorder=-100)
 
     # ---------------------------
     # Draw track
