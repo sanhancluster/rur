@@ -14,7 +14,12 @@ from scipy.sparse import csr_matrix
 import string
 import matplotlib.collections as mcoll
 from os.path import dirname, join, abspath
-import pkg_resources
+try:
+    import pkg_resources
+    cmap_dir = pkg_resources.resource_filename('rur', 'colormaps/data/')
+except:
+    import importlib.resources
+    cmap_dir = importlib.resources.files('rur').joinpath('colormaps','data')
 
 def colorline(
         x, y, z=None, cmap=plt.get_cmap('copper'), norm=plt.Normalize(0.0, 1.0),
@@ -1486,7 +1491,7 @@ class ccm:
 
     mypath = dirname(abspath(__file__))
 
-    cmap_dir = pkg_resources.resource_filename('rur', 'colormaps/data/')
+    # cmap_dir = pkg_resources.resource_filename('rur', 'colormaps/data/')
     hesperia = load_cmap(join(cmap_dir, 'hesperia.csv'))
     laguna = load_cmap(join(cmap_dir, 'laguna.csv'))
     lacerta = load_cmap(join(cmap_dir, 'lacerta.csv'))
