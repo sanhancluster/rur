@@ -230,39 +230,43 @@ class HaloMaker:
 
 
     @staticmethod
-    def load(snap, path_in_repo=None, galaxy=False, full_path=None, load_parts=False, double_precision=True, copy_part_id=True, extend=False):
+    def load(snap=None, path_in_repo=None, galaxy=False, full_path=None, load_parts=False, double_precision=True, copy_part_id=True, extend=False):
         # boxsize: comoving length of the box in Mpc
-        repo = snap.repo
-        start = snap.iout
-        end = start+1
-        if(double_precision is None):
-            if(galaxy):
-                # galaxies uses dp, while halo data uses sp
-                double_precision=True
+        if snap is not None:
+            repo = snap.repo
+            start = snap.iout
+            end = start+1
+            if(double_precision is None):
+                if(galaxy):
+                    # galaxies uses dp, while halo data uses sp
+                    double_precision=True
+                else:
+                    double_precision=False
+                if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2')or(snap.mode=='fornax')or(snap.mode=='y4')or(snap.mode=='y3'):
+                    double_precision=True
+                else:
+                    double_precision=False
+            if (galaxy):
+                if(path_in_repo is None):
+                    path_in_repo = default_path_in_repo['GalaxyMaker']
+                if(not double_precision):
+                    dtype = HaloMaker.galaxy_dtype
+                else:
+                    dtype = HaloMaker.galaxy_dtype_dp
             else:
-                double_precision=False
-            if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2')or(snap.mode=='fornax')or(snap.mode=='y4')or(snap.mode=='y3'):
-                double_precision=True
-            else:
-                double_precision=False
-        if (galaxy):
-            if(path_in_repo is None):
-                path_in_repo = default_path_in_repo['GalaxyMaker']
-            if(not double_precision):
-                dtype = HaloMaker.galaxy_dtype
-            else:
-                dtype = HaloMaker.galaxy_dtype_dp
-        else:
-            if(path_in_repo is None):
-                path_in_repo = default_path_in_repo['HaloMaker']
-            if(not double_precision):
-                dtype = HaloMaker.halo_dtype
-            else:
-                dtype = HaloMaker.halo_dtype_dp
-        path = os.path.join(repo, path_in_repo)
+                if(path_in_repo is None):
+                    path_in_repo = default_path_in_repo['HaloMaker']
+                if(not double_precision):
+                    dtype = HaloMaker.halo_dtype
+                else:
+                    dtype = HaloMaker.halo_dtype_dp
+            path = os.path.join(repo, path_in_repo)
 
         if(full_path is not None):
             path = full_path
+        
+        if snap is None and full_path is None:
+            raise ValueError("Either `snap` or `full_path` must be provided.")
 
         #print("Searching for tree_brick in ", path)
         readh.read_bricks(path, galaxy, start, end, load_parts, double_precision)
@@ -284,7 +288,8 @@ class HaloMaker:
                 array = fromarrays([*readh.integer_table.T, *readh.real_table_dp.T, mcont], dtype=dtype)
             else:
                 array = fromarrays([*readh.integer_table.T, *readh.real_table_dp.T], dtype=dtype)
-        array = HaloMaker.unit_conversion(array, snap)
+        if snap is not None:
+            array = HaloMaker.unit_conversion(array, snap)
         if(extend):
             extend_path = f"{path}/extended/{start:05d}"
             if(os.path.exists(extend_path)):
