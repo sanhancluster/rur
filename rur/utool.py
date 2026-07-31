@@ -13,7 +13,7 @@ from collections.abc import Iterable
 from collections import defaultdict
 import warnings
 from numpy.lib import recfunctions as rf
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 import pickle as pkl
 import os
@@ -1830,7 +1830,7 @@ def box_mask(coo, box, size=None, exclusive=False, nchunk=1000000):
     mask_out = np.concatenate(mask_out)
     return mask_out
 
-def hilbert3d_map(pos, bit_length, levels=None, lims=None, check_bounds=True):
+def hilbert3d_map(pos, bit_length, levels=None, lims=None, check_bounds=True, kwargs_hilbert3d={}):
     """
     Position-based Hilbert curve mapping.
     This function maps 3D positions to Hilbert curve indices based on the specified levels and bit length.
@@ -1856,57 +1856,11 @@ def hilbert3d_map(pos, bit_length, levels=None, lims=None, check_bounds=True):
     if levels is not None:
         idx = idx // (2 ** (bl_max - levels))[:, np.newaxis]
 
-    return hilbert3d_py(idx, bit_length, levels=levels)
+    return hilbert3d_py(idx, bit_length, levels=levels, **kwargs_hilbert3d)
 
 
-def hilbert3d_py(idx, bit_length, levels=None, chunk_size=1000000):
-    """
-    Vectorized NumPy implementation of the Fortran 'hilbert3d' subroutine.
-    Processes input in chunks to avoid excessive memory usage.
-
-    Parameters
-    ----------
-    idx : 2D array-like, shape (n, 3)
-        Indices of points in 3D space, where n is the number of points.
-        Each row corresponds to a point with (x, y, z) coordinates.
-    bit_length : int
-        Global maximum bit length used for the final left shift (scaling).
-    levels : 1D array-like of int (length n)
-        Per-point effective bit length (number of significant bits used).
-    chunk_size : int
-        Number of points to process per chunk.
-
-    Returns
-    -------
-    order : np.ndarray(float128), shape (n,)
-        Hilbert key (scaled) per point, as float128.
-    """
-    idx = np.asarray(idx, dtype=np.int64)
-    x = idx[:, 0]
-    y = idx[:, 1]
-    z = idx[:, 2]
-
-    n = idx.shape[0]
-    if levels is None:
-        levels = np.full(n, bit_length, dtype=np.int64)
-    elif isinstance(levels, numbers.Integral):
-        levels = np.full(n, levels, dtype=np.int64)
-    else:
-        levels = np.asarray(levels, dtype=np.int64)
-
-    if not (x.shape == y.shape == z.shape == levels.shape):
-        raise ValueError("x, y, z, and bit_length must have the same length.")
-
-    if np.any(levels < 0):
-        raise ValueError("bit_length must be non-negative.")
-    if bit_length < 0:
-        raise ValueError("bit_length_max must be non-negative.")
-
-    bl_max = int(levels.max(initial=0))
-    if bl_max == 0:
-        return np.zeros(n, dtype=np.float128)
-
-    # --- State diagram table ---
+def _build_tables(bl_max: int):
+    """Build state transition tables and power-of-two vector for Hilbert computation."""
     vals = np.array([
          1, 2, 3, 2, 4, 5, 3, 5,
          0, 1, 3, 2, 7, 6, 4, 5,
@@ -1933,52 +1887,179 @@ def hilbert3d_py(idx, bit_length, levels=None, chunk_size=1000000):
         10, 3, 2, 6,10, 3, 4, 4,
          6, 1, 7, 0, 5, 2, 4, 3
     ], dtype=np.int64)
+
     state_diagram = vals.reshape((8, 2, 12), order='F')
     nstate_tbl = state_diagram[:, 0, :]
     hdigit_tbl = state_diagram[:, 1, :]
 
     pow2 = np.exp2(np.arange(3 * bl_max, dtype=np.int64)).astype(np.float128)
+    return nstate_tbl, hdigit_tbl, pow2
+
+
+def _hilbert3d_chunk(
+    x_chunk: np.ndarray,
+    y_chunk: np.ndarray,
+    z_chunk: np.ndarray,
+    levels_chunk: np.ndarray,
+    bit_length: int,
+    bl_max: int,
+    nstate_tbl: np.ndarray,
+    hdigit_tbl: np.ndarray,
+    pow2: np.ndarray,
+) -> np.ndarray:
+    """Compute Hilbert keys for a single chunk of points."""
+    m = x_chunk.shape[0]
+    order_chunk = np.zeros(m, dtype=np.float128)
+    cstate_chunk = np.zeros(m, dtype=np.int64)
+
+    for i in range(bl_max - 1, -1, -1):
+        active = levels_chunk > i
+        if not np.any(active):
+            continue
+
+        b2 = ((x_chunk[active] >> i) & 1).astype(np.int64)
+        b1 = ((y_chunk[active] >> i) & 1).astype(np.int64)
+        b0 = ((z_chunk[active] >> i) & 1).astype(np.int64)
+        sdigit = (b2 << 2) | (b1 << 1) | b0
+
+        cs = cstate_chunk[active]
+        nstate = nstate_tbl[sdigit, cs]
+        hdigit = hdigit_tbl[sdigit, cs]
+
+        hx = (hdigit >> 2) & 1
+        hy = (hdigit >> 1) & 1
+        hz = (hdigit >> 0) & 1
+
+        j0 = 3 * i + 0
+        j1 = 3 * i + 1
+        j2 = 3 * i + 2
+
+        order_chunk[active] += (
+            hz * pow2[j0] +
+            hy * pow2[j1] +
+            hx * pow2[j2]
+        )
+
+        cstate_chunk[active] = nstate
+
+    shift = 3 * (int(bit_length) - levels_chunk)
+    order_chunk *= np.exp2(shift, dtype=np.float128)
+    return order_chunk
+
+
+def _worker_hilbert(args):
+    (x_chunk, y_chunk, z_chunk, levels_chunk,
+     bit_length, bl_max, nstate_tbl, hdigit_tbl, pow2) = args
+    return _hilbert3d_chunk(
+        x_chunk,
+        y_chunk,
+        z_chunk,
+        levels_chunk,
+        bit_length,
+        bl_max,
+        nstate_tbl,
+        hdigit_tbl,
+        pow2,
+    )
+
+
+def hilbert3d_py(
+    idx,
+    bit_length,
+    levels=None,
+    chunk_size=1000000,
+    n_workers=1,
+    backend="thread",
+):
+    """
+    Vectorized NumPy implementation of the Fortran 'hilbert3d' subroutine.
+    Supports single-thread, multithread, and multiprocess execution.
+    """
+    idx = np.asarray(idx, dtype=np.int64)
+    x = idx[:, 0]
+    y = idx[:, 1]
+    z = idx[:, 2]
+
+    n = idx.shape[0]
+
+    if levels is None:
+        levels = np.full(n, bit_length, dtype=np.int64)
+    elif isinstance(levels, numbers.Integral):
+        levels = np.full(n, levels, dtype=np.int64)
+    else:
+        levels = np.asarray(levels, dtype=np.int64)
+
+    if not (x.shape == y.shape == z.shape == levels.shape):
+        raise ValueError("x, y, z, and levels must have the same length.")
+
+    if np.any(levels < 0):
+        raise ValueError("bit_length must be non-negative.")
+    if bit_length < 0:
+        raise ValueError("bit_length_max must be non-negative.")
+
+    bl_max = int(levels.max(initial=0))
+    if bl_max == 0:
+        return np.zeros(n, dtype=np.float128)
+
+    # Shared lookup tables
+    nstate_tbl, hdigit_tbl, pow2 = _build_tables(bl_max)
 
     order = np.zeros(n, dtype=np.float128)
-    cstate = np.zeros(n, dtype=np.int64)
 
-    # Process in chunks to avoid high memory usage
+    # ----------------- single-threaded -----------------
+    if n_workers in (None, 1):
+        for chunk_start in range(0, n, chunk_size):
+            chunk_end = min(chunk_start + chunk_size, n)
+
+            x_chunk = x[chunk_start:chunk_end]
+            y_chunk = y[chunk_start:chunk_end]
+            z_chunk = z[chunk_start:chunk_end]
+            levels_chunk = levels[chunk_start:chunk_end]
+
+            order_chunk = _hilbert3d_chunk(
+                x_chunk,
+                y_chunk,
+                z_chunk,
+                levels_chunk,
+                bit_length,
+                bl_max,
+                nstate_tbl,
+                hdigit_tbl,
+                pow2,
+            )
+            order[chunk_start:chunk_end] = order_chunk
+
+        return order
+
+    # ----------------- parallel (thread/process) -----------------
+    tasks = []
+    slices = []
     for chunk_start in range(0, n, chunk_size):
         chunk_end = min(chunk_start + chunk_size, n)
+        slices.append((chunk_start, chunk_end))
+
         x_chunk = x[chunk_start:chunk_end]
         y_chunk = y[chunk_start:chunk_end]
         z_chunk = z[chunk_start:chunk_end]
         levels_chunk = levels[chunk_start:chunk_end]
-        cstate_chunk = np.zeros(chunk_end - chunk_start, dtype=np.int64)
-        order_chunk = np.zeros(chunk_end - chunk_start, dtype=np.float128)
 
-        for i in range(bl_max - 1, -1, -1):
-            active = levels_chunk > i
-            if not np.any(active):
-                continue
+        # Pack everything needed by the worker into a single tuple
+        tasks.append((
+            x_chunk,
+            y_chunk,
+            z_chunk,
+            levels_chunk,
+            bit_length,
+            bl_max,
+            nstate_tbl,
+            hdigit_tbl,
+            pow2,
+        ))
 
-            b2 = ((x_chunk[active] >> i) & 1).astype(np.int64)
-            b1 = ((y_chunk[active] >> i) & 1).astype(np.int64)
-            b0 = ((z_chunk[active] >> i) & 1).astype(np.int64)
-            sdigit = (b2 << 2) | (b1 << 1) | b0
+    Executor = ThreadPoolExecutor if backend == "thread" else ProcessPoolExecutor
 
-            cs = cstate_chunk[active]
-            nstate = nstate_tbl[sdigit, cs]
-            hdigit = hdigit_tbl[sdigit, cs]
-
-            hx = (hdigit >> 2) & 1
-            hy = (hdigit >> 1) & 1
-            hz = (hdigit >> 0) & 1
-
-            j0 = 3 * i + 0
-            j1 = 3 * i + 1
-            j2 = 3 * i + 2
-            order_chunk[active] += hz * pow2[j0] + hy * pow2[j1] + hx * pow2[j2]
-
-            cstate_chunk[active] = nstate
-
-        shift = 3 * (int(bit_length) - levels_chunk)
-        order_chunk *= np.exp2(shift, dtype=np.float128)
-        order[chunk_start:chunk_end] = order_chunk
+    with Executor(max_workers=n_workers) as ex:
+        for (chunk_start, chunk_end), out_chunk in zip(slices, ex.map(_worker_hilbert, tasks)):
+            order[chunk_start:chunk_end] = out_chunk
 
     return order
