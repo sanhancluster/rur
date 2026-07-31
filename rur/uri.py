@@ -1130,6 +1130,7 @@ class RamsesSnapshot(object):
         if not self.hdf:
 
             opened = open(self.info_path, mode='r')
+            print(f"Reading snapshot info from {self.info_path}")
 
             int_regex = re.compile(r'(?P<name>\w+)\s*=\s*(?P<data>\d+)')
             float_regex = re.compile(r'(?P<name>\w+)\s*=\s*(?P<data>.+)')
@@ -2440,6 +2441,9 @@ class RamsesSnapshot(object):
                 grp = hdf[pname]
                 
                 hilbert_bound = grp['hilbert_boundary'][:]
+                if hilbert_bound.dtype.names is not None and 'hi' in hilbert_bound.dtype.names:
+                    hilbert_bound = hilbert_from_compound(hilbert_bound)
+
                 chunk_bound = grp['chunk_boundary']
                 levelmax = grp.attrs.get('levelmax', self.levelmax)
                 
@@ -2577,6 +2581,9 @@ class RamsesSnapshot(object):
                 hdf_group = 'branch' if read_branch else 'leaf'
                 grp = hdf[hdf_group]
                 hilbert_bound = grp['hilbert_boundary'][:]
+                if hilbert_bound.dtype.names is not None and 'hi' in hilbert_bound.dtype.names:
+                    hilbert_bound = hilbert_from_compound(hilbert_bound)
+
                 chunk_bound = grp['chunk_boundary'][:]
                 levelmax_all = grp.attrs.get('levelmax', self.levelmax)
 
@@ -3978,7 +3985,7 @@ class GraficIC(object):
 
 class Region():
     def evaluate(self, data):
-        if (isinstance(data, np.ndarrray) and data.shape[-1] == 3):
+        if (isinstance(data, np.ndarray) and data.shape[-1] == 3):
             return self.isin(data)
         elif (isinstance(data, Table)):
             return self.isin(data['pos'])
@@ -4125,3 +4132,13 @@ def parse_namelist(filename):
 
 def str_to_tuple(input_data):
     return tuple(map(int, input_data.split(',')))
+
+def hilbert_from_compound(arr: np.ndarray) -> np.ndarray:
+    """Convert compound structured hilbert key array ('hi', 'lo') to Python int object array.
+    """
+    scalar_input = arr.ndim == 0
+    arr = np.atleast_1d(arr)
+    hi = arr['hi'].astype(object)
+    lo = arr['lo'].astype(object)
+    result = hi * (1 << 64) + lo
+    return result[0] if scalar_input else result
