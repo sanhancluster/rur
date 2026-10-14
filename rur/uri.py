@@ -2480,9 +2480,11 @@ class RamsesSnapshot(object):
                 grp = hdf[pname]
                 
                 hilbert_bound = grp['hilbert_boundary'][:]
+                if hilbert_bound.dtype.names is not None and 'hi' in hilbert_bound.dtype.names:
+                    hilbert_bound = hilbert_from_compound(hilbert_bound)
                 chunk_bound = grp['chunk_boundary'][:]
                 levelmax = grp.attrs.get('levelmax', self.levelmax)
-                
+
                 involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax)
                 target_fields = hdf_target_fields(target_fields, grp['data'].dtype.names)
                 if nthread==1:
