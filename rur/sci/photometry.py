@@ -320,9 +320,10 @@ def absmag_to_mass(mag, filter_name='K'):
         # Cappellari 2013, eq2
         return 10**(10.58 - 0.44 * (mag+23))
 
-def surface_brightness(absmag, area_pc2, log=True):
+def surface_brightness(absmag_per_px, area_pc2, log=True):
+    # convert absolute magnitude and area in pc^2 to surface brightness in mag/arcsec^2
     if(log):
-        return absmag + 2.5*np.log10(area_pc2) - 5 + 5 * np.log10(3600*180/np.pi)
+        return absmag_per_px + 2.5*np.log10(area_pc2) - 5 + 5 * np.log10(3600*180/np.pi)
     else:
-        return absmag / area_pc2 / 100 / (3600*180/np.pi)**2
+        return absmag_per_px / area_pc2 / 100 / (3600*180/np.pi)**2
 
