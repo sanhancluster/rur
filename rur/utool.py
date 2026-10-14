@@ -428,6 +428,16 @@ def add_dims(arr, ndim, axis=-1):
     return np.expand_dims(arr, list(np.arange(axis, axis - ndim, -1)))
 
 
+def _hashable(value):
+    # convert unhashable arguments (lists, arrays) to a hashable key for caching
+    try:
+        hash(value)
+        return value
+    except TypeError:
+        arr = np.asarray(value)
+        return (arr.dtype.str, arr.shape, arr.tobytes())
+
+
 class discrete_stat(object):
     """A class to manage discrete set of data y (e.g. binned data, etc...)
     idx indicates the bin position of the data should be integer that gets within size
@@ -458,7 +468,7 @@ class discrete_stat(object):
         # number of items => same as idx.size
         self.n = y.shape[0]
 
-        self.grid_size = grid_size
+        self.grid_size = int(grid_size)
         self.idx = idx
 
         # shape and dimension of one item
@@ -478,8 +488,16 @@ class discrete_stat(object):
                 raise ValueError("weights must be broadcastable to y!\n"
                                  "shape: %s -> %s" % (weights.shape, y.shape))
 
+        # dtype used to accumulate (weighted) sums; avoids truncation of int/bool data
+        if self.weights is not None:
+            self.sum_dtype = np.result_type(self.dtype, self.weights.dtype)
+        else:
+            self.sum_dtype = self.dtype
+        if self.sum_dtype == bool:
+            self.sum_dtype = np.dtype('i8')
+
         self.init_boundary()
-        self.cache = defaultdict(lambda: None)
+        self.cache = {}
 
         self.mode_alias = alias_dict()
         self.method_dict = {}
@@ -487,13 +505,13 @@ class discrete_stat(object):
 
     def init_boundary(self):
         # sort data by indices and precompute boundaries
-        keys = np.argsort(self.idx)
+        keys = np.argsort(self.idx, kind='stable')
         self.idx = self.idx[keys]
         self.y = self.y[keys]
         if self.weights is not None:
             self.weights = self.weights[keys]
 
-        self.bounds = np.searchsorted(self.idx, np.arange(np.prod(self.grid_size) + 1))
+        self.bounds = np.searchsorted(self.idx, np.arange(self.grid_size + 1))
         self.valid_slice = slice(self.bounds[0], self.bounds[-1])
 
     def apply_at_idx(self, value: np.ndarray, func=np.add, dtype=None, use_valid_slice=True):
@@ -515,17 +533,22 @@ class discrete_stat(object):
         func.at(out, self.idx[self.valid_slice], value)
         return out
 
+    def expand_grid(self, arr):
+        # add trailing axes so that per-grid array (grid_size,) broadcasts with (grid_size,) + value_shape
+        return np.reshape(arr, arr.shape + (1,) * (len(self.output_shape) - arr.ndim))
+
     def get(self, mode, method, *args, **kwargs):
-        if self.cache[mode] is None:
-            self.cache[mode] = method(*args, **kwargs)
-        return self.cache[mode]
+        key = (mode, _hashable(args), tuple((k, _hashable(v)) for k, v in sorted(kwargs.items())))
+        if key not in self.cache:
+            self.cache[key] = method(*args, **kwargs)
+        return self.cache[key]
 
     def eval(self, mode, *args, **kwargs):
         mode = self.mode_alias[mode]
         try:
             method = self.method_dict[mode]
         except KeyError:
-            raise ValueError("Unknown mode: ", mode)
+            raise ValueError("Unknown mode: %s" % mode)
         return self.get(mode, method, *args, **kwargs)
 
     def __call__(self, mode, *args, **kwargs):
@@ -535,113 +558,115 @@ class discrete_stat(object):
         return self.apply_at_idx(1, dtype='i4')
 
     def eval_mean(self):
-        return self.eval('sum') / self.eval('wsum')
+        with np.errstate(divide='ignore', invalid='ignore'):
+            return self.eval('sum') / self.expand_grid(self.eval('wsum'))
 
     def eval_weights_sum(self):
         if self.weights is not None:
-            wsum = self.apply_at_idx(self.weights)
+            wsum = self.apply_at_idx(self.weights, dtype=self.weights.dtype)
         else:
             wsum = self.eval('num')
         return wsum
 
+    def eval_extreme(self, func):
+        # computed in float so that empty bins can be marked with nan
+        out = self.apply_at_idx(self.y, func, dtype=np.result_type(self.dtype, np.float32))
+        out[self.eval('num') == 0] = np.nan
+        return out
+
     def eval_minimum(self):
-        return self.apply_at_idx(self.y, np.minimum)
+        return self.eval_extreme(np.minimum)
 
     def eval_maximum(self):
-        return self.apply_at_idx(self.y, np.maximum)
+        return self.eval_extreme(np.maximum)
 
     def eval_sum(self, use_weights=True):
         y = self.y[self.valid_slice]
         if use_weights and self.weights is not None:
             to_add = y * self.weights[self.valid_slice]
         else:
-            to_add = y.copy()
-        return self.apply_at_idx(to_add, use_valid_slice=False)
+            to_add = y
+        return self.apply_at_idx(to_add, dtype=self.sum_dtype, use_valid_slice=False)
 
-    def eval_variance(self):
+    def sum_deviation(self, power, normalize=False):
+        # weighted sum of (y - mean)^power (or standardized deviation if normalize) per bin, divided by wsum
         idx = self.idx[self.valid_slice]
         y = self.y[self.valid_slice]
-        weights = self.weights
-        if (weights.shape[0] != 1):
-            weights = weights[self.valid_slice]
 
-        means = self.eval_mean()
-        to_add = weights * (y - means[idx]) ** 2
-        return self.apply_at_idx(to_add, use_valid_slice=False) / self.eval('wsum')
+        with np.errstate(divide='ignore', invalid='ignore'):
+            dev = y - self.eval('mean')[idx]
+            if normalize:
+                dev = dev / self.eval('std')[idx]
+            to_add = dev ** power
+            if self.weights is not None:
+                to_add = to_add * self.weights[self.valid_slice]
+            return self.apply_at_idx(to_add, dtype=to_add.dtype, use_valid_slice=False) / self.expand_grid(self.eval('wsum'))
+
+    def eval_variance(self):
+        return self.sum_deviation(2)
 
     def eval_std(self):
         var = self.eval('var')
         return np.sqrt(var)
 
     def eval_moment(self, k=1):
-        idx = self.idx[self.valid_slice]
-        y = self.y[self.valid_slice]
-        weights = self.weights
-        if (weights.shape[0] != 1):
-            weights = weights[self.valid_slice]
-
-        means = self.eval('mean')
-        stds = self.eval('std')
-
-        to_add = weights * ((y - means[idx]) / stds[idx]) ** k
-        moments = self.apply_at_idx(to_add, use_valid_slice=False) / self.eval('wsum')
-
-        return moments
+        return self.sum_deviation(k, normalize=True)
 
     def eval_skew(self):
-        if (self.cache['skew'] is None):
-            self.cache['skew'] = self.eval('mom', k=3)
-        return self.cache['skew']
+        return self.eval('mom', k=3)
 
     def eval_kurt(self):
-        if (self.cache['kurt'] is None):
-            self.cache['kurt'] = self.eval('mom', k=4)
-        return self.cache['kurt']
+        return self.eval('mom', k=4)
 
-    def eval_median(self, *args, **kwargs):
-        if (self.cache['med'] is None):
-            self.cache['med'] = self.eval('quant', 0.5, *args, **kwargs)
-        return self.cache['med']
+    def eval_median(self, **kwargs):
+        return self.eval('quant', 0.5, **kwargs)
 
-    def eval_quantile(self, q, use_weights=None):
-        y = self.y
+    def eval_quantile(self, q, use_weights=False):
+        # output shape: (grid_size,) + np.shape(q) + value_shape
+        q = np.asarray(q)
         use_weights = use_weights and self.weights is not None
-        if (use_weights):
-            weights = np.broadcast_to(self.weights, y.shape)
-        slices = [slice(low, upp) for low, upp in zip(self.bounds[:-1], self.bounds[1:])]
+        empty = np.full(q.shape + self.value_shape, np.nan)
         out = []
-        for sl in slices:
-            if (sl.stop - sl.start > 0):
-                if (use_weights):
-                    qua = np.empty(np.prod(self.value_shape))
-                    for sidx in range(qua.size):
-                        target_value = y[(sl,) + np.unravel_index(sidx, self.value_shape)]
-                        target_weights = weights[(sl,) + np.unravel_index(0, self.value_shape)]
-                        qua[sidx] = weighted_quantile(target_value, q, target_weights)
-                    qua = np.reshape(qua, self.value_shape)
-                else:
-                    qua = np.quantile(y[sl], q, axis=0)
-                out.append(qua)
+        for low, upp in zip(self.bounds[:-1], self.bounds[1:]):
+            if (upp <= low):
+                out.append(empty)
+                continue
+            y = self.y[low:upp]
+            if (use_weights):
+                weights = self.weights[low:upp]
+                qua = np.empty(q.shape + self.value_shape)
+                for vidx in np.ndindex(self.value_shape):
+                    target = (slice(None),) + vidx
+                    qua[(Ellipsis,) + vidx] = weighted_quantile(y[target], q, weights[target])
             else:
-                out.append(np.full(self.value_shape, np.nan))
+                qua = np.quantile(y, q, axis=0)
+            out.append(qua)
         return np.array(out)
 
     def eval_pdf(self, bins_arr):
-        idx = self.idx
-        y = self.y
-        weights = self.weights
-        shape = self.output_shape
-        # shape should be equal or smaller than 2d
+        """Weighted histogram of y within each bin.
+        bins_arr: 1d bin edges shared by all components of y, or one edge array per component.
+        output shape: (nbins, grid_size) + value_shape
+        """
+        idx = self.idx[self.valid_slice]
+        y = self.y[self.valid_slice].reshape(idx.size, -1)
+        if self.weights is not None:
+            weights = self.weights[self.valid_slice].reshape(idx.size, -1)
+        else:
+            weights = np.ones_like(y, dtype='f8')
+        nvar = y.shape[1]
 
-        bins_arr = np.array(bins_arr)
+        bins_arr = np.asarray(bins_arr)
+        if bins_arr.ndim == 1:
+            bins_arr = np.broadcast_to(bins_arr, (nvar, bins_arr.size))
+        nbins = bins_arr.shape[-1] - 1
 
-        nvar = shape[1]
-        pdf = np.zeros((bins_arr.shape[-1] - 1,) + shape, dtype='f8')
-
+        pdf = np.zeros((nbins, self.grid_size, nvar), dtype='f8')
         for i in range(nvar):
             idx_pdf = np.digitize(y[:, i], bins=bins_arr[i]) - 1
-            np.add.at(pdf[..., i], (idx_pdf, idx), weights[..., 0])
-        return pdf
+            mask = (idx_pdf >= 0) & (idx_pdf < nbins)
+            np.add.at(pdf[..., i], (idx_pdf[mask], idx[mask]), weights[mask, i])
+        return pdf.reshape((nbins, self.grid_size) + self.value_shape)
 
     def set_dict(self):
         # set defaultdict object for aliasing
@@ -649,7 +674,7 @@ class discrete_stat(object):
             'number': 'num',
             'average': 'mean',
             'weights': 'wsum',
-            'minumum': 'min',
+            'minimum': 'min',
             'maximum': 'max',
             'stdev': 'std',
             'standard_deviation': 'std',
@@ -679,25 +704,61 @@ class discrete_stat(object):
             'mom': self.eval_moment,
             'quant': self.eval_quantile,
             'med': self.eval_median,
+            'pdf': self.eval_pdf,
         }
 
 
 class binned_stat(discrete_stat):
+    """discrete_stat binned by coordinates x.
+    x: (n,) for 1d binning or (n, ndim) for nd binning
+    output of each statistic has shape grid_shape + value_shape, with grid_shape = (nbins_x, nbins_y, ...)
+    """
     def __init__(self, x, y, bins, lims=None, weights=None):
-        self.bins = set_bins(bins, lims, y)
-        self.bins = np.array(self.bins)
-        idx = digitize(x, self.bins, lims, single_idx=True)
-        if self.bins.ndim > 1:
-            self.grid_shape = tuple([len(bin) - 1 for bin in self.bins])
+        x = np.asarray(x)
+        if x.ndim == 1:
+            self.bins = np.asarray(set_bins(bins, lims, x))
+            bins_list = [self.bins]
+            x = x[:, np.newaxis]
         else:
-            self.grid_shape = (self.bins.size,)
-        grid_size = np.prod(self.grid_shape)
+            nd = x.shape[1]
+            if isinstance(bins, (list, tuple)) and any(np.ndim(b) > 0 for b in bins):
+                # explicit bin edges per dimension (may differ in length)
+                bins = list(bins)
+            else:
+                bins = np.asarray(bins)
+                if bins.ndim == 2:
+                    bins = list(bins)
+                elif bins.size == 1:
+                    bins = [int(bins.item())] * nd
+                elif np.issubdtype(bins.dtype, np.integer) and bins.size == nd:
+                    bins = [int(b) for b in bins]
+                else:
+                    # same bin edges for all dimensions
+                    bins = [bins] * nd
+            if lims is None:
+                lims = [None] * nd
+            bins_list = [np.asarray(set_bins(b, lim, x[:, i])) for i, (b, lim) in enumerate(zip(bins, lims))]
+            self.bins = bins_list
+        if len(bins_list) != x.shape[1]:
+            raise ValueError("Number of bin arrays (%d) does not match dimension of x (%d)" % (len(bins_list), x.shape[1]))
+
+        self.grid_shape = tuple([b.size - 1 for b in bins_list])
+        grid_size = int(np.prod(self.grid_shape))
+
+        # flattened (C-order) bin index; out-of-range points get index outside [0, grid_size)
+        idx_dims = np.stack([np.digitize(x[:, i], b) - 1 for i, b in enumerate(bins_list)])
+        shape = np.array(self.grid_shape)[:, np.newaxis]
+        valid = np.all((idx_dims >= 0) & (idx_dims < shape), axis=0)
+        idx = np.full(x.shape[0], -1, dtype='i8')
+        idx[valid] = np.ravel_multi_index(idx_dims[:, valid], self.grid_shape)
 
         super().__init__(y, idx, grid_size, weights)
 
     def __call__(self, mode, *args, **kwargs):
         out = super().__call__(mode, *args, **kwargs)
-        return np.reshape(out, tuple(self.grid_shape) + out.shape[1:], order='F')
+        if self.mode_alias[mode] == 'pdf':
+            return np.reshape(out, out.shape[:1] + self.grid_shape + out.shape[2:])
+        return np.reshape(out, self.grid_shape + out.shape[1:])
 
 
 class kde_stat(object):
@@ -794,12 +855,12 @@ def k_partitioning(centers_init, points, weights,
         idx_assign = idx[np.arange(points.shape[0]), np.argmin(dists * multiplier, axis=-1)]
 
         vectors = np.zeros(centers.shape, dtype='f8')
-        np.add.at(vectors, idx_assign, expand_shape(weights, [0], 2) * points)
+        np.add.at(vectors, idx_assign, weights[:, None] * points)
 
         sums = np.zeros(centers.shape[0], dtype='f8')
         np.add.at(sums, idx_assign, weights)
 
-        centers[sums > 0] = (vectors[sums > 0] / expand_shape(sums[sums > 0], [0], 2))
+        centers[sums > 0] = (vectors[sums > 0] / sums[sums > 0, None])
         return centers
 
     def perturb(centers):

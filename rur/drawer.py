@@ -645,7 +645,11 @@ def mosaic_stat(x, y, v, weights=None, bins=10, lims=None, minnum=0, statmode=No
     if statmode is None:
         statmode = 'mean'
     bins = np.atleast_1d(bins)
-    stat = binned_stat(np.stack([x, y], axis=-1), v, bins, lims, weights=weights)
+    bstat = binned_stat(np.stack([x, y], axis=-1), v, bins, lims, weights=weights)
+
+    def stat(*args, **kwargs):
+        # binned_stat returns (nx, ny); imshow expects (ny, nx)
+        return np.swapaxes(bstat(*args, **kwargs), 0, 1)
 
     num = stat('num')
     arr = stat(statmode)
@@ -660,11 +664,12 @@ def mosaic_stat(x, y, v, weights=None, bins=10, lims=None, minnum=0, statmode=No
         hist_contour(x, y, lims, cmap=plt.cm.Greys, color='none', reso=100, sig_arr=[0.5, 1.5], filter_sigma=5, alpha=0.25, filled=True)
 
     if(show_number):
-        for i in np.arange(bins[0]):
-            for j in np.arange(bins[1]):
+        ny, nx = num.shape
+        for i in np.arange(nx):
+            for j in np.arange(ny):
                 if(num[j, i] >= statmin):
-                    tx, ty = (extent[0] + (extent[1] - extent[0]) * i / bins)[0], \
-                             (extent[2] + (extent[3] - extent[2]) * j / bins)[-1]
+                    tx, ty = extent[0] + (extent[1] - extent[0]) * i / nx, \
+                             extent[2] + (extent[3] - extent[2]) * j / ny
                     if(statmode == 'mean'):
                         std = stat('std')
                         text = (fmt+"±"+fmt+"\nN = %d") % (arr[j, i], std[j, i], num[j, i])
