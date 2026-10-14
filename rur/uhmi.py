@@ -11,6 +11,7 @@ from scipy.stats import mode
 from numpy.lib.recfunctions import append_fields, drop_fields, merge_arrays
 import gc
 import string
+import pickle as pkl
 from multiprocessing import Process, Queue
 from multiprocessing import Pool, shared_memory
 from time import sleep, time, gmtime, strftime
@@ -1122,14 +1123,18 @@ class PhantomTree:
         halo_ids = []
         buffer = 0
 
-        if(start_on_middle):
+        if(start_on_middle and snap_iouts.size > 0):
             if(uri.timer.verbose>0): print("Start on middle:")
             if full_path_ptree is None: pfiles = os.listdir(f"{snap.repo}/{path_in_repo}")
             else: pfiles = os.listdir(full_path_ptree)
             pfiles = [pf for pf in pfiles if pf.startswith("ptree_0")]
             nout = np.array([int(pf[6:11]) for pf in pfiles])
             omitted = snap_iouts[~np.isin(snap_iouts, nout)]
-            min_omit = np.min(omitted)
+            if omitted.size == 0:
+                print(f"\tNo omitted snapshots found, skipping ptree calculation")
+                min_omit = np.inf
+            else:
+                min_omit = np.min(omitted)
             print(f"\tNo pbricks after {min_omit}th snapshot")
             # print(f"\tFound {len(nout)} ptree files exist ({np.min(nout)} ~ {np.max(nout)})")
             # snap_iouts = snap_iouts[
@@ -1286,6 +1291,7 @@ class PhantomTree:
         add = 0
         while(True):
             brick_fname = os.path.join(dirpath, ptree_file_format % iout) # 'ptree_%05d.pkl'
+            if not os.path.exists(brick_fname): brick_fname += '2'
             # Find the brick file. If not exist, skip it.
             if(not os.path.exists(brick_fname)):
                 if(skip_jumps):
