@@ -72,7 +72,10 @@ for iout in nout:
     path = f"{snap.repo}/halo/extended/{iout:05d}"
     if(not os.path.exists(path)): continue # Not yet extended
     hpath = f"{path}/halo"
-    if(not os.path.exists(hpath)): os.makedirs(hpath)
+    if(not os.path.exists(hpath)):
+        os.makedirs(hpath)
+        os.chmod(hpath, 0o775)
+        os.chown(hpath, -1, 20005)
     
     # Check if already done
     descs = {}; rerun = False
@@ -109,8 +112,8 @@ for iout in nout:
         for i in tqdm( range(nhal), desc=f"{iout}" ):
             for hname in hnames:
                 harr[hname] = np.nan if(hdict[hname] is None) else hdict[hname][i]
-            dump(harr, f"{hpath}/{i+1:07d}.pkl", msg=False)
-        dump(descs, f"{path}/desc.pkl", msg=False)
+            dump(harr, f"{hpath}/{i+1:07d}.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
+        dump(descs, f"{path}/desc.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
     # Rerun
     else:
         # Load data
@@ -127,14 +130,15 @@ for iout in nout:
         
         harr = np.empty(1, dtype=hdtype)[0]
         for i in tqdm( range(nhal), desc=f"{iout}" ):
-            tmp = load(f"{hpath}/{i+1:07d}.pkl", msg=False)
+            hexist = f"{hpath}/{i+1:07d}.pkl"
+            if hexist: tmp = load(f"{hpath}/{i+1:07d}.pkl", msg=False)
             for hname in hnames:
                 if(hname in hextra):
                     harr[hname] = np.nan if(hdict[hname] is None) else hdict[hname][i]
-                else:
+                elif hexist:
                     harr[hname] = tmp[hname]
-            dump(harr, f"{hpath}/{i+1:07d}.pkl", msg=False)
-        dump(descs, f"{path}/desc.pkl", msg=False)
+            dump(harr, f"{hpath}/{i+1:07d}.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
+        dump(descs, f"{path}/desc.pkl", msg=False, chmod=0o664, uid=-1, gid=20005)
 
 # ----------------------------------------------
 # Record availability
@@ -155,4 +159,4 @@ extend_avail = dict(
     names = names,
     avail = avail,
 )
-dump(extend_avail, f"{snap.repo}/halo/extended/avail.pkl")
+dump(extend_avail, f"{snap.repo}/halo/extended/avail.pkl", chmod=0o664, uid=-1, gid=20005)

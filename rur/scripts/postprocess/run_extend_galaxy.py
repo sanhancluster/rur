@@ -124,7 +124,9 @@ def calc_extended(
     names = list(name_dicts.keys())
     prefix = "GAL"
     full_path = f"{path}/{path_in_repo}/extended/{iout:05d}"
-    if(not os.path.exists(full_path)): os.makedirs(full_path)
+    if(not os.path.exists(full_path)):
+        os.makedirs(full_path)
+        os.chmod(full_path, 0o775); os.chown(full_path, -1, 20005)
     uri.timer.verbose=0
     snap = uri.RamsesSnapshot(path, iout); snap.shmprefix = "extendgalaxy"
     uri.timer.verbose = 1 if verbose else 0
@@ -293,8 +295,11 @@ def calc_extended(
     # Main Calculation
     if(verbose): print(f" > Start Calculation")
     if(verbose):
-        pbar = tqdm(total=len(table), desc=f"Nthread={min(len(table), nthread)}")
-        def update(*a): pbar.update()
+        pbar = tqdm(total=len(table), desc=f"[{datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S")}] Nthread={min(len(table), nthread)}")
+        def update(*a):
+            pbar.update()
+            now = datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S")
+            pbar.set_description(f"[{now}] Nthread={min(len(table), nthread)}")
     else: update = None
     if(snap is not None): signal.signal(signal.SIGTERM, signal.SIG_DFL)
     with Pool(processes=min(len(table),nthread)) as pool:
@@ -344,7 +349,9 @@ def verify(path, iout, verbose=False, nthread=8,izip=None, partition=-1, DEBUG=F
     path_in_repo = 'galaxy'
     prefix = "GAL"
     full_path = f"{path}/{path_in_repo}/extended/{iout:05d}"
-    if(not os.path.exists(full_path)): os.makedirs(full_path)
+    if(not os.path.exists(full_path)):
+        os.makedirs(full_path)
+        os.chmod(full_path, 0o775); os.chown(full_path, -1, 20005)
     if os.path.exists(f"{full_path}/wrong_verified.txt"): return False
     if os.path.exists(f"{full_path}/good_verified.txt"): return True
     uri.timer.verbose=0
@@ -405,8 +412,11 @@ def verify(path, iout, verbose=False, nthread=8,izip=None, partition=-1, DEBUG=F
     # Main Calculation
     if(verbose): print(f" > Start Calculation")
     if(verbose):
-        pbar = tqdm(total=len(table), desc=f"Nthread={min(len(table), nthread)}")
-        def update(*a): pbar.update()
+        pbar = tqdm(total=len(table), desc=f"[{datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S")}] Nthread={min(len(table), nthread)}")
+        def update(*a):
+            pbar.update()
+            now = datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S")
+            pbar.set_description(f"[{now}] Nthread={min(len(table), nthread)}")
     else: update = None
     if(snap is not None): signal.signal(signal.SIGTERM, signal.SIG_DFL)
     with Pool(processes=min(len(table),nthread)) as pool:

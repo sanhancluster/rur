@@ -18,12 +18,14 @@ from _pfunc import vprint, yess, bs, be, filemode
 # ----------------------------------------------
 parser = argparse.ArgumentParser(description='Fast tracer timeseries')
 parser.add_argument("repo", help='repo', type=str)
+parser.add_argument("--maxiout", default=1000000, required=False, help='maxiout', type=int)
 parser.add_argument("--galaxy", action='store_true', default=False)
 parser.add_argument("--halo", action='store_true', default=False)
 parser.add_argument("--verbose", action='store_true')
 parser.add_argument("--debug", action='store_true')
 args = parser.parse_args()
 repo = args.repo
+maxiout = args.maxiout
 galaxy = args.galaxy
 halo = args.halo
 if galaxy and halo:
@@ -82,13 +84,14 @@ print(f"=================================")
 # Recorded iout table from txt
 snap = uri.RamsesSnapshot(repo, 1)
 snaps = uri.TimeSeries(snap)
-snaps.read_iout_avail()
+snaps.read_iout_avail(allow_write=True)
 vprint(f" > Check `{repo}/list_iout_avail.txt`", verbose)
 full_iouts = snaps.iout_avail['iout'] # type: ignore
 vprint(f" > Recorded iouts: {full_iouts[0]}~{full_iouts[-1]} ({len(full_iouts)})", verbose)
 # Manual check iout table
 vprint(f" > Read info files...", verbose)
 fnames = glob.glob(f"{snaprepo}/output*")
+fnames = [f for f in fnames if f[-5:].isdigit()]
 fnames = [int(f[-5:]) for f in fnames]
 fnames.sort()
 vprint(f" > Found iouts: {fnames[0]}~{fnames[-1]} ({len(fnames)})", verbose)
@@ -151,7 +154,7 @@ vprint(f" > Found {len(tree_bricks)} tree_bricks", verbose)
 new_iouts = []
 for iout in full_iouts:
     if not f"tree_bricks{iout:05d}" in tree_bricks:
-        if iout>30:
+        if iout>30 and iout<=maxiout:
             new_iouts.append(iout)
 if len(new_iouts)==0:
     print(f" > {bs}All halomaker done{be}")
@@ -171,6 +174,9 @@ print(f"=================================")
 print(f"{bs} 3. Check merger tree {be}")
 print(f"=================================")
 vprint(f" > Check `{ptree_repo}`", verbose)
+if not os.path.exists(ptree_repo):
+    os.makedirs(ptree_repo)
+    os.chmod(ptree_repo, 0o775); os.chown(ptree_repo, -1, 20005)
 pbricks = os.listdir(ptree_repo)
 pbricks = [f for f in pbricks if f.endswith('pkl')]
 pbricks.sort()
@@ -178,8 +184,12 @@ vprint(f" > Found {len(pbricks)} pkl files", verbose)
 new_iouts = []
 for iout in full_iouts:
     if not f"ptree_{iout:05d}.pkl" in pbricks:
-        if iout>30:
-            new_iouts.append(iout)
+        if 'NewCluster' in repo:
+            if iout>30 and iout<=maxiout:
+                new_iouts.append(iout)
+        else:
+            if iout<=maxiout:
+                new_iouts.append(iout)
 if len(new_iouts)==0:
     print(f" > {bs}All PhantomTree done{be}")
 else:
@@ -193,6 +203,9 @@ print(f"{bs} 4. Check extended catalog {be}")
 print(f"=================================")
 extrepo = f"{catrepo}/extended"
 vprint(f" > Check `{extrepo}`", verbose)
+if not os.path.exists(extrepo):
+    os.makedirs(extrepo)
+    os.chmod(extrepo, 0o775); os.chown(extrepo, -1, 20005)
 extended = os.listdir(extrepo)
 extended = [f for f in extended if f.startswith('0')]
 extended.sort()
@@ -202,8 +215,12 @@ vprint(f" > Found {len(extended)} extended catalogs", verbose)
 new_iouts = []
 for iout in full_iouts:
     if not f"{iout:05d}" in extended:
-        if iout>30:
-            new_iouts.append(iout)
+        if 'NewCluster' in repo:
+            if iout>30 and iout<=maxiout:
+                new_iouts.append(iout)
+        else:
+            if iout<=maxiout:
+                new_iouts.append(iout)
 if len(new_iouts)==0:
     print(f" > {bs}All extended catalogs are separately done{be}")
     check_combine=True
@@ -251,7 +268,7 @@ tracer_nout = header['nout']
 new_iouts = []
 for iout in full_iouts:
     if not iout in tracer_nout:
-        if iout>30:
+        if iout>30 and iout<=maxiout:
             new_iouts.append(iout)
 if len(new_iouts)==0:
     print(f" > {bs}All tracer done{be}")
