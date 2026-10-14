@@ -2450,17 +2450,13 @@ class RamsesSnapshot(object):
                 involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax)
                 # -------------------------------------------
                 # SY Bug fix: when wrong `target_fields` are specified
-                if target_fields is not None:
-                    wrong_fields = [f for f in target_fields if f not in grp['data'].dtype.names]
-                    if len(wrong_fields) > 0:
-                        warnings.warn(f"`{wrong_fields}` not found in HDF5 data, they will be ignored.", UserWarning)
-                    target_fields = [f for f in target_fields if f in grp['data'].dtype.names]
-                    if len(target_fields) == 0: target_fields = None
+                target_fields = hdf_target_fields(target_fields, grp['data'].dtype.names)
                 # -------------------------------------------
                 timer.start('Domain Slicing...')
                 data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields)
                 timer.record()
 
+                data = hdf_rename_fields(data)
                 if (self.box is not None and exact_box):
                     timer.start("Getting mask...", tab=1)
                     mask = box_mask_table(data, self.box, snap=self, nthread=nthread_mask_default)
@@ -2488,12 +2484,7 @@ class RamsesSnapshot(object):
                 levelmax = grp.attrs.get('levelmax', self.levelmax)
                 
                 involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax)
-                if target_fields is not None:
-                    wrong_fields = [f for f in target_fields if f not in grp['data'].dtype.names]
-                    if len(wrong_fields) > 0:
-                        warnings.warn(f"`{wrong_fields}` not found in HDF5 data, they will be ignored.", UserWarning)
-                    target_fields = [f for f in target_fields if f in grp['data'].dtype.names]
-                    if len(target_fields) == 0: target_fields = None
+                target_fields = hdf_target_fields(target_fields, grp['data'].dtype.names)
                 if nthread==1:
                     timer.start('Domain Slicing...')
                     data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields, 
@@ -2506,6 +2497,7 @@ class RamsesSnapshot(object):
                                     legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=pname, domain_slicing=domain_slicing)
                 timer.record()
 
+            data = hdf_rename_fields(data)
             if (self.box is not None and exact_box):
                 timer.start("Getting mask...", tab=1)
                 mask = box_mask_table(data, self.box, snap=self, nthread=nthread)
@@ -2550,17 +2542,13 @@ class RamsesSnapshot(object):
                 involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax_all)
                 # -------------------------------------------
                 # SY Bug fix: when wrong `target_fields` are specified
-                if target_fields is not None:
-                    wrong_fields = [f for f in target_fields if f not in grp['data'].dtype.names]
-                    if len(wrong_fields) > 0:
-                        warnings.warn(f"`{wrong_fields}` not found in HDF5 data, they will be ignored.", UserWarning)
-                    target_fields = [f for f in target_fields if f in grp['data'].dtype.names]
-                    if len(target_fields) == 0: target_fields = None
+                target_fields = hdf_target_fields(target_fields, grp['data'].dtype.names)
                 # -------------------------------------------
                 timer.start('Domain Slicing...')
                 data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields)
                 timer.record()
 
+                data = hdf_rename_fields(data)
                 if (self.box is not None and exact_box):
                     timer.start("Getting mask...", tab=1)
                     mask = box_mask_table(data, self.box, snap=self, size=self.cell_extra['dx'](data), nthread=nthread_mask_default)
@@ -2601,12 +2589,7 @@ class RamsesSnapshot(object):
                     chunk_bound = grp['level_boundary'][:]
                     chunk_bound_branch = grp_branch['level_boundary'][:]
 
-                if target_fields is not None:
-                    wrong_fields = [f for f in target_fields if f not in grp['data'].dtype.names]
-                    if len(wrong_fields) > 0:
-                        warnings.warn(f"`{wrong_fields}` not found in HDF5 data, they will be ignored.", UserWarning)
-                    target_fields = [f for f in target_fields if f in grp['data'].dtype.names]
-                    if len(target_fields) == 0: target_fields = None
+                target_fields = hdf_target_fields(target_fields, grp['data'].dtype.names)
                 if nthread==1:
                     timer.start('Domain Slicing...')
                     if grp_branch is not None:
@@ -2633,6 +2616,7 @@ class RamsesSnapshot(object):
                                         legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=hdf_group, domain_slicing=domain_slicing)
                 timer.record()
 
+            data = hdf_rename_fields(data)
             if (self.box is not None and exact_box):
                 timer.start("Getting mask...", tab=1)
                 mask = box_mask_table(data, self.box, snap=self, size=self.cell_extra['dx'](data), nthread=nthread)
@@ -3644,6 +3628,47 @@ def ckey2idx(amr_keys, nocts, levelmin, ndim=3):
     # poss = np.mod(poss-0.5, 1)
     lvls = np.concatenate(lvls)
     return poss, lvls
+
+
+def hdf_field_map(names, convert=desc2dtype):
+    # maps HDF5 field names to rur field names using `convert` (e.g. 'position_x' -> 'x')
+    # names that collide with an existing or already-converted name are kept as-is
+    mapping = {}
+    used = set(names)
+    for name in names:
+        new = convert.get(name, name)
+        if new != name and new in used:
+            new = name
+        used.add(new)
+        mapping[name] = new
+    return mapping
+
+
+def hdf_target_fields(target_fields, names, convert=desc2dtype):
+    # converts user-given `target_fields` (rur or HDF5 names) into HDF5 field names
+    if target_fields is None:
+        return None
+    inverse = {v: k for k, v in hdf_field_map(names, convert).items()}
+    resolved = [inverse.get(f, f) for f in target_fields]
+    wrong_fields = [f for f, r in zip(target_fields, resolved) if r not in names]
+    if len(wrong_fields) > 0:
+        warnings.warn(f"`{wrong_fields}` not found in HDF5 data, they will be ignored.", UserWarning)
+    resolved = [r for r in resolved if r in names]
+    if len(resolved) == 0: return None
+    return resolved
+
+
+def hdf_rename_fields(data, convert=desc2dtype):
+    # returns a view of structured array `data` with fields renamed according to `convert`
+    mapping = hdf_field_map(data.dtype.names, convert)
+    if all(k == v for k, v in mapping.items()):
+        return data
+    fields = data.dtype.fields
+    dtype = np.dtype({'names': [mapping[name] for name in data.dtype.names],
+                      'formats': [fields[name][0] for name in data.dtype.names],
+                      'offsets': [fields[name][1] for name in data.dtype.names],
+                      'itemsize': data.dtype.itemsize})
+    return data.view(dtype)
 
 
 def domain_slice(array, cpulist, bound, cpulist_all=None, cpulist_end=None, target_fields=None, 
