@@ -14,6 +14,8 @@ def datdump(data, path, msg=False):
         f.write(leng.to_bytes(4, byteorder='little'))
         f.write(data[0].tobytes())
         f.write(data[1].encode())
+    os.chmod(path, 0o664)
+    os.chown(path, -1, 20005)
     if(msg): print(f" `{path}` saved")
 
 def datload(path, msg=False):

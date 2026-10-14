@@ -30,7 +30,7 @@ from sys import exit
 import configparser
 
 try:
-    mp_ctx = get_context("forkserver")  # good on Linux servers
+    mp_ctx = get_context("fork")  # good on Linux servers
 except ValueError:
     mp_ctx = get_context("spawn")       # portable fallbac
 
@@ -1346,6 +1346,7 @@ class RamsesSnapshot(object):
         field_indicies = ['x','y','z','vx','vy','vz','m','id','level','family','tag','epoch','metal','m0','rho0','partp']
         where = np.where(np.isin(field_indicies, target_fields))[0]
         ndeep = np.max(where)+1 if(len(where)>0) else 0
+        if(pname is not None)&(isfamily): ndeep=max(10, ndeep)
         kwargs = {
             "pname": pname, "isfamily": isfamily, "isstar": isstar, "chem": chem, "part_dtype": part_dtype,
             "target_fields": target_fields, "dtype": dtype, "ndeep":ndeep, "repo":self.repo, "use_cache":use_cache}
@@ -2104,6 +2105,11 @@ class RamsesSnapshot(object):
         readr.close()
         if cache is not None:
             sink = np.concatenate([cache, sink])
+
+        timer.start('Sorting by `icoarse` and `id`... ')
+        lexsort = np.lexsort((sink['icoarse'], sink['id']))
+        sink = sink[lexsort]
+        timer.record()
 
         if (reset_cache or use_cache):
             cache_file = join(path, cache_name)
@@ -3270,8 +3276,8 @@ def load_tracer(tracers, input_iouts:np.ndarray=None, target_fields=None, verbos
         
     lenout = len(input_iouts)
     if target_fields is None:
-        target_fields = ['x','y','z','cpu','family']
-    names = [('x','f8'), ('y','f8'), ('z','f8'), ('cpu','i2'), ('family','i1')]
+        target_fields = ['x','y','z','cpu','family', 'tag', 'partp']
+    names = [('x','f8'), ('y','f8'), ('z','f8'), ('cpu','i2'), ('tag','i1'), ('family','i1'), ('partp','i4')]
     names = [it for it in names if it[0] in target_fields]
     dtype = names + [('id','i4'), ('iout','i4')]
     itemsize = np.dtype(dtype).itemsize # Byte
