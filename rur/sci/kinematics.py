@@ -29,29 +29,34 @@ def measure_amon(part: Particle, gal):
 
     return np.cross(rrel, vrel) * part['m', 'Msol'][..., np.newaxis]
 
-def align_axis(part: Particle, gal: np.recarray, center_vel=False, prefix=None):
-    coo = get_vector(part)
-    vel = get_vector(part, prefix='v')
+def align_axis(part: Particle, gal: np.recarray, center_vel=False, prefix_gal=None):
 
-    if prefix is None:
+    if prefix_gal is None:
         prefix_candidates = ['L', 'j']
         # if prefix is not defined, search over candidates in dtype.names
         for pf in prefix_candidates:
             if np.all(np.isin([pf+'x', pf+'y', pf+'z'], gal.dtype.names)):
-                prefix = pf
+                prefix_gal = pf
                 break
-        if prefix is None:
+        if prefix_gal is None:
             raise ValueError("axis not available for the target array.")
-    j = get_vector(gal, prefix=prefix)
+    j = get_vector(gal, prefix=prefix_gal)
     coo_gal =  get_vector(gal)
-    vel_gal =  get_vector(gal, prefix='v')
+
+
+    coo = get_vector(part)
     coo = geo.align_to_vector(coo - coo_gal, j)
+    if all(np.isin(['vx', 'vy', 'vz'], part.dtype.names)):
+        vel = get_vector(part, prefix='v')
+        vel = geo.align_to_vector(vel, j)
     if(center_vel):
+        vel_gal =  get_vector(gal, prefix='v')
         vel = vel - vel_gal * part.snap.unit['km/s']
-    vel = geo.align_to_vector(vel, j)
 
     table = utool.set_vector(part.table, coo + coo_gal, copy=True)
-    utool.set_vector(table, vel, prefix='v', copy=False)
+    if all(np.isin(['vx', 'vy', 'vz'], part.dtype.names)):
+        utool.set_vector(table, vel, prefix='v', copy=False)
+
     part = Particle(table, part.snap)
     return part
 

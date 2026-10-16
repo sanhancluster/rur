@@ -5,15 +5,35 @@ from rur import uri, uhmi, utool
 from rur import sim
 from rur.config import Timestamp
 from rur.scripts.ramses_to_hdf_nc import compute_key_boundaries
+import argparse
 
 timer = Timestamp()
 
-def export_sinkprops_to_hdf_nc():
+def convert_f8_to_f4(arr, exclude_fields=['x', 'y', 'z']):
+    if isinstance(exclude_fields, str):
+        exclude_fields = {exclude_fields}
+    else:
+        exclude_fields = set(exclude_fields)
+
+    new_dtype = []
+    for name, (dtype, offset) in arr.dtype.fields.items():
+        if dtype == np.float64 and name not in exclude_fields:
+            new_dtype.append((name, np.float32))
+        else:
+            new_dtype.append((name, dtype))
+
+    new_arr = np.zeros(arr.shape, dtype=new_dtype)
+    for name in arr.dtype.names:
+        new_arr[name] = arr[name]
+
+    return new_arr
+
+def export_sinkprops_to_hdf_nc(repo, sinkprops_dir='SINKPROPS'):
     """
     Export sink properties to HDF5 format for NewCluster simulation.
     """
     # Define the path to the sink properties file
-    sinkprops_path = os.path.join('/storage6/hansan/shared', 'sinkprops.h5')
+    sinkprops_path = os.path.join(repo, sinkprops_dir, 'sinkprops.h5')
 
     # Check if the file already exists
     if os.path.exists(sinkprops_path):
@@ -22,7 +42,7 @@ def export_sinkprops_to_hdf_nc():
 
     # Load the sink properties from the simulation
     timer.start("Loading sink properties from NewCluster simulation")
-    nc = sim.NewCluster(iout=620)
+    nc = uri.RamsesSnapshot(repo, iout=623, hdf=True, mode='nc')
     sp = nc.read_sinkprops()
     timer.record("Sink properties loaded successfully.")
 
@@ -46,11 +66,18 @@ def export_sinkprops_to_hdf_nc():
     timer.record(f"Sink properties exported to {sinkprops_path} successfully.")
 
 
-def main():
+def main(args):
     """
     Main function to execute the export of sink properties.
+
     """
-    export_sinkprops_to_hdf_nc()
+    export_sinkprops_to_hdf_nc(args.repo, args.sinkprops_dir)
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description='Convert Ramses snapshot data to HDF5 format.')
+    parser.add_argument("--repo", "-r", help='Repository path', type=str)
+    parser.add_argument("--sinkprops_dir", "-s", help='Sink properties directory', type=str, default='SINKPROPS')
+
+    args = parser.parse_args()
+
+    main(args)

@@ -7,6 +7,7 @@ import time, datetime
 from tqdm import tqdm
 import argparse
 from packaging.version import Version
+from typing import Optional
 
 from rur import uri, utool
 from rur.fortranfile import FortranFile
@@ -192,7 +193,7 @@ def get_new_part_dict(snap:uri.RamsesSnapshot, cpu_list, size_load, nthread=8) -
             sl = slice(*bound)
             part_sl = part_data[sl]
             sl_coo = np.asarray([part_sl['x'], part_sl['y'], part_sl['z']]).T
-            hilbert_key = get_hilbert_key(sl_coo, snap.levelmax)
+            hilbert_key = get_hilbert_key(sl_coo, snap.levelmax, nthread=nthread)
             sort_key = np.argsort(hilbert_key)
             part_data[sl] = part_data[sl][sort_key]
 
@@ -202,7 +203,7 @@ def get_new_part_dict(snap:uri.RamsesSnapshot, cpu_list, size_load, nthread=8) -
             if name == 'sink':
                 if pointer_dict[name] == 0: # we load sink data only once
                     part = snap.get_sink(all=True)
-                    hilbert_key = get_hilbert_key(np.asarray([part['x'], part['y'], part['z']]).T, snap.levelmax)
+                    hilbert_key = get_hilbert_key(np.asarray([part['x'], part['y'], part['z']]).T, snap.levelmax, nthread=nthread)
                     part = part[np.argsort(hilbert_key)] # already Particle class at this point
                 else: # sink data is alrady loaded
                     continue
@@ -350,7 +351,7 @@ def get_new_cell(snap:uri.RamsesSnapshot, cpu_list, size_load, read_branch=False
             sl = slice(*bound)
             cell_sl = cell_data[sl]
             sl_coo = np.array([cell_sl['x'], cell_sl['y'], cell_sl['z']]).T
-            hilbert_key = get_hilbert_key(sl_coo, snap.levelmax, cell_sl['level'])
+            hilbert_key = get_hilbert_key(sl_coo, snap.levelmax, cell_sl['level'], nthread=nthread)
             sort_key = np.argsort(hilbert_key)
             cell_data[sl] = cell_data[sl][sort_key]
 
@@ -413,7 +414,7 @@ def get_ncell(snap:uri.RamsesSnapshot, python=False, read_branch=False) -> int:
     return ncell
 
 
-def export_snapshots(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load:int=60, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0', nthread=8, walltime:float=None):
+def export_snapshots(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size_load:int=60, output_path:str='hdf', cpu_list=None, dataset_kw:dict={}, overwrite:bool=True, sim_description:str='', version:str='1.0', nthread:int=8, walltime:float=None):
     """
     Export snapshots from the repository to HDF5 format.
     This function will export both particle and cell data.
@@ -438,6 +439,7 @@ def export_snapshots(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size
         timer.start(f"Starting cell data extraction for iout = {iout}.", name='cell_hdf')
         create_hdf5_cell(snap, n_chunk=n_chunk, size_load=size_load, output_path=output_path, cpu_list=cpu_list, dataset_kw=dataset_kw, overwrite=overwrite, sim_description=sim_description, version=version, nthread=nthread)
         snap.clear()
+        snap.clear_shm()
         timer.record(f"Cell data extraction completed for iout = {snap.iout}.", name='cell_hdf')
         if walltime is not None:
             elapsed = timer.time()
@@ -445,16 +447,16 @@ def export_snapshots(repo:uri.RamsesRepo, iout_list=None, n_chunk:int=1000, size
                 timer.message(f"Walltime exceeded for iout = {iout}. Elapsed time: {elapsed / 3600:.2f} hours.")
                 break
 
-def get_hilbert_key(coordinates:np.ndarray, levelmax:int, levels=None) -> np.ndarray:
+def get_hilbert_key(coordinates:np.ndarray, levelmax:int, levels=None, nthread:int=8) -> np.ndarray:
     # subdivisions = 2 ** levelmax
     #if levelmax > 21:
     #    raise ValueError("Levelmax must be less than or equal to 21 to avoid overflow in Hilbert key calculation.")
     # idx_list = np.floor(coordinates * subdivisions).astype(int)
     # npoints = idx_list.shape[0]
     if levels is None:
-        return hilbert3d_map(coordinates, levelmax).astype(np.float128)
+        return hilbert3d_map(coordinates, levelmax, kwargs_hilbert3d=dict(n_workers=nthread)).astype(np.float128)
     else:
-        return hilbert3d_map(coordinates, levelmax, levels=levels).astype(np.float128)
+        return hilbert3d_map(coordinates, levelmax, levels=levels, kwargs_hilbert3d=dict(n_workers=nthread)).astype(np.float128)
 
 def get_chunk_boundaries(hilbert_key:np.ndarray, n_chunk:int) -> np.ndarray:
     """
@@ -527,28 +529,58 @@ def add_attr_with_descr(fl: h5py.File, key: str, value, description: str):
         fl.attrs['attributes'] = "This file includes the following attributes:"
     fl.attrs['attributes'] += f"\n'{key}': {description}"
 
-def write_dataset(group:h5py.Group, name:str, data:np.ndarray, **dataset_kw):
+def write_dataset(group:h5py.Group, dataset_name:str, data:np.ndarray, sort_key=None, mem_block_bytes=1000 * 1024**2, **dataset_kw):
     """
     Write a dataset to the HDF5 group with the specified name and data with allowing overwriting.
     """
-    if name in group:
-        del group[name]
-    group.create_dataset(name, data=data, **dataset_kw)
+    if dataset_name in group:
+        del group[dataset_name]
 
-def add_group(fl:h5py.File, name:str, new_data:np.ndarray, levelmin:int, levelmax:int, n_chunk:int, n_level:int, part=False, dataset_kw:dict={}):
+    dset = group.create_dataset(dataset_name, shape=data.shape, dtype=data.dtype, **dataset_kw)
+    if sort_key is not None:
+        elems_per_row = int(np.prod(data.shape[1:], dtype=np.int64)) if data.ndim > 1 else 1
+        itemsize_per_row = int(data.dtype.itemsize) * elems_per_row
+        write_block = max(1, mem_block_bytes // itemsize_per_row)
+
+        # create dataset with chunking to save memory
+        n_total = data.shape[0]
+        buf = np.empty((write_block,) + data.shape[1:], dtype=data.dtype)
+        for start in range(0, n_total, write_block):
+            end = min(start + write_block, n_total)
+            k = end - start
+            np.take(data, sort_key[start:end], out=buf[:k])
+            dset[start:end] = buf[:k]
+    else:
+        # directly write the data without sorting
+        dset[:] = data
+    return dset
+
+def add_group(fl:h5py.File, name:str, new_data:np.ndarray, levelmin:int, levelmax:int, n_chunk:int, n_level:int, part=False, sort=True, dataset_kw:dict={}):
     """
     Add a group to the HDF5 file with the specified name and data with chunks ordered by hilbert key and levels.
     """
     timer.message(f"Measuring Hilbert key for {name} data...")
 
     # compute chunk boundaries based on Hilbert key and sort the data accordingly
-    chunk_boundary, hilbert_boundary = set_hilbert_boundaries(new_data, n_chunk, levelmax, part=part)
+    coordinates = np.array([new_data['x'], new_data['y'], new_data['z']]).T
+    if not part:
+        # use level information to compute Hilbert key for cells
+        chunk_boundary, hilbert_boundary, sort_key1 = set_hilbert_boundaries(coordinates, new_data['level'], n_chunk, levelmax, part=part, sort=sort)
+    else:
+        # for particles, level information is not used
+        chunk_boundary, hilbert_boundary, sort_key1 = set_hilbert_boundaries(coordinates, None, n_chunk, levelmax, part=part, sort=sort)
 
     level_boundary = None
     if 'level' in new_data.dtype.names:
         # compute level boundaries within each chunk and sort the data accordingly
-        level_boundary = set_level_boundaries(new_data, chunk_boundary, n_chunk, n_level)
+        levels = np.take(new_data['level'], sort_key1)
+        level_boundary, sort_key2 = set_level_boundaries(levels, chunk_boundary, n_chunk, n_level)
         assert_sorted(level_boundary)
+    
+        # combine the two sort keys
+        sort_key = sort_key1[sort_key2]
+    else:
+        sort_key = sort_key1
 
     if name not in fl:
         grp = fl.create_group(name)
@@ -567,24 +599,30 @@ def add_group(fl:h5py.File, name:str, new_data:np.ndarray, levelmin:int, levelma
     if level_boundary is not None:
         write_dataset(grp, 'level_boundary', data=level_boundary, **dataset_kw)
     timer.message(f"Exporting {name} data with {new_data.size} components...")
-    write_dataset(grp, 'data', data=new_data, **dataset_kw)
+    write_dataset(grp, 'data', data=new_data, sort_key=sort_key, mem_block_bytes=1000 * 1024**2, **dataset_kw)
 
     return grp
 
-def set_hilbert_boundaries(new_data: np.ndarray, n_chunk: int, levelmax:int, part:bool=False):
+def set_hilbert_boundaries(coordinates: np.ndarray, levels: Optional[np.ndarray], n_chunk: int, levelmax:int, part: bool=False, sort=True):
     """
     Sort the given data according to the Hilbert key, and returns the indices and Hilbert keys at chunk boundaries.
+    If levels is provided, it will be used to compute the Hilbert key with level information.
+    3D coordinates are expected to be in the range [0, 1).    
     """
-    coordinates = np.array([new_data['x'], new_data['y'], new_data['z']]).T
     if part:
-        hilbert_key = get_hilbert_key(coordinates, levelmax)
+        hilbert_key = get_hilbert_key(coordinates, levelmax, nthread=8)
     else:
-        hilbert_key = get_hilbert_key(coordinates, levelmax, new_data['level'])
-    if new_data.size > 1E8:
-        timer.message(f"Sorting data with {new_data.size} components...")
-    sort_key = np.argsort(hilbert_key, kind='mergesort')
+        hilbert_key = get_hilbert_key(coordinates, levelmax, levels, nthread=8)
+    if coordinates.shape[0] > 1E8:
+        timer.message(f"Sorting data with {coordinates.shape[0]} components...")
+    if sort:
+        sort_key = np.argsort(hilbert_key, kind='mergesort')
+    else:
+        sort_key = np.arange(hilbert_key.size)
     hilbert_key = hilbert_key[sort_key]
-    new_data[:] = new_data[sort_key]
+    # buf = np.empty_like(new_data)
+    # np.take(new_data, sort_key, out=buf)
+    # new_data[:] = buf
     assert_sorted(hilbert_key)
 
     timer.message("Getting chunk boundaries...")
@@ -601,25 +639,28 @@ def set_hilbert_boundaries(new_data: np.ndarray, n_chunk: int, levelmax:int, par
     hilbert_boundary[~safe_mask] = hilbert_key_max
     assert_sorted(hilbert_boundary)
 
-    return chunk_boundary, hilbert_boundary
+    return chunk_boundary, hilbert_boundary, sort_key
 
-def set_level_boundaries(new_data: np.ndarray, chunk_boundary: np.ndarray, n_chunk: int, n_level: int):
+def set_level_boundaries(levels: np.ndarray, chunk_boundary: np.ndarray, n_chunk: int, n_level: int):
     """
     Get the level boundaries for the cell data after sorting by level within each chunk.
     """
+    sort_key = np.arange(levels.size)
     for ichunk in range(n_chunk):
         bound = chunk_boundary[ichunk], chunk_boundary[ichunk + 1]
         if bound[0] == bound[1]:
             continue
         sl = slice(*bound)
-        sort_key = np.argsort(new_data[sl]['level'])
-        new_data[sl] = new_data[sl][sort_key]
+        sort_key_local = np.argsort(levels[sl])
+        sort_key[sl] = sort_key[sl][sort_key_local]
+        levels[sl] = levels[sl][sort_key_local]
+        # new_data[sl] = new_data[sl][sort_key]
 
     chunk_array = np.repeat(np.arange(n_chunk), chunk_boundary[1:] - chunk_boundary[:-1])
-    key = chunk_array * n_level + (new_data['level'] - 1)
+    key = chunk_array * n_level + (levels - 1)
     assert_sorted(key)
     level_boundary = compute_key_boundaries(key, n_key=n_chunk * n_level)
-    return level_boundary
+    return level_boundary, sort_key
 
 
 

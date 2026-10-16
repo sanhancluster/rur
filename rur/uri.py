@@ -917,7 +917,7 @@ class RamsesSnapshot(object):
 
     def switch_iout(self, iout):
         # returns to other snapshot while maintaining repository, box, etc.
-        return RamsesSnapshot(self.repo, iout, self.mode, self.box, self.path_in_repo, snap=self, longint=self.longint, verbose=self.verbose)
+        return RamsesSnapshot(self.repo, iout, self.mode, self.box, self.path_in_repo, snap=self, longint=self.longint, verbose=self.verbose, hdf=self.hdf, simple_boundary=self.simple_boundary)
 
     def __getitem__(self, item):
         try:
@@ -1130,6 +1130,7 @@ class RamsesSnapshot(object):
         if not self.hdf:
 
             opened = open(self.info_path, mode='r')
+            print(f"Reading snapshot info from {self.info_path}")
 
             int_regex = re.compile(r'(?P<name>\w+)\s*=\s*(?P<data>\d+)')
             float_regex = re.compile(r'(?P<name>\w+)\s*=\s*(?P<data>.+)')
@@ -1217,13 +1218,19 @@ class RamsesSnapshot(object):
             self.params.update(params)
 
         else:
-            with h5py.File(self.get_path('hdf_cell'), 'r') as f:
-                self.params = {k: f.attrs[k] for k in f.attrs.keys()}
+            if os.path.exists(self.get_path('hdf_cell')):
+                with h5py.File(self.get_path('hdf_cell'), 'r') as f:
+                    self.params = {k: f.attrs[k] for k in f.attrs.keys()}
+            elif os.path.exists(self.get_path('hdf_part')):
+                with h5py.File(self.get_path('hdf_part'), 'r') as f:
+                    self.params = {k: f.attrs[k] for k in f.attrs.keys()}
+            else:
+                raise FileNotFoundError(f"Snapshot file not found: either {self.get_path('hdf_cell')} or {self.get_path('hdf_part')} should be available")
             self.params['h'] = self.params['H0'] / 100
             self.params['boxsize'] = self.params['unit_l'] * self.params['h'] / Mpc / self.params['aexp']
             self.params['boxsize_physical'] = self.params['boxsize'] / (self.params['h']) * self.params['aexp']
             self.params['boxsize_comoving'] = self.params['boxsize'] / (self.params['h'])
-            self.params['nstep_colarse'] = self.params['icoarse']
+            self.params['nstep_coarse'] = self.params['icoarse']
 
         self.set_cosmology(snap=snap, verbose=verbose)
         self.set_unit()
@@ -2092,7 +2099,7 @@ class RamsesSnapshot(object):
             for key in dim_keys: sink[key] /= self.unit['kpc']
             for key in vel_keys: sink[key] /= self.unit['km/s']
             sink['m']
-        sink = append_fields(sink, ['aexp', 'icoarse'], [aexp_table, icoarse_table], usemask=False)
+        sink = append_fields(sink, ['aexp', 'icoarse'], [aexp_table, icoarse_table], dtypes=['f8', 'i4'], usemask=False)
 
         timer.record()
         readr.close()
@@ -2440,23 +2447,22 @@ class RamsesSnapshot(object):
                 grp = hdf[pname]
                 
                 hilbert_bound = grp['hilbert_boundary'][:]
+                if hilbert_bound.dtype.names is not None and 'hi' in hilbert_bound.dtype.names:
+                    hilbert_bound = hilbert_from_compound(hilbert_bound)
+
                 chunk_bound = grp['chunk_boundary']
                 levelmax = grp.attrs.get('levelmax', self.levelmax)
                 
                 involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax)
                 # -------------------------------------------
                 # SY Bug fix: when wrong `target_fields` are specified
-                if target_fields is not None:
-                    wrong_fields = [f for f in target_fields if f not in grp['data'].dtype.names]
-                    if len(wrong_fields) > 0:
-                        warnings.warn(f"`{wrong_fields}` not found in HDF5 data, they will be ignored.", UserWarning)
-                    target_fields = [f for f in target_fields if f in grp['data'].dtype.names]
-                    if len(target_fields) == 0: target_fields = None
+                target_fields = hdf_target_fields(target_fields, grp['data'].dtype.names)
                 # -------------------------------------------
                 timer.start('Domain Slicing...')
                 data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields)
                 timer.record()
 
+                data = hdf_rename_fields(data)
                 if (self.box is not None and exact_box):
                     timer.start("Getting mask...", tab=1)
                     mask = box_mask_table(data, self.box, snap=self, nthread=nthread_mask_default)
@@ -2480,16 +2486,13 @@ class RamsesSnapshot(object):
                 grp = hdf[pname]
                 
                 hilbert_bound = grp['hilbert_boundary'][:]
+                if hilbert_bound.dtype.names is not None and 'hi' in hilbert_bound.dtype.names:
+                    hilbert_bound = hilbert_from_compound(hilbert_bound)
                 chunk_bound = grp['chunk_boundary'][:]
                 levelmax = grp.attrs.get('levelmax', self.levelmax)
-                
+
                 involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax)
-                if target_fields is not None:
-                    wrong_fields = [f for f in target_fields if f not in grp['data'].dtype.names]
-                    if len(wrong_fields) > 0:
-                        warnings.warn(f"`{wrong_fields}` not found in HDF5 data, they will be ignored.", UserWarning)
-                    target_fields = [f for f in target_fields if f in grp['data'].dtype.names]
-                    if len(target_fields) == 0: target_fields = None
+                target_fields = hdf_target_fields(target_fields, grp['data'].dtype.names)
                 if nthread==1:
                     timer.start('Domain Slicing...')
                     data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields, 
@@ -2502,6 +2505,7 @@ class RamsesSnapshot(object):
                                     legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=pname, domain_slicing=domain_slicing)
                 timer.record()
 
+            data = hdf_rename_fields(data)
             if (self.box is not None and exact_box):
                 timer.start("Getting mask...", tab=1)
                 mask = box_mask_table(data, self.box, snap=self, nthread=nthread)
@@ -2546,17 +2550,13 @@ class RamsesSnapshot(object):
                 involved_idx = get_hilbert_indices(self.box, bound_key=hilbert_bound, level_key=levelmax_all)
                 # -------------------------------------------
                 # SY Bug fix: when wrong `target_fields` are specified
-                if target_fields is not None:
-                    wrong_fields = [f for f in target_fields if f not in grp['data'].dtype.names]
-                    if len(wrong_fields) > 0:
-                        warnings.warn(f"`{wrong_fields}` not found in HDF5 data, they will be ignored.", UserWarning)
-                    target_fields = [f for f in target_fields if f in grp['data'].dtype.names]
-                    if len(target_fields) == 0: target_fields = None
+                target_fields = hdf_target_fields(target_fields, grp['data'].dtype.names)
                 # -------------------------------------------
                 timer.start('Domain Slicing...')
                 data = domain_slice(grp['data'], involved_idx, bound=chunk_bound, target_fields=target_fields)
                 timer.record()
 
+                data = hdf_rename_fields(data)
                 if (self.box is not None and exact_box):
                     timer.start("Getting mask...", tab=1)
                     mask = box_mask_table(data, self.box, snap=self, size=self.cell_extra['dx'](data), nthread=nthread_mask_default)
@@ -2577,6 +2577,9 @@ class RamsesSnapshot(object):
                 hdf_group = 'branch' if read_branch else 'leaf'
                 grp = hdf[hdf_group]
                 hilbert_bound = grp['hilbert_boundary'][:]
+                if hilbert_bound.dtype.names is not None and 'hi' in hilbert_bound.dtype.names:
+                    hilbert_bound = hilbert_from_compound(hilbert_bound)
+
                 chunk_bound = grp['chunk_boundary'][:]
                 levelmax_all = grp.attrs.get('levelmax', self.levelmax)
 
@@ -2594,12 +2597,7 @@ class RamsesSnapshot(object):
                     chunk_bound = grp['level_boundary'][:]
                     chunk_bound_branch = grp_branch['level_boundary'][:]
 
-                if target_fields is not None:
-                    wrong_fields = [f for f in target_fields if f not in grp['data'].dtype.names]
-                    if len(wrong_fields) > 0:
-                        warnings.warn(f"`{wrong_fields}` not found in HDF5 data, they will be ignored.", UserWarning)
-                    target_fields = [f for f in target_fields if f in grp['data'].dtype.names]
-                    if len(target_fields) == 0: target_fields = None
+                target_fields = hdf_target_fields(target_fields, grp['data'].dtype.names)
                 if nthread==1:
                     timer.start('Domain Slicing...')
                     if grp_branch is not None:
@@ -2626,6 +2624,7 @@ class RamsesSnapshot(object):
                                         legacy=legacy, nthread=nthread, snap=self, hdf_path=hdf_path, hdf_group=hdf_group, domain_slicing=domain_slicing)
                 timer.record()
 
+            data = hdf_rename_fields(data)
             if (self.box is not None and exact_box):
                 timer.start("Getting mask...", tab=1)
                 mask = box_mask_table(data, self.box, snap=self, size=self.cell_extra['dx'](data), nthread=nthread)
@@ -2650,9 +2649,8 @@ class RamsesSnapshot(object):
             if all:
                 box = self.default_box.copy()
             else:
-                self.box_sink = self.box.copy()
+                box = self.box.copy()
             self.box_sink = box
-            self.box = box
             sink = self.get_part(box=self.box_sink, pname='sink') # not saving as local parameter to save memory
             return sink
         if all:
@@ -3640,6 +3638,47 @@ def ckey2idx(amr_keys, nocts, levelmin, ndim=3):
     return poss, lvls
 
 
+def hdf_field_map(names, convert=desc2dtype):
+    # maps HDF5 field names to rur field names using `convert` (e.g. 'position_x' -> 'x')
+    # names that collide with an existing or already-converted name are kept as-is
+    mapping = {}
+    used = set(names)
+    for name in names:
+        new = convert.get(name, name)
+        if new != name and new in used:
+            new = name
+        used.add(new)
+        mapping[name] = new
+    return mapping
+
+
+def hdf_target_fields(target_fields, names, convert=desc2dtype):
+    # converts user-given `target_fields` (rur or HDF5 names) into HDF5 field names
+    if target_fields is None:
+        return None
+    inverse = {v: k for k, v in hdf_field_map(names, convert).items()}
+    resolved = [inverse.get(f, f) for f in target_fields]
+    wrong_fields = [f for f, r in zip(target_fields, resolved) if r not in names]
+    if len(wrong_fields) > 0:
+        warnings.warn(f"`{wrong_fields}` not found in HDF5 data, they will be ignored.", UserWarning)
+    resolved = [r for r in resolved if r in names]
+    if len(resolved) == 0: return None
+    return resolved
+
+
+def hdf_rename_fields(data, convert=desc2dtype):
+    # returns a view of structured array `data` with fields renamed according to `convert`
+    mapping = hdf_field_map(data.dtype.names, convert)
+    if all(k == v for k, v in mapping.items()):
+        return data
+    fields = data.dtype.fields
+    dtype = np.dtype({'names': [mapping[name] for name in data.dtype.names],
+                      'formats': [fields[name][0] for name in data.dtype.names],
+                      'offsets': [fields[name][1] for name in data.dtype.names],
+                      'itemsize': data.dtype.itemsize})
+    return data.view(dtype)
+
+
 def domain_slice(array, cpulist, bound, cpulist_all=None, cpulist_end=None, target_fields=None, 
                  legacy=False, nthread=1, snap=None, hdf_path=None, hdf_group=None, Nchunk=500000, domain_slicing=True):
     if cpulist_all is None:
@@ -3979,7 +4018,7 @@ class GraficIC(object):
 
 class Region():
     def evaluate(self, data):
-        if (isinstance(data, np.ndarrray) and data.shape[-1] == 3):
+        if (isinstance(data, np.ndarray) and data.shape[-1] == 3):
             return self.isin(data)
         elif (isinstance(data, Table)):
             return self.isin(data['pos'])
@@ -4126,3 +4165,13 @@ def parse_namelist(filename):
 
 def str_to_tuple(input_data):
     return tuple(map(int, input_data.split(',')))
+
+def hilbert_from_compound(arr: np.ndarray) -> np.ndarray:
+    """Convert compound structured hilbert key array ('hi', 'lo') to Python int object array.
+    """
+    scalar_input = arr.ndim == 0
+    arr = np.atleast_1d(arr)
+    hi = arr['hi'].astype(object)
+    lo = arr['lo'].astype(object)
+    result = hi * (1 << 64) + lo
+    return result[0] if scalar_input else result

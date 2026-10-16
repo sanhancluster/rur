@@ -26,22 +26,29 @@ def set_unit(aexps, snap):
 
     return unit
 
-def get_macc(tl, mseed=None):
+def get_macc(tl, mseed=None, from_seed=True):
     # get accreted mass
     if mseed is None:
         mseed = tl[0]['m'] - tl[0]['dM']
     excess = np.diff(np.concatenate([[0.], tl['m']])) - tl['dM']
-    excess[excess * 1.000001 > mseed] -= mseed
+    mask_merger = excess * 1.000001 > mseed
+    if from_seed:
+        excess[mask_merger] -= mseed
+    else:
+        excess[mask_merger] = 0
     return np.cumsum(excess + tl['dM'])
 
-def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_params=dict(),
+def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_params=dict(), scatter_params=dict(),
                        smooth=1, eagn_T=0.05, vlines=[], title=None, savefile=None, lw_small=0.7, ylims=None,
-                       eddington_cap=True, show_macc=True, show_bondi=True,
+                       eddington_cap=True, show_macc=True, show_bondi=True, show_mergers=True,
                        axes=None, xarr=None):
     """
     Available modes = ['mass', 'velocity', 'density', 'accretion_rate', 'eddington_rate', 'spin', 'epsilon', 'energy',
                  'tot_energy']
     """
+    macc_name = 'Mdot' if 'Mdot' in tl.dtype.names else 'dMBHoverdt'
+    medd_name = 'Medd' if 'Medd' in tl.dtype.names else 'dMEdoverdt'
+
     def draw(x, y, lsmooth=False, **kwargs):
         if (smooth > 0):
             y = y.copy()
@@ -89,9 +96,17 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
             yarr = np.log10(tl['m'] * unit_to_Msol)
             draw(xarr, yarr, **plot_params, label='M$_{\\rm BH}$')
 
-            yarr = np.log10(get_macc(tl, mseed=None) * unit_to_Msol)
             if show_macc:
+                yarr = np.log10(get_macc(tl, mseed=None) * unit_to_Msol)
+                draw(xarr, yarr, **plot_params, label='M$_{\\rm acc,all}$', alpha=0.5, lw=0.5)
+                yarr = np.log10(get_macc(tl, mseed=None, from_seed=False) * unit_to_Msol)
                 draw(xarr, yarr, **plot_params, label='M$_{\\rm acc}$', alpha=0.5, lw=0.5)
+            
+            if show_mergers:
+                excess = np.diff(np.concatenate([[0.], tl['m']])) - tl['dM']
+                mask_merger = excess > 0
+                yarr = np.log10(excess[mask_merger] * unit_to_Msol)
+                plt.scatter(xarr[mask_merger], yarr, marker='o', label='M$_{\\rm merger}$', color='k', **scatter_params)
 
             plt.ylabel('log M$_{BH}$\n(M$_\odot$)')
             plt.ylim(np.log10(np.min(tl['m']) * unit_to_Msol)-0.02, None)
@@ -130,8 +145,8 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
         elif mode in ['accretion_rate', 'Macc', 'acc']:
             # acc = lambda bh: 4*np.pi* bh['d_avgptr'] * unit_d * (6.674E-8)**2*(bh['m']*unit_m)**2 / (bh['v_avgptr']**2 + bh['c_avgptr']**2)**1.5/unit_v**3 / (uri.Msol/uri.yr)
             Mdot = tl['dM'] * unit_to_Msol / dt_yr / (1-tl['eps_sink'])
-            Macc = tl['Mdot'] * unit_to_Msol / unit_to_yr
-            Medd = tl['Medd'] * unit_to_Msol / unit_to_yr
+            Macc = tl[macc_name] * unit_to_Msol / unit_to_yr
+            Medd = tl[medd_name] * unit_to_Msol / unit_to_yr
             draw(xarr, np.log10(Mdot), lsmooth=True, lw=lw_small, label='$\\dot M_{BH}$')
             if show_bondi:
                 draw(xarr, np.log10(Macc), lsmooth=True, lw=lw_small, label='$\\dot M_{Bon}$')
@@ -142,8 +157,8 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
 
         elif mode in ['eddington_rate', 'fedd', 'fEdd', 'eddington', 'eddington_ratio']:
             Mdot = tl['dM'] * unit_to_Msol / dt_yr / (1-tl['eps_sink'])
-            Macc = tl['Mdot'] * unit_to_Msol / unit_to_yr
-            Medd = tl['Medd'] * unit_to_Msol / unit_to_yr
+            Macc = tl[macc_name] * unit_to_Msol / unit_to_yr
+            Medd = tl[medd_name] * unit_to_Msol / unit_to_yr
             draw(xarr, np.log10(Mdot / Medd), lsmooth=True, label='f$_{acc}$')
             plt.plot(xarr, np.log10(Mdot / Medd), color='k', alpha=0.3, lw=lw_small, zorder=-1)
             if show_bondi:
@@ -176,11 +191,11 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
         elif mode in ['energy', 'feedback', 'EAGN', 'eagn']:
             # draw(xarr, np.log10(np.minimum(tl['Mdot']/tl['Medd'], 1)), label='Mdot')
             eff = eff_mad(tl['spinmag'])
-            mdot = tl['Mdot']
+            mdot = tl[macc_name]
             if(eddington_cap):
-                mdot = np.minimum(mdot, tl['Medd'])
-            ek = (mdot * eff) * (tl['Mdot'] / tl['Medd'] < 0.01)
-            et = (mdot * tl['eps_sink']) * (tl['Mdot'] / tl['Medd'] > 0.01) * eagn_T
+                mdot = np.minimum(mdot, tl[medd_name])
+            ek = (mdot * eff) * (tl[macc_name] / tl[medd_name] < 0.01)
+            et = (mdot * tl['eps_sink']) * (tl[macc_name] / tl[medd_name] > 0.01) * eagn_T
             # stat = utool.binned_stat(ages_sink, np.stack([et, ek], axis=-1) * (unit_m / unit_t * 29979245800**2), bins=age_bin)
             ek *= (unit_m / unit_t * c_const ** 2)
             et *= (unit_m / unit_t * c_const ** 2)
@@ -204,8 +219,8 @@ def draw_sink_timeline(snap, tl, modes=None, xmode='aexp', xlim=None, plot_param
         elif mode in ['tot_energy', 'etot', 'Etot', 'cum_energy']:
             # draw(xarr, np.log10(np.minimum(tl['Mdot']/tl['Medd'], 1)), label='Mdot')
             eff = eff_mad(tl['spinmag'])
-            ek = (np.minimum(tl['Mdot'], tl['Medd']) * eff) * (tl['Mdot'] / tl['Medd'] < 0.01)
-            et = (np.minimum(tl['Mdot'], tl['Medd']) * tl['eps_sink']) * (tl['Mdot'] / tl['Medd'] > 0.01) * eagn_T
+            ek = (np.minimum(tl[macc_name], tl[medd_name]) * eff) * (tl[macc_name] / tl[medd_name] < 0.01)
+            et = (np.minimum(tl[macc_name], tl[medd_name]) * tl['eps_sink']) * (tl[macc_name] / tl[medd_name] > 0.01) * eagn_T
             # stat = utool.binned_stat(ages_sink, np.stack([et, ek], axis=-1) * (unit_m / unit_t * 29979245800**2), bins=age_bin)
             ek *= (unit_m / unit_t * 29979245800. ** 2)
             et *= (unit_m / unit_t * 29979245800. ** 2)
