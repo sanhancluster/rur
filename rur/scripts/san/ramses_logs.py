@@ -4,7 +4,7 @@ def get_times_from_log(log_path, levelmax=22, n_thr=5):
     times = []
     dtype = [('path', 'U16'), ('tstep', 'f8'), ('ttot', 'f8'), ('aexp', 'f8'),
              ('icoarse', 'i4'), ('ifine', 'i4'), ('mem', 'f8', 2), ('umem', 'f8'), ('nstar', 'i4'),
-             ('ngrids', 'i4', levelmax+1), ('timer', 'O')]
+             ('ngrids', 'i4', levelmax+1), ('timer', 'O'), ('date', 'i4')]
     dtype_timer = [('minimum', 'f8'), ('average', 'f8'), ('maximum', 'f8'),
                    ('stdev', 'f8'), ('stoav', 'f8'), ('rmn', 'i4'), ('rmx', 'i4'), ('routine', 'U32')]
     for pp in log_path:
@@ -43,7 +43,7 @@ def get_times_from_log(log_path, levelmax=22, n_thr=5):
                         ngrids[ilevel] = int(line[13:24])
             if 'Main step' in line:
                 icoarse = int(line[11:18])
-                times_sub.append((os.path.basename(pp), tstep, ttot, aexp, icoarse, ifine, mem, umem, nstar, ngrids.copy(), timer))
+                times_sub.append((os.path.basename(pp), tstep, ttot, aexp, icoarse, ifine, mem, umem, nstar, ngrids.copy(), timer, 0))
                 timer = None
             if 'TIMER' in line:
                 timer  = []
@@ -64,8 +64,10 @@ def get_times_from_log(log_path, levelmax=22, n_thr=5):
                     timer.append((minimum, average, maximum, stdev, stoav, rmn, rmx, routine))
                 timer = np.array(timer, dtype=dtype_timer)
         times_sub = np.array(times_sub, dtype=dtype)
+        date = os.path.getmtime(pp)
+        times_sub['date'] = date
         if(len(times_sub) >= n_thr):
-            times.append(times_sub)
+            times.append(times_sub)        
     if(len(times) > 0):
         times = np.concatenate(times)
     times = np.array(times, dtype=dtype)

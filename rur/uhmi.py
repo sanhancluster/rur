@@ -11,6 +11,7 @@ from scipy.stats import mode
 from numpy.lib.recfunctions import append_fields, drop_fields, merge_arrays
 import gc
 import string
+import pickle as pkl
 from multiprocessing import Process, Queue
 from multiprocessing import Pool, shared_memory
 from time import sleep, time, gmtime, strftime
@@ -230,39 +231,43 @@ class HaloMaker:
 
 
     @staticmethod
-    def load(snap, path_in_repo=None, galaxy=False, full_path=None, load_parts=False, double_precision=True, copy_part_id=True, extend=False):
+    def load(snap=None, path_in_repo=None, galaxy=False, full_path=None, load_parts=False, double_precision=True, copy_part_id=True, extend=False):
         # boxsize: comoving length of the box in Mpc
-        repo = snap.repo
-        start = snap.iout
-        end = start+1
-        if(double_precision is None):
-            if(galaxy):
-                # galaxies uses dp, while halo data uses sp
-                double_precision=True
+        if snap is not None:
+            repo = snap.repo
+            start = snap.iout
+            end = start+1
+            if(double_precision is None):
+                if(galaxy):
+                    # galaxies uses dp, while halo data uses sp
+                    double_precision=True
+                else:
+                    double_precision=False
+                if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2')or(snap.mode=='fornax')or(snap.mode=='y4')or(snap.mode=='y3'):
+                    double_precision=True
+                else:
+                    double_precision=False
+            if (galaxy):
+                if(path_in_repo is None):
+                    path_in_repo = default_path_in_repo['GalaxyMaker']
+                if(not double_precision):
+                    dtype = HaloMaker.galaxy_dtype
+                else:
+                    dtype = HaloMaker.galaxy_dtype_dp
             else:
-                double_precision=False
-            if(snap.mode=='yzics')or(snap.mode=='nh')or(snap.mode=='nc')or(snap.mode=='nh2')or(snap.mode=='fornax')or(snap.mode=='y4')or(snap.mode=='y3'):
-                double_precision=True
-            else:
-                double_precision=False
-        if (galaxy):
-            if(path_in_repo is None):
-                path_in_repo = default_path_in_repo['GalaxyMaker']
-            if(not double_precision):
-                dtype = HaloMaker.galaxy_dtype
-            else:
-                dtype = HaloMaker.galaxy_dtype_dp
-        else:
-            if(path_in_repo is None):
-                path_in_repo = default_path_in_repo['HaloMaker']
-            if(not double_precision):
-                dtype = HaloMaker.halo_dtype
-            else:
-                dtype = HaloMaker.halo_dtype_dp
-        path = os.path.join(repo, path_in_repo)
+                if(path_in_repo is None):
+                    path_in_repo = default_path_in_repo['HaloMaker']
+                if(not double_precision):
+                    dtype = HaloMaker.halo_dtype
+                else:
+                    dtype = HaloMaker.halo_dtype_dp
+            path = os.path.join(repo, path_in_repo)
 
         if(full_path is not None):
             path = full_path
+        
+        if snap is None and full_path is None:
+            raise ValueError("Either `snap` or `full_path` must be provided.")
 
         #print("Searching for tree_brick in ", path)
         readh.read_bricks(path, galaxy, start, end, load_parts, double_precision)
@@ -284,7 +289,8 @@ class HaloMaker:
                 array = fromarrays([*readh.integer_table.T, *readh.real_table_dp.T, mcont], dtype=dtype)
             else:
                 array = fromarrays([*readh.integer_table.T, *readh.real_table_dp.T], dtype=dtype)
-        array = HaloMaker.unit_conversion(array, snap)
+        if snap is not None:
+            array = HaloMaker.unit_conversion(array, snap)
         if(extend):
             extend_path = f"{path}/extended/{start:05d}"
             if(os.path.exists(extend_path)):
@@ -1117,14 +1123,18 @@ class PhantomTree:
         halo_ids = []
         buffer = 0
 
-        if(start_on_middle):
+        if(start_on_middle and snap_iouts.size > 0):
             if(uri.timer.verbose>0): print("Start on middle:")
             if full_path_ptree is None: pfiles = os.listdir(f"{snap.repo}/{path_in_repo}")
             else: pfiles = os.listdir(full_path_ptree)
             pfiles = [pf for pf in pfiles if pf.startswith("ptree_0")]
             nout = np.array([int(pf[6:11]) for pf in pfiles])
             omitted = snap_iouts[~np.isin(snap_iouts, nout)]
-            min_omit = np.min(omitted)
+            if omitted.size == 0:
+                print(f"\tNo omitted snapshots found, skipping ptree calculation")
+                min_omit = np.inf
+            else:
+                min_omit = np.min(omitted)
             print(f"\tNo pbricks after {min_omit}th snapshot")
             # print(f"\tFound {len(nout)} ptree files exist ({np.min(nout)} ~ {np.max(nout)})")
             # snap_iouts = snap_iouts[
@@ -1281,6 +1291,7 @@ class PhantomTree:
         add = 0
         while(True):
             brick_fname = os.path.join(dirpath, ptree_file_format % iout) # 'ptree_%05d.pkl'
+            if not os.path.exists(brick_fname): brick_fname += '2'
             # Find the brick file. If not exist, skip it.
             if(not os.path.exists(brick_fname)):
                 if(skip_jumps):

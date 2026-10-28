@@ -110,7 +110,7 @@ def axlabel(text, pos='right top', loc=None, offset=0.03, ax=None, **kwargs):
         raise ValueError("Unknown vertical position")
     if ax is None:
         ax = plt.gca()
-    ax.text(x, y, text, ha=ha, va=va, transform=ax.transAxes, **kwargs)
+    return ax.text(x, y, text, ha=ha, va=va, transform=ax.transAxes, **kwargs)
 
 
 def bmask(arr, bet):
@@ -650,7 +650,11 @@ def mosaic_stat(x, y, v, weights=None, bins=10, lims=None, minnum=0, statmode=No
     if statmode is None:
         statmode = 'mean'
     bins = np.atleast_1d(bins)
-    stat = binned_stat(np.stack([x, y], axis=-1), v, bins, lims, weights=weights)
+    bstat = binned_stat(np.stack([x, y], axis=-1), v, bins, lims, weights=weights)
+
+    def stat(*args, **kwargs):
+        # binned_stat returns (nx, ny); imshow expects (ny, nx)
+        return np.swapaxes(bstat(*args, **kwargs), 0, 1)
 
     num = stat('num')
     arr = stat(statmode)
@@ -665,11 +669,12 @@ def mosaic_stat(x, y, v, weights=None, bins=10, lims=None, minnum=0, statmode=No
         hist_contour(x, y, lims, cmap=plt.cm.Greys, color='none', reso=100, sig_arr=[0.5, 1.5], filter_sigma=5, alpha=0.25, filled=True)
 
     if(show_number):
-        for i in np.arange(bins[0]):
-            for j in np.arange(bins[1]):
+        ny, nx = num.shape
+        for i in np.arange(nx):
+            for j in np.arange(ny):
                 if(num[j, i] >= statmin):
-                    tx, ty = (extent[0] + (extent[1] - extent[0]) * i / bins)[0], \
-                             (extent[2] + (extent[3] - extent[2]) * j / bins)[-1]
+                    tx, ty = extent[0] + (extent[1] - extent[0]) * i / nx, \
+                             extent[2] + (extent[3] - extent[2]) * j / ny
                     if(statmode == 'mean'):
                         std = stat('std')
                         text = (fmt+"±"+fmt+"\nN = %d") % (arr[j, i], std[j, i], num[j, i])
@@ -1106,7 +1111,7 @@ def dark_cmap(color):
 def grid_projection(centers, levels=None, quantities=None, weights=None, shape=None, lims=None,
                     mode='sum', plot_method='hist', projector_kwargs={}, projection=['x', 'y'],
                     interp_order=0, crop_mode='subpixel', output_dtype=np.float64, padding=0,
-                    type='particle', lims_domain=None):
+                    type='particle', lims_domain=None, ndim_proj=2):
     """
     Generate a 2D projection plot of a quantity using particle or AMR data.
 
@@ -1143,6 +1148,8 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
         Number of padding pixels in the boundary to draw the data. Default is 0.
     type : str, optional
         Type of data. Options are 'particle' or 'amr'. Default is 'particle'.
+    lims_domain : list of list of float, optional
+        Domain limits for the data in the form [[xmin, xmax], [ymin, ymax], [zmin, zmax]] to used for calculating cell size based on levels. If None, defaults to [[0, 1], [0, 1], [0, 1]]. Default is None.
 
     Returns:
     --------
@@ -1170,17 +1177,17 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
                 np.maximum.at(grid_padding, (xi, yi), quantity)
                 np.maximum(grid, grid_padding[1:-1, 1:-1], out=grid)
 
-    ndim = 3
+    ndim_data = 3
     levelmin, levelmax = None, None
     # if lims is None, set all limits to [0, 1]
     if lims is None:
         if lims_domain is None:
-            lims = [[0, 1],] * ndim
+            lims = [[0, 1],] * ndim_data
         else:
             lims = lims_domain
     lims = np.asarray(lims)
     if lims_domain is None:
-        lims_domain = np.array([[0, 1],] * ndim)
+        lims_domain = np.array([[0, 1],] * ndim_data)
         lims_domain = np.stack([np.minimum(lims[:, 0], lims_domain[:, 0]), np.maximum(lims[:, 1], lims_domain[:, 1])], axis=-1)
     lims_domain = np.asarray(lims_domain)
     # if quantities is None, set all quantities to 1
@@ -1206,10 +1213,10 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
     elif type in ['amr', 'cell', 'grid']:
         type = 'amr'
 
-    proj = get_projection_index(projection, ndim=ndim)
+    proj = get_projection_index(projection, ndim=ndim_data)
     
     # get the z-axis that is not in the projection
-    proj_z = np.setdiff1d(np.arange(ndim), proj)[0]
+    proj_z = np.setdiff1d(np.arange(ndim_data), proj)[0]
     lims_2d = lims[proj]
     domain_shape = np.array(lims_domain)[:, 1] - np.array(lims_domain)[:, 0]
     domain_length_max = np.max(domain_shape)
@@ -1241,7 +1248,7 @@ def grid_projection(centers, levels=None, quantities=None, weights=None, shape=N
             dx_min = 2. ** -levelmax_draw
             shape = (scope_2d[0, 1] - scope_2d[0, 0]) // dx_min, (scope_2d[1, 1] - scope_2d[1, 0]) // dx_min
             if np.prod(shape) >= 1E8:
-                warnings.warn("The shape of the grid is too large: {shape}, it may cause memory issues.")
+                warnings.warn(f"The shape of the grid is too large: {shape}, it may cause memory issues.")
         else:
             # get the levels of the grid to draw the desired resolution
             dx_min = np.minimum((scope_2d[0, 1] - scope_2d[0, 0]) / shape[0], (scope_2d[1, 1] - scope_2d[1, 0]) / shape[1])
