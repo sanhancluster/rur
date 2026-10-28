@@ -11,13 +11,22 @@ from collections.abc import Iterable
 from scipy.spatial import cKDTree as KDTree
 from numpy.lib.recfunctions import append_fields
 
-from rur.fortranfile import FortranFile
-# from rur.hilbert3d import hilbert3d
-from rur.readr import readr
-from rur.io_ramses import io_ramses
-from rur.config import *
-from rur import utool
-from rur.utool import *
+try:
+    from rur.fortranfile import FortranFile
+    # from rur.hilbert3d import hilbert3d
+    from rur.readr import readr
+    from rur.io_ramses import io_ramses
+    from rur.config import *
+    from rur import utool
+    from rur.utool import *
+except:
+    from fortranfile import FortranFile
+    # from hilbert3d import hilbert3d
+    from readr import readr
+    from io_ramses import io_ramses
+    from config import *
+    import utool
+    from utool import *
 import numpy as np
 import warnings
 import glob
