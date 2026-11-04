@@ -11,13 +11,22 @@ from collections.abc import Iterable
 from scipy.spatial import cKDTree as KDTree
 from numpy.lib.recfunctions import append_fields
 
-from rur.fortranfile import FortranFile
-# from rur.hilbert3d import hilbert3d
-from rur.readr import readr
-from rur.io_ramses import io_ramses
-from rur.config import *
-from rur import utool
-from rur.utool import *
+try:
+    from rur.fortranfile import FortranFile
+    # from rur.hilbert3d import hilbert3d
+    from rur.readr import readr
+    from rur.io_ramses import io_ramses
+    from rur.config import *
+    from rur import utool
+    from rur.utool import *
+except:
+    from fortranfile import FortranFile
+    # from hilbert3d import hilbert3d
+    from readr import readr
+    from io_ramses import io_ramses
+    from config import *
+    import utool
+    from utool import *
 import numpy as np
 import warnings
 import glob
@@ -323,7 +332,7 @@ def _calc_npart(fname: str, kwargs: dict, sizeonly=False):
     ids, epoch, m, family = None, None, None, None
     with FortranFile(f"{fname}", mode='r') as f:
         f.skip_records(2)
-        npart = f.read_ints(np.int32)
+        npart = f.read_ints(np.int32)[0]
         if(pname is None):
             result = _classify(pname, npart, ids=ids, epoch=epoch, m=m, family=family, sizeonly=sizeonly, isstar=isstar)
             return result[0], result[1], int(fname[-5:])
@@ -1335,7 +1344,7 @@ class RamsesSnapshot(object):
                     with FortranFile(f"{fname}", mode='r') as f:
                         f.skip_records(2)
                         header['total'] += f.read_ints(np.int32)[0]
-                header['DM'] = header['total'] - header['star'] - header['cloud']
+                header['dm'] = header['total'] - header['star'] - header['cloud']
 
         dtype = part_dtype
         if target_fields is not None:

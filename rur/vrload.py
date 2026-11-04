@@ -5,7 +5,12 @@ import os
 import copy
 import os.path
 import pickle as pickle
-import pkg_resources
+try:
+    import pkg_resources
+    vrtable_dir = pkg_resources.resource_filename('rur', 'vr/table/')
+except:
+    import importlib.resources
+    vrtable_dir = importlib.resources.files('rur').joinpath('vr/table/')
 import multiprocessing
 from multiprocessing import Process, Queue
 from time import sleep
@@ -34,7 +39,7 @@ class vr_load:
         ##-----
         self.num_thread = int(num_thread)   # The number of cores
         self.simtype    = simtype
-        self.dir_table  = pkg_resources.resource_filename('rur', 'vr/table/')
+        self.dir_table  = vrtable_dir
         self.ssp_type   = 'chab'
         self.sun_met    = 0.02
 

@@ -1,5 +1,12 @@
 from rur.uri import *
-import pkg_resources
+try:
+    import pkg_resources
+    yeps_dir = pkg_resources.resource_filename('rur', 'YEPS/')
+    cb07_dir = pkg_resources.resource_filename('rur', 'cb07/')
+except:
+    import importlib.resources
+    yeps_dir = importlib.resources.files('rur').joinpath('YEPS/')
+    cb07_dir = importlib.resources.files('rur').joinpath('cb07/')
 from scipy.interpolate import LinearNDInterpolator
 from numpy.lib.recfunctions import append_fields
 from numpy.lib.recfunctions import merge_arrays
@@ -20,7 +27,6 @@ def set_boundaries(data, range):
     # return data
 
 def read_YEPS_table(alpha=1):
-    yeps_dir = pkg_resources.resource_filename('rur', 'YEPS/')
     if(alpha == 0):
         path = join(yeps_dir, 'wHB_ABMAG.dat')
     elif(alpha == 1):
@@ -46,7 +52,6 @@ def read_cb07_table():
     tags = ['1ABmag', '1color']
     mtags = [22, 32, 42, 52, 62, 72, 82]
     zarr = [0.0001, 0.0004, 0.004, 0.008, 0.02, 0.05, 0.1]
-    cb07_dir = pkg_resources.resource_filename('rur', 'cb07/')
 
     tables = []
 

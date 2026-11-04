@@ -14,3 +14,5 @@ GLVL = 2 # Galaxy level <= GLVL
 # Galaxy radius = GRADII*gal[GRADIUS]
 GRADIUS = 'r90' # 'r', 'r50', 'r90'
 GRADII = 2
+
+SHOW_MERGER=True

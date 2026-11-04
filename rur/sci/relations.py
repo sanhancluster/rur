@@ -1,5 +1,9 @@
 import numpy as np
+scipy_deprecated = False
 from scipy.interpolate import interp2d
+if 'versionremoved' in interp2d.__doc__:
+    scipy_deprecated = True
+    from scipy.interpolate import RectBivariateSpline
 from scipy.interpolate import interp1d
 import warnings
 
@@ -175,8 +179,12 @@ def mgal_size(tag='V14', logscale=False):
 
             zgrid = [0.25, 0.75, 1.25, 1.75, 2.25, 2.75]
             mgrid = [9.25, 9.75, 10.25, 10.75, 11.25]
-            f = interp2d(zgrid, mgrid, table)
-            data = f(logm, z)
+            if scipy_deprecated:
+                f = RectBivariateSpline(zgrid, mgrid, table.T)
+                data = f(z, logm).T
+            else:
+                f = interp2d(zgrid, mgrid, table)
+                data = f(logm, z)
             out = data[:, 0]
             err = data[:, 1]
 
@@ -211,8 +219,9 @@ def mgal_size(tag='V14', logscale=False):
             re = np.log10(re)
         return re
 
-    def N21(m, z, type='all'): # Nedkova+ 21
+    def N21Q(m, z, type='all', apply_limits=False): # Nedkova+ 21; Quiescent (Table 2)
         check_range(z, [0, 2.0])
+        lowerlimits = 10**np.array([7, 7.44, 9.20, 9.80])
         if logscale:
             m = 10**m
         if type == 'all':
@@ -233,13 +242,17 @@ def mgal_size(tag='V14', logscale=False):
                 (0.5 < z) & (z <= 1.0),
                 (1.0 < z) & (z <= 1.5),
                 (1.5 < z) & (z <= 2.0)],
-                [(0.61, 1.82),
+                [(0.61, 0.68),
                  (0.45, 0.64),
-                 (0.29, 0.63),
+                 (0.28, 0.63),
                  (0.18, 0.61)],)
-            A, B = tuple(np.array(params).T)
+            logA, B = tuple(np.array(params).T) # log10(A), B
+            A = 10**logA
             re = lambda m: A * (m/5E10)**B
         out = re(m)
+        if apply_limits:
+            mask = m < lowerlimits[np.searchsorted(z, [0.2, 0.5, 1.0, 1.5], side='right')-1]
+            out[mask] = np.nan
         if logscale:
             out = np.log10(out)
         return out
@@ -249,7 +262,9 @@ def mgal_size(tag='V14', logscale=False):
     if tag == 'M19':
         return M19
     elif tag == 'N21':
-        return N21
+        return N21Q
+    elif tag == 'N21Q':
+        return N21Q
 
 def mgal_sfr(tag='W12'):
     """
